@@ -1,0 +1,1832 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>林业经济学（双语）试题管理系统</title>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        
+        .tab-container {
+            margin-top: 20px;
+        }
+        
+        .tab-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .tab-btn {
+            padding: 10px 20px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        .tab-btn.active {
+            background: #2980b9;
+        }
+        
+        .tab-content {
+            display: none;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #fafafa;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #34495e;
+        }
+        
+        input, select, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        
+        textarea {
+            height: 100px;
+            resize: vertical;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        
+        .btn:hover {
+            background: #2980b9;
+        }
+        
+        .btn-success {
+            background: #27ae60;
+        }
+        
+        .btn-success:hover {
+            background: #219653;
+        }
+        
+        .btn-danger {
+            background: #e74c3c;
+        }
+        
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #3498db;
+            color: white;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f2f2f2;
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 5px;
+        }
+        
+        .file-input {
+            margin-bottom: 15px;
+        }
+        
+        .usage-info {
+            background: #e8f4fd;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        
+        .question-preview {
+            background: #f9f9f9;
+            padding: 15px;
+            border-left: 4px solid #3498db;
+            margin: 10px 0;
+        }
+        
+        .word-template-section {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px 0;
+            border-left: 4px solid #ffc107;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>林业经济学（双语）试题管理系统</h1>
+        
+        <div class="tab-container">
+            <div class="tab-buttons">
+                <button class="tab-btn active" onclick="showTab('question-bank')">题库管理</button>
+                <button class="tab-btn" onclick="showTab('exam-generation')">试卷生成</button>
+                <button class="tab-btn" onclick="showTab('template')">模板下载</button>
+            </div>
+            
+            <!-- 题库管理标签页 -->
+            <div id="question-bank" class="tab-content active">
+                <h2>题库管理</h2>
+                
+                <div class="form-group">
+                    <label>添加新题目类型：</label>
+                    <select id="questionType">
+                        <option value="single_choice">单选题</option>
+                        <option value="true_false">是非题</option>
+                        <option value="essay">论述题</option>
+                        <option value="calculation">计算题</option>
+                    </select>
+                    <button class="btn" onclick="addNewQuestion()">添加题目</button>
+                </div>
+                
+                <div class="form-group">
+                    <label>导入题目（Word文档）：</label>
+                    <input type="file" id="wordFile" accept=".docx" class="file-input">
+                    <button class="btn btn-success" onclick="convertWordToCsv()">转换为题库</button>
+                    <div id="conversionStatus" style="margin-top: 10px;"></div>
+                </div>
+                
+                <div class="form-group">
+                    <label>导出题库：</label>
+                    <button class="btn" onclick="exportQuestionBank()">导出为JSON</button>
+                    <button class="btn" onclick="exportQuestionBankAsCsv()">导出为CSV</button>
+                </div>
+                
+                <div id="questionForm" style="display: none;">
+                    <h3>添加新题目</h3>
+                    <div id="singleChoiceForm" style="display: none;">
+                        <div class="form-group">
+                            <label>ID：</label>
+                            <input type="text" id="scId" value="">
+                        </div>
+                        <div class="form-group">
+                            <label>难度：</label>
+                            <select id="scDifficulty">
+                                <option value="easy">简单</option>
+                                <option value="medium" selected>中等</option>
+                                <option value="hard">困难</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>中文题干：</label>
+                            <textarea id="scChineseStem"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>英文题干：</label>
+                            <textarea id="scEnglishStem"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>选项A（中文）：</label>
+                            <input type="text" id="scOptionACh">
+                        </div>
+                        <div class="form-group">
+                            <label>选项A（英文）：</label>
+                            <input type="text" id="scOptionAEn">
+                        </div>
+                        <div class="form-group">
+                            <label>选项B（中文）：</label>
+                            <input type="text" id="scOptionBCh">
+                        </div>
+                        <div class="form-group">
+                            <label>选项B（英文）：</label>
+                            <input type="text" id="scOptionBEn">
+                        </div>
+                        <div class="form-group">
+                            <label>选项C（中文）：</label>
+                            <input type="text" id="scOptionCCh">
+                        </div>
+                        <div class="form-group">
+                            <label>选项C（英文）：</label>
+                            <input type="text" id="scOptionCEn">
+                        </div>
+                        <div class="form-group">
+                            <label>选项D（中文）：</label>
+                            <input type="text" id="scOptionDCh">
+                        </div>
+                        <div class="form-group">
+                            <label>选项D（英文）：</label>
+                            <input type="text" id="scOptionDEn">
+                        </div>
+                        <div class="form-group">
+                            <label>正确答案：</label>
+                            <select id="scCorrectAnswer">
+                                <option value="A">A</option>
+                                <option value="B">B</option>
+                                <option value="C">C</option>
+                                <option value="D">D</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div id="trueFalseForm" style="display: none;">
+                        <div class="form-group">
+                            <label>ID：</label>
+                            <input type="text" id="tfId" value="">
+                        </div>
+                        <div class="form-group">
+                            <label>中文题干：</label>
+                            <textarea id="tfChineseStem"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>英文题干：</label>
+                            <textarea id="tfEnglishStem"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>正确答案：</label>
+                            <select id="tfCorrectAnswer">
+                                <option value="T">正确(T)</option>
+                                <option value="F">错误(F)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>中文解释：</label>
+                            <textarea id="tfExplanationCh"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>英文解释：</label>
+                            <textarea id="tfExplanationEn"></textarea>
+                        </div>
+                    </div>
+                    
+                    <div id="essayForm" style="display: none;">
+                        <div class="form-group">
+                            <label>ID：</label>
+                            <input type="text" id="esId" value="">
+                        </div>
+                        <div class="form-group">
+                            <label>中文题干：</label>
+                            <textarea id="esChineseStem"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>英文题干：</label>
+                            <textarea id="esEnglishStem"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>中文评分标准：</label>
+                            <textarea id="esScoringGuideCh"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>英文评分标准：</label>
+                            <textarea id="esScoringGuideEn"></textarea>
+                        </div>
+                    </div>
+                    
+                    <div id="calculationForm" style="display: none;">
+                        <div class="form-group">
+                            <label>ID：</label>
+                            <input type="text" id="calcId" value="">
+                        </div>
+                        <div class="form-group">
+                            <label>中文背景：</label>
+                            <textarea id="calcContextCh"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>英文背景：</label>
+                            <textarea id="calcContextEn"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>参数：</label>
+                            <input type="text" id="calcParameters">
+                        </div>
+                        <div class="form-group">
+                            <label>中文要求：</label>
+                            <textarea id="calcRequirementsCh"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>英文要求：</label>
+                            <textarea id="calcRequirementsEn"></textarea>
+                        </div>
+                    </div>
+                    
+                    <button class="btn btn-success" onclick="saveNewQuestion()">保存题目</button>
+                    <button class="btn" onclick="cancelAddQuestion()">取消</button>
+                </div>
+                
+                <h3>现有题目列表</h3>
+                <table id="questionTable">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>题型</th>
+                            <th>难度</th>
+                            <th>知识点</th>
+                            <th>使用次数</th>
+                            <th>最后使用</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="questionTableBody">
+                        <!-- 动态填充 -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- 试卷生成标签页 -->
+            <div id="exam-generation" class="tab-content">
+                <h2>试卷生成</h2>
+                
+                <div class="form-group">
+                    <label>学校：</label>
+                    <input type="text" id="school" value="中南财经政法大学">
+                </div>
+                
+                <div class="form-group">
+                    <label>学年：</label>
+                    <input type="text" id="academicYear" value="2025–2026学年第1学期">
+                </div>
+                
+                <div class="form-group">
+                    <label>课程名称：</label>
+                    <input type="text" id="courseName" value="林业经济学">
+                </div>
+                
+                <div class="form-group">
+                    <label>试卷类型：</label>
+                    <select id="paperType">
+                        <option value="A">A卷</option>
+                        <option value="B">B卷</option>
+                        <option value="C">C卷</option>
+                        <option value="D">D卷</option>
+                    </select>
+                </div>
+                
+                <h3>题型配置</h3>
+                
+                <div class="form-group">
+                    <label>单选题：</label>
+                    <input type="number" id="scCount" value="5" min="0" style="width: 60px;" oninput="calculateTotalScore()"> 题 ×
+                    <input type="number" id="scScore" value="2" min="1" style="width: 60px;" oninput="calculateTotalScore()"> 分/题
+                </div>
+
+                <div class="form-group">
+                    <label>是非题：</label>
+                    <input type="number" id="tfCount" value="5" min="0" style="width: 60px;" oninput="calculateTotalScore()"> 题 ×
+                    <input type="number" id="tfScore" value="2" min="1" style="width: 60px;" oninput="calculateTotalScore()"> 分/题
+                </div>
+
+                <div class="form-group">
+                    <label>论述题：</label>
+                    <input type="number" id="esCount" value="2" min="0" style="width: 60px;" oninput="calculateTotalScore()"> 题 ×
+                    <input type="number" id="esScore" value="15" min="1" style="width: 60px;" oninput="calculateTotalScore()"> 分/题
+                </div>
+
+                <div class="form-group">
+                    <label>计算题：</label>
+                    <input type="number" id="calcCount" value="1" min="0" style="width: 60px;" oninput="calculateTotalScore()"> 题 ×
+                    <input type="number" id="calcScore" value="20" min="1" style="width: 60px;" oninput="calculateTotalScore()"> 分/题
+                </div>
+
+                <div class="form-group">
+                    <label style="color: #27ae60; font-weight: bold;">试卷总分：<span id="totalScore">100</span> 分</label>
+                </div>
+
+                <button class="btn btn-success" onclick="generateExam()">生成试卷</button>
+                <button class="btn" onclick="previewExam()">预览试卷</button>
+                <button class="btn btn-success" onclick="autoGenerateExam()">一键自动组卷</button>
+                
+                <div id="examPreview" style="margin-top: 20px; display: none;">
+                    <h3>试卷预览</h3>
+                    <div id="examContent" style="white-space: pre-wrap; background: #f9f9f9; padding: 15px; border: 1px solid #ddd;"></div>
+                    <button class="btn" onclick="downloadExam()">下载试卷 (Word)</button>
+                </div>
+            </div>
+            
+            <!-- 模板下载标签页 -->
+            <div id="template" class="tab-content">
+                <h2>模板下载</h2>
+                
+                <div class="word-template-section">
+                    <h3>Word文档模板说明</h3>
+                    <p>您可以下载以下Word模板来编写题目，然后通过"题库管理"页面的导入功能将题目添加到题库中。</p>
+                    <p><strong>模板包含以下题型格式：</strong></p>
+                    <ul>
+                        <li>单选题：包含中文/英文题干、四个选项、正确答案</li>
+                        <li>是非题：包含中文/英文题干、正确答案、解释</li>
+                        <li>论述题：包含中文/英文题干、评分标准</li>
+                        <li>计算题：包含背景、参数、要求</li>
+                    </ul>
+                </div>
+                
+                <div class="form-group">
+                    <button class="btn btn-success" onclick="downloadWordTemplate('single_choice')">下载单选题Word模板</button>
+                    <button class="btn btn-success" onclick="downloadWordTemplate('true_false')">下载是非题Word模板</button>
+                    <button class="btn btn-success" onclick="downloadWordTemplate('essay')">下载论述题Word模板</button>
+                    <button class="btn btn-success" onclick="downloadWordTemplate('calculation')">下载计算题Word模板</button>
+                </div>
+                
+                <h3>Word文档格式要求</h3>
+                <p>为了正确转换，Word文档需要遵循以下格式：</p>
+                <ol>
+                    <li><strong>单选题</strong>：题干以"单选题ID:"开始，后面跟题目内容，四个选项标记为"A.", "B.", "C.", "D."，最后是"正确答案:"</li>
+                    <li><strong>是非题</strong>：题干以"是非题ID:"开始，后面跟题目内容，然后是"答案:"和"解释:"</li>
+                    <li><strong>论述题</strong>：题干以"论述题ID:"开始，后面跟题目内容和"评分标准:"</li>
+                    <li><strong>计算题</strong>：题干以"计算题ID:"开始，后面跟背景信息、参数和要求</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量存储题目数据
+        let questionBank = {
+            single_choice_questions: [],
+            true_false_questions: [],
+            essay_questions: [],
+            calculation_questions: []
+        };
+
+        // 题目使用统计
+        let questionUsage = {};
+
+        // 当前编辑的题目索引
+        let currentEditIndex = -1;
+        let currentEditType = '';
+
+        // 存储生成的试卷
+        let generatedExam = null;
+
+        // 当前预览模式
+        let currentPreviewMode = 'chinese'; // chinese, english, bilingual, chinese_no_answer, bilingual_with_answer
+        
+        // 显示指定标签页
+        function showTab(tabId) {
+            // 隐藏所有标签页
+            const tabs = document.querySelectorAll('.tab-content');
+            tabs.forEach(tab => tab.classList.remove('active'));
+            
+            // 移除所有按钮的active类
+            const buttons = document.querySelectorAll('.tab-btn');
+            buttons.forEach(btn => btn.classList.remove('active'));
+            
+            // 显示选中的标签页
+            document.getElementById(tabId).classList.add('active');
+            
+            // 激活对应的按钮
+            event.target.classList.add('active');
+        }
+        
+        // 根据题型显示相应表单
+        function addNewQuestion() {
+            document.getElementById('questionForm').style.display = 'block';
+            
+            // 隐藏所有表单
+            document.getElementById('singleChoiceForm').style.display = 'none';
+            document.getElementById('trueFalseForm').style.display = 'none';
+            document.getElementById('essayForm').style.display = 'none';
+            document.getElementById('calculationForm').style.display = 'none';
+            
+            const questionType = document.getElementById('questionType').value;
+            
+            // 显示对应表单
+            if (questionType === 'single_choice') {
+                document.getElementById('singleChoiceForm').style.display = 'block';
+                // 生成默认ID
+                document.getElementById('scId').value = 'sc_' + (questionBank.single_choice_questions.length + 1).toString().padStart(3, '0');
+            } else if (questionType === 'true_false') {
+                document.getElementById('trueFalseForm').style.display = 'block';
+                document.getElementById('tfId').value = 'tf_' + (questionBank.true_false_questions.length + 1).toString().padStart(3, '0');
+            } else if (questionType === 'essay') {
+                document.getElementById('essayForm').style.display = 'block';
+                document.getElementById('esId').value = 'es_' + (questionBank.essay_questions.length + 1).toString().padStart(3, '0');
+            } else if (questionType === 'calculation') {
+                document.getElementById('calculationForm').style.display = 'block';
+                document.getElementById('calcId').value = 'calc_' + (questionBank.calculation_questions.length + 1).toString().padStart(3, '0');
+            }
+            
+            currentEditIndex = -1; // 重置编辑索引
+            currentEditType = questionType;
+        }
+        
+        // 取消添加题目
+        function cancelAddQuestion() {
+            document.getElementById('questionForm').style.display = 'none';
+        }
+        
+        // 保存新题目
+        function saveNewQuestion() {
+            const questionType = document.getElementById('questionType').value;
+            
+            if (questionType === 'single_choice') {
+                const question = {
+                    id: document.getElementById('scId').value || 'sc_' + (questionBank.single_choice_questions.length + 1).toString().padStart(3, '0'),
+                    type: 'single_choice',
+                    difficulty: document.getElementById('scDifficulty').value,
+                    chinese_stem: document.getElementById('scChineseStem').value,
+                    english_stem: document.getElementById('scEnglishStem').value,
+                    options: {
+                        A: document.getElementById('scOptionACh').value,
+                        A_en: document.getElementById('scOptionAEn').value,
+                        B: document.getElementById('scOptionBCh').value,
+                        B_en: document.getElementById('scOptionBEn').value,
+                        C: document.getElementById('scOptionCCh').value,
+                        C_en: document.getElementById('scOptionCEn').value,
+                        D: document.getElementById('scOptionDCh').value,
+                        D_en: document.getElementById('scOptionDEn').value
+                    },
+                    correct_answer: document.getElementById('scCorrectAnswer').value,
+                    knowledge_point: '待设置',
+                    tags: ['待分类']
+                };
+                
+                if (currentEditIndex >= 0) {
+                    // 编辑现有题目
+                    questionBank.single_choice_questions[currentEditIndex] = question;
+                } else {
+                    // 添加新题目
+                    questionBank.single_choice_questions.push(question);
+                }
+                
+            } else if (questionType === 'true_false') {
+                const question = {
+                    id: document.getElementById('tfId').value || 'tf_' + (questionBank.true_false_questions.length + 1).toString().padStart(3, '0'),
+                    type: 'true_false',
+                    chinese_stem: document.getElementById('tfChineseStem').value,
+                    english_stem: document.getElementById('tfEnglishStem').value,
+                    correct_answer: document.getElementById('tfCorrectAnswer').value,
+                    explanation: document.getElementById('tfExplanationCh').value,
+                    explanation_en: document.getElementById('tfExplanationEn').value,
+                    knowledge_point: '待设置',
+                    tags: ['待分类']
+                };
+                
+                if (currentEditIndex >= 0) {
+                    questionBank.true_false_questions[currentEditIndex] = question;
+                } else {
+                    questionBank.true_false_questions.push(question);
+                }
+                
+            } else if (questionType === 'essay') {
+                const question = {
+                    id: document.getElementById('esId').value || 'es_' + (questionBank.essay_questions.length + 1).toString().padStart(3, '0'),
+                    type: 'essay',
+                    chinese_stem: document.getElementById('esChineseStem').value,
+                    english_stem: document.getElementById('esEnglishStem').value,
+                    scoring_guide: document.getElementById('esScoringGuideCh').value.split('\n'),
+                    scoring_guide_en: document.getElementById('esScoringGuideEn').value.split('\n'),
+                    knowledge_point: '待设置',
+                    tags: ['待分类']
+                };
+                
+                if (currentEditIndex >= 0) {
+                    questionBank.essay_questions[currentEditIndex] = question;
+                } else {
+                    questionBank.essay_questions.push(question);
+                }
+                
+            } else if (questionType === 'calculation') {
+                const question = {
+                    id: document.getElementById('calcId').value || 'calc_' + (questionBank.calculation_questions.length + 1).toString().padStart(3, '0'),
+                    type: 'calculation',
+                    context: {
+                        chinese: document.getElementById('calcContextCh').value,
+                        english: document.getElementById('calcContextEn').value
+                    },
+                    parameters: document.getElementById('calcParameters').value,
+                    requirements: {
+                        chinese: document.getElementById('calcRequirementsCh').value,
+                        english: document.getElementById('calcRequirementsEn').value
+                    },
+                    knowledge_point: '待设置',
+                    tags: ['待分类']
+                };
+                
+                if (currentEditIndex >= 0) {
+                    questionBank.calculation_questions[currentEditIndex] = question;
+                } else {
+                    questionBank.calculation_questions.push(question);
+                }
+            }
+            
+            // 重置表单和隐藏
+            document.getElementById('questionForm').style.display = 'none';
+            refreshQuestionTable();
+            
+            alert('题目保存成功！');
+        }
+        
+        // 编辑题目
+        function editQuestion(qtype, index) {
+            currentEditIndex = index;
+            currentEditType = qtype;
+            
+            // 显示表单
+            document.getElementById('questionForm').style.display = 'block';
+            
+            // 隐藏所有表单，显示对应表单
+            document.getElementById('singleChoiceForm').style.display = 'none';
+            document.getElementById('trueFalseForm').style.display = 'none';
+            document.getElementById('essayForm').style.display = 'none';
+            document.getElementById('calculationForm').style.display = 'none';
+            
+            let question;
+            if (qtype === 'single_choice') {
+                question = questionBank.single_choice_questions[index];
+                document.getElementById('questionType').value = 'single_choice';
+                document.getElementById('singleChoiceForm').style.display = 'block';
+                
+                document.getElementById('scId').value = question.id;
+                document.getElementById('scDifficulty').value = question.difficulty;
+                document.getElementById('scChineseStem').value = question.chinese_stem;
+                document.getElementById('scEnglishStem').value = question.english_stem;
+                document.getElementById('scOptionACh').value = question.options.A;
+                document.getElementById('scOptionAEn').value = question.options.A_en;
+                document.getElementById('scOptionBCh').value = question.options.B;
+                document.getElementById('scOptionBEn').value = question.options.B_en;
+                document.getElementById('scOptionCCh').value = question.options.C;
+                document.getElementById('scOptionCEn').value = question.options.C_en;
+                document.getElementById('scOptionDCh').value = question.options.D;
+                document.getElementById('scOptionDEn').value = question.options.D_en;
+                document.getElementById('scCorrectAnswer').value = question.correct_answer;
+                
+            } else if (qtype === 'true_false') {
+                question = questionBank.true_false_questions[index];
+                document.getElementById('questionType').value = 'true_false';
+                document.getElementById('trueFalseForm').style.display = 'block';
+                
+                document.getElementById('tfId').value = question.id;
+                document.getElementById('tfChineseStem').value = question.chinese_stem;
+                document.getElementById('tfEnglishStem').value = question.english_stem;
+                document.getElementById('tfCorrectAnswer').value = question.correct_answer;
+                document.getElementById('tfExplanationCh').value = question.explanation;
+                document.getElementById('tfExplanationEn').value = question.explanation_en;
+                
+            } else if (qtype === 'essay') {
+                question = questionBank.essay_questions[index];
+                document.getElementById('questionType').value = 'essay';
+                document.getElementById('essayForm').style.display = 'block';
+                
+                document.getElementById('esId').value = question.id;
+                document.getElementById('esChineseStem').value = question.chinese_stem;
+                document.getElementById('esEnglishStem').value = question.english_stem;
+                document.getElementById('esScoringGuideCh').value = question.scoring_guide.join('\n');
+                document.getElementById('esScoringGuideEn').value = question.scoring_guide_en.join('\n');
+                
+            } else if (qtype === 'calculation') {
+                question = questionBank.calculation_questions[index];
+                document.getElementById('questionType').value = 'calculation';
+                document.getElementById('calculationForm').style.display = 'block';
+                
+                document.getElementById('calcId').value = question.id;
+                document.getElementById('calcContextCh').value = question.context.chinese;
+                document.getElementById('calcContextEn').value = question.context.english;
+                document.getElementById('calcParameters').value = question.parameters;
+                document.getElementById('calcRequirementsCh').value = question.requirements.chinese;
+                document.getElementById('calcRequirementsEn').value = question.requirements.english;
+            }
+        }
+        
+        // 删除题目
+        function deleteQuestion(qtype, index) {
+            if (confirm('确定要删除这道题目吗？')) {
+                if (qtype === 'single_choice') {
+                    questionBank.single_choice_questions.splice(index, 1);
+                } else if (qtype === 'true_false') {
+                    questionBank.true_false_questions.splice(index, 1);
+                } else if (qtype === 'essay') {
+                    questionBank.essay_questions.splice(index, 1);
+                } else if (qtype === 'calculation') {
+                    questionBank.calculation_questions.splice(index, 1);
+                }
+                
+                refreshQuestionTable();
+                alert('题目删除成功！');
+            }
+        }
+        
+        // 刷新题目表格
+        function refreshQuestionTable() {
+            const tbody = document.getElementById('questionTableBody');
+            tbody.innerHTML = '';
+            
+            // 单选题
+            questionBank.single_choice_questions.forEach((q, index) => {
+                const usage = questionUsage[q.id] || { count: 0, last_used: '从未使用' };
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${q.id}</td>
+                    <td>单选题</td>
+                    <td>${q.difficulty}</td>
+                    <td>${q.knowledge_point}</td>
+                    <td>${usage.count}</td>
+                    <td>${usage.last_used}</td>
+                    <td class="action-buttons">
+                        <button class="btn" onclick="editQuestion('single_choice', ${index})">编辑</button>
+                        <button class="btn btn-danger" onclick="deleteQuestion('single_choice', ${index})">删除</button>
+                    </td>
+                `;
+            });
+            
+            // 是非题
+            questionBank.true_false_questions.forEach((q, index) => {
+                const usage = questionUsage[q.id] || { count: 0, last_used: '从未使用' };
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${q.id}</td>
+                    <td>是非题</td>
+                    <td>-</td>
+                    <td>${q.knowledge_point}</td>
+                    <td>${usage.count}</td>
+                    <td>${usage.last_used}</td>
+                    <td class="action-buttons">
+                        <button class="btn" onclick="editQuestion('true_false', ${index})">编辑</button>
+                        <button class="btn btn-danger" onclick="deleteQuestion('true_false', ${index})">删除</button>
+                    </td>
+                `;
+            });
+            
+            // 论述题
+            questionBank.essay_questions.forEach((q, index) => {
+                const usage = questionUsage[q.id] || { count: 0, last_used: '从未使用' };
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${q.id}</td>
+                    <td>论述题</td>
+                    <td>-</td>
+                    <td>${q.knowledge_point}</td>
+                    <td>${usage.count}</td>
+                    <td>${usage.last_used}</td>
+                    <td class="action-buttons">
+                        <button class="btn" onclick="editQuestion('essay', ${index})">编辑</button>
+                        <button class="btn btn-danger" onclick="deleteQuestion('essay', ${index})">删除</button>
+                    </td>
+                `;
+            });
+            
+            // 计算题
+            questionBank.calculation_questions.forEach((q, index) => {
+                const usage = questionUsage[q.id] || { count: 0, last_used: '从未使用' };
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td>${q.id}</td>
+                    <td>计算题</td>
+                    <td>-</td>
+                    <td>${q.knowledge_point}</td>
+                    <td>${usage.count}</td>
+                    <td>${usage.last_used}</td>
+                    <td class="action-buttons">
+                        <button class="btn" onclick="editQuestion('calculation', ${index})">编辑</button>
+                        <button class="btn btn-danger" onclick="deleteQuestion('calculation', ${index})">删除</button>
+                    </td>
+                `;
+            });
+        }
+        
+        // 导出题库为JSON
+        function exportQuestionBank() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(questionBank, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "question_bank.json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        }
+        
+        // 导出题库为CSV
+        function exportQuestionBankAsCsv() {
+            let csvContent = "ID,Type,Difficulty,Chinese Stem,English Stem,Option A (CH),Option A (EN),Option B (CH),Option B (EN),Option C (CH),Option C (EN),Option D (CH),Option D (EN),Correct Answer,Knowledge Point,Tags\n";
+            
+            // 添加单选题
+            questionBank.single_choice_questions.forEach(q => {
+                csvContent += `"${q.id}","${q.type}","${q.difficulty}","${q.chinese_stem}","${q.english_stem}","${q.options.A}","${q.options.A_en}","${q.options.B}","${q.options.B_en}","${q.options.C}","${q.options.C_en}","${q.options.D}","${q.options.D_en}","${q.correct_answer}","${q.knowledge_point}","${q.tags.join(';')}"\n`;
+            });
+            
+            // 添加是非题
+            questionBank.true_false_questions.forEach(q => {
+                csvContent += `"${q.id}","${q.type}","","${q.chinese_stem}","${q.english_stem}","${q.correct_answer}","","${q.explanation}","${q.explanation_en}","","","","","${q.knowledge_point}","${q.tags.join(';')}"\n`;
+            });
+            
+            const dataStr = "data:text/csv;charset=utf-8," + encodeURIComponent(csvContent);
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "question_bank.csv");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        }
+        
+        // 转换Word文档为题库
+        function convertWordToCsv() {
+            const fileInput = document.getElementById('wordFile');
+            if (fileInput.files.length === 0) {
+                alert('请选择一个Word文档');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            if (!file.name.toLowerCase().endsWith('.docx')) {
+                alert('请选择.docx格式的Word文档');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            document.getElementById('conversionStatus').innerHTML = '正在上传和转换...';
+
+            fetch('/api/convert-word', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('conversionStatus').innerHTML = `<span style="color: green;">转换成功！${data.message}</span>`;
+
+                    // 重新获取最新的题目数据
+                    fetch('/api/questions')
+                        .then(response => response.json())
+                        .then(updatedQuestionBank => {
+                            // 更新前端的题目库
+                            questionBank = updatedQuestionBank;
+                            refreshQuestionTable(); // 刷新题目列表
+
+                            // 显示警告信息
+                            if (data.warnings && data.warnings.length > 0) {
+                                const warningMessage = "发现以下缺失部分：\\n\\n" + data.warnings.join("\\n") + "\\n\\n如确认则显示空白。";
+                                alert(warningMessage);
+                            } else {
+                                alert(data.message);
+                            }
+                        })
+                        .catch(error => {
+                            console.error('获取更新后的题库失败:', error);
+                            refreshQuestionTable(); // 刷新题目列表
+
+                            // 显示警告信息
+                            if (data.warnings && data.warnings.length > 0) {
+                                const warningMessage = "发现以下缺失部分：\\n\\n" + data.warnings.join("\\n") + "\\n\\n如确认则显示空白。";
+                                alert(warningMessage);
+                            } else {
+                                alert(data.message);
+                            }
+                        });
+                } else {
+                    document.getElementById('conversionStatus').innerHTML = `<span style="color: red;">转换失败：${data.message}</span>`;
+                    alert('转换失败：' + data.message);
+                }
+            })
+            .catch(error => {
+                document.getElementById('conversionStatus').innerHTML = `<span style="color: red;">转换出错：${error}</span>`;
+            });
+        }
+        
+        // 预览试卷
+        function previewExam() {
+            // 获取试卷配置
+            const examConfig = {
+                school: document.getElementById('school').value,
+                academicYear: document.getElementById('academicYear').value,
+                course_name: document.getElementById('courseName').value,
+                paper_type: document.getElementById('paperType').value,
+                question_types: {
+                    single_choice: {
+                        count: parseInt(document.getElementById('scCount').value),
+                        score_per_question: parseInt(document.getElementById('scScore').value)
+                    },
+                    true_false: {
+                        count: parseInt(document.getElementById('tfCount').value),
+                        score_per_question: parseInt(document.getElementById('tfScore').value)
+                    },
+                    essay: {
+                        count: parseInt(document.getElementById('esCount').value),
+                        score_per_question: parseInt(document.getElementById('esScore').value)
+                    },
+                    calculation: {
+                        count: parseInt(document.getElementById('calcCount').value),
+                        score_per_question: parseInt(document.getElementById('calcScore').value)
+                    }
+                },
+                selected_questions: [] // For now, no manually selected questions
+            };
+
+            // 生成试卷内容（本地逻辑，不依赖后端API）
+            generatedExam = generateExamContent(examConfig);
+
+            if (generatedExam) {
+                displayExamPreview(generatedExam, 'chinese'); // 默认显示中文版
+                document.getElementById('examPreview').style.display = 'block';
+            } else {
+                alert('生成试卷失败：题库中题目数量不足');
+            }
+        }
+
+        // 生成试卷内容（本地逻辑）
+        function generateExamContent(examConfig) {
+            if (questionBank.single_choice_questions.length === 0 &&
+                questionBank.true_false_questions.length === 0 &&
+                questionBank.essay_questions.length === 0 &&
+                questionBank.calculation_questions.length === 0) {
+                alert('题库中没有题目，请先添加题目！');
+                return null;
+            }
+
+            // 检查题库中是否有足够数量的题目
+            if (examConfig.question_types.single_choice.count > questionBank.single_choice_questions.length ||
+                examConfig.question_types.true_false.count > questionBank.true_false_questions.length ||
+                examConfig.question_types.essay.count > questionBank.essay_questions.length ||
+                examConfig.question_types.calculation.count > questionBank.calculation_questions.length) {
+                alert('题库中题目数量不足，无法生成试卷！');
+                return null;
+            }
+
+            // 随机选择题目
+            const selectedQuestions = {
+                single_choice: getRandomQuestions(questionBank.single_choice_questions, examConfig.question_types.single_choice.count),
+                true_false: getRandomQuestions(questionBank.true_false_questions, examConfig.question_types.true_false.count),
+                essay: getRandomQuestions(questionBank.essay_questions, examConfig.question_types.essay.count),
+                calculation: getRandomQuestions(questionBank.calculation_questions, examConfig.question_types.calculation.count)
+            };
+
+            // 更新题目使用统计
+            const now = new Date().toISOString().split('T')[0];
+            [...selectedQuestions.single_choice, ...selectedQuestions.true_false,
+             ...selectedQuestions.essay, ...selectedQuestions.calculation].forEach(q => {
+                if (!questionUsage[q.id]) questionUsage[q.id] = { count: 0, last_used: now };
+                questionUsage[q.id].count++;
+                questionUsage[q.id].last_used = now;
+            });
+
+            // 构建试卷内容
+            const examContent = {
+                header: `${examConfig.school}\n${examConfig.academicYear}\n${examConfig.course_name} 试卷（${examConfig.paper_type}卷）\n总分：${calculateTotalScore()}分`,
+                question_types: examConfig.question_types,
+                questions: {
+                    single_choice: selectedQuestions.single_choice,
+                    true_false: selectedQuestions.true_false,
+                    essay: selectedQuestions.essay,
+                    calculation: selectedQuestions.calculation
+                }
+            };
+
+            return examContent;
+        }
+
+        // 从数组中随机选择指定数量的元素
+        function getRandomQuestions(questions, count) {
+            if (count >= questions.length) {
+                return [...questions]; // 如果需要的数量大于等于总数，返回全部
+            }
+
+            const shuffled = [...questions].sort(() => 0.5 - Math.random());
+            return shuffled.slice(0, count);
+        }
+
+        // 显示试卷预览
+        function displayExamPreview(exam, mode) {
+            currentPreviewMode = mode;
+            let content = exam.header + '\n\n';
+
+            // 单选题
+            if (exam.questions.single_choice.length > 0) {
+                content += `一、单选题（每题${exam.question_types.single_choice.score_per_question}分，共${exam.questions.single_choice.length * exam.question_types.single_choice.score_per_question}分）\n\n`;
+
+                exam.questions.single_choice.forEach((q, index) => {
+                    content += formatQuestion(q, 'single_choice', index + 1, mode, index, 'single_choice');
+                    content += '\n\n';
+                });
+            }
+
+            // 是非题
+            if (exam.questions.true_false.length > 0) {
+                const score = exam.question_types.true_false.score_per_question;
+                const totalScore = exam.questions.true_false.length * score;
+                content += `二、是非题（每题${score}分，共${totalScore}分）\n\n`;
+
+                exam.questions.true_false.forEach((q, index) => {
+                    content += formatQuestion(q, 'true_false', index + 1, mode, index, 'true_false');
+                    content += '\n\n';
+                });
+            }
+
+            // 论述题
+            if (exam.questions.essay.length > 0) {
+                const score = exam.question_types.essay.score_per_question;
+                const totalScore = exam.questions.essay.length * score;
+                content += `三、论述题（每题${score}分，共${totalScore}分）\n\n`;
+
+                exam.questions.essay.forEach((q, index) => {
+                    content += formatQuestion(q, 'essay', index + 1, mode, index, 'essay');
+                    content += '\n\n';
+                });
+            }
+
+            // 计算题
+            if (exam.questions.calculation.length > 0) {
+                const score = exam.question_types.calculation.score_per_question;
+                const totalScore = exam.questions.calculation.length * score;
+                content += `四、计算题（每题${score}分，共${totalScore}分）\n\n`;
+
+                exam.questions.calculation.forEach((q, index) => {
+                    content += formatQuestion(q, 'calculation', index + 1, mode, index, 'calculation');
+                    content += '\n\n';
+                });
+            }
+
+            // 添加预览控制按钮
+            const previewControls = `
+<div style="margin-top: 20px; padding: 10px; background: #e8f4fd; border-radius: 4px;">
+    <strong>预览模式：</strong>
+    <button class="btn" onclick="changePreviewMode('chinese')">全中文</button>
+    <button class="btn" onclick="changePreviewMode('english')">全英文</button>
+    <button class="btn" onclick="changePreviewMode('bilingual')">中英对照</button>
+    <button class="btn" onclick="changePreviewMode('chinese_no_answer')">不展示答案</button>
+    <button class="btn" onclick="changePreviewMode('bilingual_with_answer')">展示答案</button>
+    <button class="btn btn-success" onclick="downloadExamAsWord()">导出Word</button>
+</div>
+            `;
+
+            document.getElementById('examContent').innerHTML = `<div>${content.replace(/\n/g, '<br>')}</div>${previewControls}`;
+        }
+
+        // 格式化题目显示
+        function formatQuestion(question, qType, index, mode, questionIndex, questionCategory) {
+            let result = `${index}. `;
+
+            switch(qType) {
+                case 'single_choice':
+                    if (mode === 'chinese') {
+                        result += `${question.chinese_stem}\n`;
+                        result += `A. ${question.options.A}\n`;
+                        result += `B. ${question.options.B}\n`;
+                        result += `C. ${question.options.C}\n`;
+                        result += `D. ${question.options.D}\n`;
+                        if (mode !== 'chinese_no_answer') {
+                            result += `正确答案：${question.correct_answer}`;
+                        }
+                    } else if (mode === 'english') {
+                        result += `${question.english_stem}\n`;
+                        result += `A. ${question.options.A_en}\n`;
+                        result += `B. ${question.options.B_en}\n`;
+                        result += `C. ${question.options.C_en}\n`;
+                        result += `D. ${question.options.D_en}\n`;
+                        if (mode !== 'chinese_no_answer') {
+                            result += `Correct Answer: ${question.correct_answer}`;
+                        }
+                    } else if (mode === 'bilingual') {
+                        result += `${question.chinese_stem}\n`;
+                        result += `${question.english_stem}\n`;
+                        result += `A. ${question.options.A} / ${question.options.A_en}\n`;
+                        result += `B. ${question.options.B} / ${question.options.B_en}\n`;
+                        result += `C. ${question.options.C} / ${question.options.C_en}\n`;
+                        result += `D. ${question.options.D} / ${question.options.D_en}\n`;
+                        if (mode !== 'chinese_no_answer') {
+                            result += `正确答案：${question.correct_answer} / Correct Answer: ${question.correct_answer}`;
+                        }
+                    } else if (mode === 'chinese_no_answer') {
+                        result += `${question.chinese_stem}\n`;
+                        result += `A. ${question.options.A}\n`;
+                        result += `B. ${question.options.B}\n`;
+                        result += `C. ${question.options.C}\n`;
+                        result += `D. ${question.options.D}\n`;
+                    } else if (mode === 'bilingual_with_answer') {
+                        result += `${question.chinese_stem}\n`;
+                        result += `${question.english_stem}\n`;
+                        result += `A. ${question.options.A} / ${question.options.A_en}\n`;
+                        result += `B. ${question.options.B} / ${question.options.B_en}\n`;
+                        result += `C. ${question.options.C} / ${question.options.C_en}\n`;
+                        result += `D. ${question.options.D} / ${question.options.D_en}\n`;
+                        result += `正确答案：${question.correct_answer} / Correct Answer: ${question.correct_answer}`;
+                        result += `\n解释：${question.explanation || ''} / Explanation: ${question.explanation_en || ''}`;
+                    }
+                    break;
+
+                case 'true_false':
+                    if (mode === 'chinese') {
+                        result += `${question.chinese_stem}\n`;
+                        if (mode !== 'chinese_no_answer') {
+                            result += `答案：${question.correct_answer === 'T' ? '正确' : '错误'} (${question.correct_answer})`;
+                        }
+                    } else if (mode === 'english') {
+                        result += `${question.english_stem}\n`;
+                        if (mode !== 'chinese_no_answer') {
+                            result += `Answer: ${question.correct_answer}`;
+                        }
+                    } else if (mode === 'bilingual') {
+                        result += `${question.chinese_stem}\n`;
+                        result += `${question.english_stem}\n`;
+                        if (mode !== 'chinese_no_answer') {
+                            result += `答案：${question.correct_answer === 'T' ? '正确' : '错误'} / Answer: ${question.correct_answer}`;
+                        }
+                    } else if (mode === 'chinese_no_answer') {
+                        result += `${question.chinese_stem}\n`;
+                    } else if (mode === 'bilingual_with_answer') {
+                        result += `${question.chinese_stem}\n`;
+                        result += `${question.english_stem}\n`;
+                        result += `答案：${question.correct_answer === 'T' ? '正确' : '错误'} / Answer: ${question.correct_answer}`;
+                        result += `\n解释：${question.explanation} / Explanation: ${question.explanation_en}`;
+                    }
+                    break;
+
+                case 'essay':
+                    if (mode === 'chinese') {
+                        result += `${question.chinese_stem}`;
+                    } else if (mode === 'english') {
+                        result += `${question.english_stem}`;
+                    } else if (mode === 'bilingual') {
+                        result += `${question.chinese_stem}\n`;
+                        result += `${question.english_stem}`;
+                    } else if (mode === 'chinese_no_answer' || mode === 'bilingual_with_answer') {
+                        result += `${question.chinese_stem}\n`;
+                        result += `${question.english_stem}`;
+                        if (mode === 'bilingual_with_answer') {
+                            result += `\n评分标准：${question.scoring_guide.join('; ')} / Scoring Guide: ${question.scoring_guide_en.join('; ')}`;
+                        }
+                    }
+                    break;
+
+                case 'calculation':
+                    if (mode === 'chinese') {
+                        result += `${question.context.chinese}`;
+                        if (question.alternatives) {
+                            question.alternatives.forEach((alt, i) => {
+                                result += `\n${i+1}. ${alt.description.chinese}`;
+                            });
+                        }
+                        if (question.parameters) {
+                            result += `\n参数: ${JSON.stringify(question.parameters)}`;
+                        }
+                        question.requirements.chinese.forEach(req => {
+                            result += `\n要求: ${req}`;
+                        });
+                    } else if (mode === 'english') {
+                        result += `${question.context.english}`;
+                        if (question.alternatives) {
+                            question.alternatives.forEach((alt, i) => {
+                                result += `\n${i+1}. ${alt.description.english}`;
+                            });
+                        }
+                        if (question.parameters) {
+                            result += `\nParameters: ${JSON.stringify(question.parameters)}`;
+                        }
+                        question.requirements.english.forEach(req => {
+                            result += `\nRequirements: ${req}`;
+                        });
+                    } else if (mode === 'bilingual') {
+                        result += `${question.context.chinese}\n`;
+                        result += `${question.context.english}\n`;
+                        if (question.alternatives) {
+                            question.alternatives.forEach((alt, i) => {
+                                result += `${i+1}. ${alt.description.chinese} / ${alt.description.english}\n`;
+                            });
+                        }
+                        if (question.parameters) {
+                            result += `参数: ${JSON.stringify(question.parameters)} / Parameters: ${JSON.stringify(question.parameters)}\n`;
+                        }
+                        question.requirements.chinese.forEach((req, i) => {
+                            result += `要求: ${req} / Requirements: ${question.requirements.english[i] || ''}\n`;
+                        });
+                    } else if (mode === 'chinese_no_answer' || mode === 'bilingual_with_answer') {
+                        result += `${question.context.chinese}\n`;
+                        result += `${question.context.english}\n`;
+                        if (question.alternatives) {
+                            question.alternatives.forEach((alt, i) => {
+                                result += `${i+1}. ${alt.description.chinese} / ${alt.description.english}\n`;
+                            });
+                        }
+                        if (question.parameters) {
+                            result += `参数: ${JSON.stringify(question.parameters)} / Parameters: ${JSON.stringify(question.parameters)}\n`;
+                        }
+                        question.requirements.chinese.forEach((req, i) => {
+                            result += `要求: ${req} / Requirements: ${question.requirements.english[i] || ''}\n`;
+                        });
+                    }
+                    break;
+            }
+
+            // 添加替换按钮
+            result += `\n<button class="btn" onclick="replaceQuestion('${questionCategory}', ${questionIndex})">替换此题</button>`;
+
+            return result;
+        }
+
+        // 切换预览模式
+        function changePreviewMode(mode) {
+            if (generatedExam) {
+                displayExamPreview(generatedExam, mode);
+            }
+        }
+
+        // 替换题目
+        function replaceQuestion(questionCategory, questionIndex) {
+            // 根据题目类型获取可用的替换题目列表
+            let availableQuestions = [];
+            let currentQuestion = null;
+
+            switch(questionCategory) {
+                case 'single_choice':
+                    availableQuestions = questionBank.single_choice_questions;
+                    currentQuestion = generatedExam.questions.single_choice[questionIndex];
+                    break;
+                case 'true_false':
+                    availableQuestions = questionBank.true_false_questions;
+                    currentQuestion = generatedExam.questions.true_false[questionIndex];
+                    break;
+                case 'essay':
+                    availableQuestions = questionBank.essay_questions;
+                    currentQuestion = generatedExam.questions.essay[questionIndex];
+                    break;
+                case 'calculation':
+                    availableQuestions = questionBank.calculation_questions;
+                    currentQuestion = generatedExam.questions.calculation[questionIndex];
+                    break;
+            }
+
+            // 过滤掉当前已使用的题目ID，避免替换为相同的题目
+            const currentQuestionId = currentQuestion.id;
+            const otherQuestions = availableQuestions.filter(q => q.id !== currentQuestionId);
+
+            if (otherQuestions.length === 0) {
+                alert('没有其他可用的题目进行替换！');
+                return;
+            }
+
+            // 随机选择一个新题目
+            const newQuestion = otherQuestions[Math.floor(Math.random() * otherQuestions.length)];
+
+            // 替换题目
+            switch(questionCategory) {
+                case 'single_choice':
+                    generatedExam.questions.single_choice[questionIndex] = newQuestion;
+                    break;
+                case 'true_false':
+                    generatedExam.questions.true_false[questionIndex] = newQuestion;
+                    break;
+                case 'essay':
+                    generatedExam.questions.essay[questionIndex] = newQuestion;
+                    break;
+                case 'calculation':
+                    generatedExam.questions.calculation[questionIndex] = newQuestion;
+                    break;
+            }
+
+            // 更新预览
+            displayExamPreview(generatedExam, currentPreviewMode);
+
+            alert(`题目已替换为：${newQuestion.id}`);
+        }
+
+        // 生成试卷
+        function generateExam() {
+            if (questionBank.single_choice_questions.length === 0 &&
+                questionBank.true_false_questions.length === 0 &&
+                questionBank.essay_questions.length === 0 &&
+                questionBank.calculation_questions.length === 0) {
+                alert('题库中没有题目，请先添加题目！');
+                return;
+            }
+
+            // 获取试卷配置
+            const examConfig = {
+                school: document.getElementById('school').value,
+                academicYear: document.getElementById('academicYear').value,
+                course_name: document.getElementById('courseName').value,
+                paper_type: document.getElementById('paperType').value,
+                question_types: {
+                    single_choice: {
+                        count: parseInt(document.getElementById('scCount').value),
+                        score_per_question: parseInt(document.getElementById('scScore').value)
+                    },
+                    true_false: {
+                        count: parseInt(document.getElementById('tfCount').value),
+                        score_per_question: parseInt(document.getElementById('tfScore').value)
+                    },
+                    essay: {
+                        count: parseInt(document.getElementById('esCount').value),
+                        score_per_question: parseInt(document.getElementById('esScore').value)
+                    },
+                    calculation: {
+                        count: parseInt(document.getElementById('calcCount').value),
+                        score_per_question: parseInt(document.getElementById('calcScore').value)
+                    }
+                },
+                selected_questions: [] // For now, no manually selected questions
+            };
+
+            // 生成试卷内容（本地逻辑）
+            generatedExam = generateExamContent(examConfig);
+
+            if (generatedExam) {
+                displayExamPreview(generatedExam, 'chinese'); // 默认显示中文版
+                document.getElementById('examPreview').style.display = 'block';
+                alert('试卷生成成功！');
+
+                refreshQuestionTable();
+            } else {
+                alert('生成试卷失败：' + (data.message || '题库中题目数量不足'));
+            }
+        }
+        
+        // 下载试卷
+        function downloadExam() {
+            const examContent = document.getElementById('examContent').textContent;
+            const blob = new Blob([examContent], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = '林业经济学试卷_' + document.getElementById('paperType').value + '.txt';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }
+
+        // 导出试卷为Word格式
+        function downloadExamAsWord() {
+            if (!generatedExam) {
+                alert('请先生成试卷！');
+                return;
+            }
+
+            // 创建一个隐藏的iframe用于Word文档生成
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            document.body.appendChild(iframe);
+
+            const doc = iframe.contentDocument || iframe.contentWindow.document;
+            doc.open();
+            doc.write(`
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <title>林业经济学试卷</title>
+                    <style>
+                        body { font-family: SimSun, serif; margin: 40px; }
+                        .header { text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 20px; }
+                        .section { margin: 20px 0; }
+                        .question { margin: 15px 0; }
+                        .options { margin-left: 20px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">${generatedExam.header.replace(/\n/g, '<br>')}</div>
+            `);
+
+            // 添加单选题
+            if (generatedExam.questions.single_choice.length > 0) {
+                doc.write(`<div class="section"><h3>一、单选题（每题${generatedExam.question_types.single_choice.score_per_question}分，共${generatedExam.questions.single_choice.length * generatedExam.question_types.single_choice.score_per_question}分）</h3>`);
+                generatedExam.questions.single_choice.forEach((q, index) => {
+                    const formattedQ = formatQuestionForWord(q, 'single_choice', index + 1, currentPreviewMode);
+                    doc.write(`<div class="question">${formattedQ.replace(/\n/g, '<br>')}</div>`);
+                });
+                doc.write('</div>');
+            }
+
+            // 添加是非题
+            if (generatedExam.questions.true_false.length > 0) {
+                const score = generatedExam.question_types.true_false.score_per_question;
+                const totalScore = generatedExam.questions.true_false.length * score;
+                doc.write(`<div class="section"><h3>二、是非题（每题${score}分，共${totalScore}分）</h3>`);
+                generatedExam.questions.true_false.forEach((q, index) => {
+                    const formattedQ = formatQuestionForWord(q, 'true_false', index + 1, currentPreviewMode);
+                    doc.write(`<div class="question">${formattedQ.replace(/\n/g, '<br>')}</div>`);
+                });
+                doc.write('</div>');
+            }
+
+            // 添加论述题
+            if (generatedExam.questions.essay.length > 0) {
+                const score = generatedExam.question_types.essay.score_per_question;
+                const totalScore = generatedExam.questions.essay.length * score;
+                doc.write(`<div class="section"><h3>三、论述题（每题${score}分，共${totalScore}分）</h3>`);
+                generatedExam.questions.essay.forEach((q, index) => {
+                    const formattedQ = formatQuestionForWord(q, 'essay', index + 1, currentPreviewMode);
+                    doc.write(`<div class="question">${formattedQ.replace(/\n/g, '<br>')}</div>`);
+                });
+                doc.write('</div>');
+            }
+
+            // 添加计算题
+            if (generatedExam.questions.calculation.length > 0) {
+                const score = generatedExam.question_types.calculation.score_per_question;
+                const totalScore = generatedExam.questions.calculation.length * score;
+                doc.write(`<div class="section"><h3>四、计算题（每题${score}分，共${totalScore}分）</h3>`);
+                generatedExam.questions.calculation.forEach((q, index) => {
+                    const formattedQ = formatQuestionForWord(q, 'calculation', index + 1, currentPreviewMode);
+                    doc.write(`<div class="question">${formattedQ.replace(/\n/g, '<br>')}</div>`);
+                });
+                doc.write('</div>');
+            }
+
+            doc.write('</body></html>');
+            doc.close();
+
+            // 触发Word文档下载
+            setTimeout(() => {
+                iframe.focus();
+                iframe.contentWindow.print();
+                document.body.removeChild(iframe);
+            }, 500);
+        }
+
+        // 为Word格式化题目
+        function formatQuestionForWord(question, qType, index, mode) {
+            let result = `${index}. `;
+
+            switch(qType) {
+                case 'single_choice':
+                    if (mode === 'chinese') {
+                        result += `${question.chinese_stem}<br>`;
+                        result += `A. ${question.options.A}<br>`;
+                        result += `B. ${question.options.B}<br>`;
+                        result += `C. ${question.options.C}<br>`;
+                        result += `D. ${question.options.D}<br>`;
+                        if (mode !== 'chinese_no_answer') {
+                            result += `正确答案：${question.correct_answer}<br>`;
+                        }
+                    } else if (mode === 'english') {
+                        result += `${question.english_stem}<br>`;
+                        result += `A. ${question.options.A_en}<br>`;
+                        result += `B. ${question.options.B_en}<br>`;
+                        result += `C. ${question.options.C_en}<br>`;
+                        result += `D. ${question.options.D_en}<br>`;
+                        if (mode !== 'chinese_no_answer') {
+                            result += `Correct Answer: ${question.correct_answer}<br>`;
+                        }
+                    } else if (mode === 'bilingual') {
+                        result += `${question.chinese_stem}<br>`;
+                        result += `${question.english_stem}<br>`;
+                        result += `A. ${question.options.A} / ${question.options.A_en}<br>`;
+                        result += `B. ${question.options.B} / ${question.options.B_en}<br>`;
+                        result += `C. ${question.options.C} / ${question.options.C_en}<br>`;
+                        result += `D. ${question.options.D} / ${question.options.D_en}<br>`;
+                        if (mode !== 'chinese_no_answer') {
+                            result += `正确答案：${question.correct_answer} / Correct Answer: ${question.correct_answer}<br>`;
+                        }
+                    } else if (mode === 'chinese_no_answer') {
+                        result += `${question.chinese_stem}<br>`;
+                        result += `A. ${question.options.A}<br>`;
+                        result += `B. ${question.options.B}<br>`;
+                        result += `C. ${question.options.C}<br>`;
+                        result += `D. ${question.options.D}<br>`;
+                    } else if (mode === 'bilingual_with_answer') {
+                        result += `${question.chinese_stem}<br>`;
+                        result += `${question.english_stem}<br>`;
+                        result += `A. ${question.options.A} / ${question.options.A_en}<br>`;
+                        result += `B. ${question.options.B} / ${question.options.B_en}<br>`;
+                        result += `C. ${question.options.C} / ${question.options.C_en}<br>`;
+                        result += `D. ${question.options.D} / ${question.options.D_en}<br>`;
+                        result += `正确答案：${question.correct_answer} / Correct Answer: ${question.correct_answer}<br>`;
+                        result += `解释：${question.explanation || ''} / Explanation: ${question.explanation_en || ''}<br>`;
+                    }
+                    break;
+
+                case 'true_false':
+                    if (mode === 'chinese') {
+                        result += `${question.chinese_stem}<br>`;
+                        if (mode !== 'chinese_no_answer') {
+                            result += `答案：${question.correct_answer === 'T' ? '正确' : '错误'} (${question.correct_answer})<br>`;
+                        }
+                    } else if (mode === 'english') {
+                        result += `${question.english_stem}<br>`;
+                        if (mode !== 'chinese_no_answer') {
+                            result += `Answer: ${question.correct_answer}<br>`;
+                        }
+                    } else if (mode === 'bilingual') {
+                        result += `${question.chinese_stem}<br>`;
+                        result += `${question.english_stem}<br>`;
+                        if (mode !== 'chinese_no_answer') {
+                            result += `答案：${question.correct_answer === 'T' ? '正确' : '错误'} / Answer: ${question.correct_answer}<br>`;
+                        }
+                    } else if (mode === 'chinese_no_answer') {
+                        result += `${question.chinese_stem}<br>`;
+                    } else if (mode === 'bilingual_with_answer') {
+                        result += `${question.chinese_stem}<br>`;
+                        result += `${question.english_stem}<br>`;
+                        result += `答案：${question.correct_answer === 'T' ? '正确' : '错误'} / Answer: ${question.correct_answer}<br>`;
+                        result += `解释：${question.explanation} / Explanation: ${question.explanation_en}<br>`;
+                    }
+                    break;
+
+                case 'essay':
+                    if (mode === 'chinese') {
+                        result += `${question.chinese_stem}`;
+                    } else if (mode === 'english') {
+                        result += `${question.english_stem}`;
+                    } else if (mode === 'bilingual') {
+                        result += `${question.chinese_stem}<br>`;
+                        result += `${question.english_stem}`;
+                    } else if (mode === 'chinese_no_answer' || mode === 'bilingual_with_answer') {
+                        result += `${question.chinese_stem}<br>`;
+                        result += `${question.english_stem}`;
+                        if (mode === 'bilingual_with_answer') {
+                            result += `<br>评分标准：${question.scoring_guide.join('; ')} / Scoring Guide: ${question.scoring_guide_en.join('; ')}<br>`;
+                        }
+                    }
+                    break;
+
+                case 'calculation':
+                    if (mode === 'chinese') {
+                        result += `${question.context.chinese}`;
+                        if (question.alternatives) {
+                            question.alternatives.forEach((alt, i) => {
+                                result += `<br>${i+1}. ${alt.description.chinese}`;
+                            });
+                        }
+                        if (question.parameters) {
+                            result += `<br>参数: ${JSON.stringify(question.parameters)}`;
+                        }
+                        question.requirements.chinese.forEach(req => {
+                            result += `<br>要求: ${req}`;
+                        });
+                    } else if (mode === 'english') {
+                        result += `${question.context.english}`;
+                        if (question.alternatives) {
+                            question.alternatives.forEach((alt, i) => {
+                                result += `<br>${i+1}. ${alt.description.english}`;
+                            });
+                        }
+                        if (question.parameters) {
+                            result += `<br>Parameters: ${JSON.stringify(question.parameters)}`;
+                        }
+                        question.requirements.english.forEach(req => {
+                            result += `<br>Requirements: ${req}`;
+                        });
+                    } else if (mode === 'bilingual') {
+                        result += `${question.context.chinese}<br>`;
+                        result += `${question.context.english}<br>`;
+                        if (question.alternatives) {
+                            question.alternatives.forEach((alt, i) => {
+                                result += `${i+1}. ${alt.description.chinese} / ${alt.description.english}<br>`;
+                            });
+                        }
+                        if (question.parameters) {
+                            result += `参数: ${JSON.stringify(question.parameters)} / Parameters: ${JSON.stringify(question.parameters)}<br>`;
+                        }
+                        question.requirements.chinese.forEach((req, i) => {
+                            result += `要求: ${req} / Requirements: ${question.requirements.english[i] || ''}<br>`;
+                        });
+                    } else if (mode === 'chinese_no_answer' || mode === 'bilingual_with_answer') {
+                        result += `${question.context.chinese}<br>`;
+                        result += `${question.context.english}<br>`;
+                        if (question.alternatives) {
+                            question.alternatives.forEach((alt, i) => {
+                                result += `${i+1}. ${alt.description.chinese} / ${alt.description.english}<br>`;
+                            });
+                        }
+                        if (question.parameters) {
+                            result += `参数: ${JSON.stringify(question.parameters)} / Parameters: ${JSON.stringify(question.parameters)}<br>`;
+                        }
+                        question.requirements.chinese.forEach((req, i) => {
+                            result += `要求: ${req} / Requirements: ${question.requirements.english[i] || ''}<br>`;
+                        });
+                    }
+                    break;
+            }
+
+            return result;
+        }
+        
+        // 下载Word模板
+        function downloadWordTemplate(type) {
+            let templateContent = '';
+            let filename = '';
+
+            switch(type) {
+                case 'single_choice':
+                    templateContent = `林业经济学（双语）试题模板 - 单选题
+
+请按照以下格式填写单选题：
+
+单选题ID: sc_001
+难度: medium
+知识点: Merit goods definition
+标签: basic,definition,public goods
+中文题干: Merit goods在林业经济学中指的是什么？（）
+英文题干: What does "Merit goods" refer to in forest economics? ()
+A. 社会价值低于私人消费者价值的商品
+A_en. Merchandise with social value lower than private consumer value
+B. 社会价值超过私人消费者价值的商品
+B_en. Merchandise with social value exceeding private consumer value
+C. 仅具有私人价值的商品
+C_en. Merchandise with private value only
+D. 仅具有社会价值的商品
+D_en. Merchandise with social value only
+正确答案: B`;
+                    filename = 'single_choice_template.txt';
+                    break;
+
+                case 'true_false':
+                    templateContent = `林业经济学（双语）试题模板 - 是非题
+
+请按照以下格式填写是非题：
+
+是非题ID: tf_001
+知识点: CVM methodology
+标签: valuation,method,preference
+中文题干: "Contingent valuation method"是一种了解消费者偏好的显示型（Revealed preference)方法。
+英文题干: The Contingent Valuation Method (CVM) is a revealed preference approach for eliciting consumer preferences.
+答案: F
+解释: CVM是陈述型（Stated preference）方法，而非显示型（Revealed preference）方法。
+English Explanation: CVM is a stated preference approach, not a revealed preference approach.`;
+                    filename = 'true_false_template.txt';
+                    break;
+
+                case 'essay':
+                    templateContent = `林业经济学（双语）试题模板 - 论述题
+
+请按照以下格式填写论述题：
+
+论述题ID: es_001
+知识点: Types of externalities
+标签: externality,classification,policy
+中文题干: 有哪些不同类型的"外部性"？请列举出至少三种，并举例分析每种外部性分别是如何产生的？有何应对措施？
+英文题干: What are the different types of externalities? Please identify at least three distinct categories and provide illustrative examples demonstrating how each type of externality arises. What policy interventions or remedial measures can be implemented to address them?
+评分标准: 识别三种以上外部性类型 (5分); 每种类型提供具体例子 (5分); 分析产生机制 (3分); 提出应对措施 (2分)
+English Scoring Guide: Identify three or more types of externalities (5 points); Provide specific examples for each type (5 points); Analyze generation mechanisms (3 points); Propose countermeasures (2 points)`;
+                    filename = 'essay_template.txt';
+                    break;
+
+                case 'calculation':
+                    templateContent = `林业经济学（双语）试题模板 - 计算题
+
+请按照以下格式填写计算题：
+
+计算题ID: calc_001
+知识点: NPV calculation
+标签: NPV,investment,decision
+中文背景: 某村庄有一片荒地，如果自然更新，每30年可以产出价值10.9万元的木材，采伐成本为1万元。村委会现在要从以下投资决策中做出选择：
+英文背景: A village possesses a tract of wasteland. Under natural regeneration, it would yield timber valued at ¥109,000 every 30 years, with harvesting costs of ¥10,000. The village committee must now choose among the following investment alternatives:
+投资方案1: 投资20万元种植松树，每20年产出木材价值70万元的木材，采伐成本为6万元，每年的管理成本为1000元。
+Investment Option 1: Invest ¥200,000 to establish a pine plantation, generating timber valued at ¥700,000 every 20 years, with harvesting costs of ¥60,000 and annual management costs of ¥1,000.
+参数: 折现率:0.05; 时间系数:5年=1.3,10年=1.6,20年=2.6,30年=4.3; 公式:F=A*[(1+i)^n-1]/i
+要求: 请计算不同投资决策的净现值，并根据净现值考虑选择哪种投资决策？#假如你是村委会的决策人，在投资决策时，除了净现值以外，你还将考虑哪些因素？分析在考虑这些因素后，你会如何改变决策？
+English Requirements: Calculate the net present value (NPV) of each investment alternative and determine which option should be selected based on NPV analysis.#If you were the decision-maker for the village committee, what additional factors beyond NPV would you consider in the investment decision? Analyze how consideration of these factors might alter your decision.`;
+                    filename = 'calculation_template.txt';
+                    break;
+            }
+
+            // 创建并下载文件
+            const blob = new Blob([templateContent], { type: 'text/plain;charset=utf-8' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+
+            alert(`${getQuestionTypeText(type)}模板已下载！请将内容复制到Word文档中使用。`);
+        }
+        
+        // 获取题型文本
+        function getQuestionTypeText(type) {
+            switch(type) {
+                case 'single_choice': return '单选题';
+                case 'true_false': return '是非题';
+                case 'essay': return '论述题';
+                case 'calculation': return '计算题';
+                default: return '';
+            }
+        }
+
+        // 实时计算总分
+        function calculateTotalScore() {
+            const scCount = parseInt(document.getElementById('scCount').value) || 0;
+            const scScore = parseInt(document.getElementById('scScore').value) || 0;
+            const tfCount = parseInt(document.getElementById('tfCount').value) || 0;
+            const tfScore = parseInt(document.getElementById('tfScore').value) || 0;
+            const esCount = parseInt(document.getElementById('esCount').value) || 0;
+            const esScore = parseInt(document.getElementById('esScore').value) || 0;
+            const calcCount = parseInt(document.getElementById('calcCount').value) || 0;
+            const calcScore = parseInt(document.getElementById('calcScore').value) || 0;
+
+            const totalScore = scCount * scScore + tfCount * tfScore + esCount * esScore + calcCount * calcScore;
+            document.getElementById('totalScore').textContent = totalScore;
+
+            return totalScore;
+        }
+
+        // 一键自动组卷
+        function autoGenerateExam() {
+            // 根据题库中题目数量智能生成试卷配置
+            const totalSc = questionBank.single_choice_questions.length;
+            const totalTf = questionBank.true_false_questions.length;
+            const totalEs = questionBank.essay_questions.length;
+            const totalCalc = questionBank.calculation_questions.length;
+
+            // 设置默认值，如果题库中题目数量不足则相应减少
+            const scCount = Math.min(totalSc, Math.max(5, Math.floor(Math.random() * 6) + 5)); // 5-10题，不超过题库数量
+            const scScore = Math.floor(Math.random() * 4) + 1; // 1-4分
+            const tfCount = Math.min(totalTf, Math.max(5, Math.floor(Math.random() * 6) + 5)); // 5-10题，不超过题库数量
+            const tfScore = Math.floor(Math.random() * 4) + 1; // 1-4分
+            const esCount = Math.min(totalEs, Math.max(1, Math.floor(Math.random() * 3) + 1)); // 1-3题，不超过题库数量
+            const esScore = Math.floor(Math.random() * 11) + 10; // 10-20分
+            const calcCount = Math.min(totalCalc, Math.max(1, Math.floor(Math.random() * 2) + 1)); // 1-2题，不超过题库数量
+            const calcScore = Math.floor(Math.random() * 21) + 15; // 15-35分
+
+            // 检查是否至少有一种题型有题目
+            if (scCount === 0 && tfCount === 0 && esCount === 0 && calcCount === 0) {
+                alert('题库中没有足够的题目生成试卷！');
+                return;
+            }
+
+            // 更新表单值
+            document.getElementById('scCount').value = scCount;
+            document.getElementById('scScore').value = scScore;
+            document.getElementById('tfCount').value = tfCount;
+            document.getElementById('tfScore').value = tfScore;
+            document.getElementById('esCount').value = esCount;
+            document.getElementById('esScore').value = esScore;
+            document.getElementById('calcCount').value = calcCount;
+            document.getElementById('calcScore').value = calcScore;
+
+            // 计算总分
+            calculateTotalScore();
+
+            // 生成试卷
+            generateExam();
+        }
+        
+        // 初始化页面
+        document.addEventListener('DOMContentLoaded', function() {
+            // 添加一些示例题目
+            questionBank.single_choice_questions = [{
+                id: 'sc_001',
+                type: 'single_choice',
+                difficulty: 'medium',
+                chinese_stem: 'Merit goods在林业经济学中指的是什么？（）',
+                english_stem: 'What does "Merit goods" refer to in forest economics? ()',
+                options: {
+                    A: '社会价值低于私人消费者价值的商品',
+                    A_en: 'Merchandise with social value lower than private consumer value',
+                    B: '社会价值超过私人消费者价值的商品',
+                    B_en: 'Merchandise with social value exceeding private consumer value',
+                    C: '仅具有私人价值的商品',
+                    C_en: 'Merchandise with private value only',
+                    D: '仅具有社会价值的商品',
+                    D_en: 'Merchandise with social value only'
+                },
+                correct_answer: 'B',
+                knowledge_point: 'Merit goods definition',
+                tags: ['basic', 'definition', 'public goods']
+            }];
+
+            refreshQuestionTable();
+
+            // 初始化时计算总分
+            calculateTotalScore();
+        });
+    </script>
+</body>
+</html>
