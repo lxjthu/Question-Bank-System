@@ -41,6 +41,8 @@ def generate_word_template():
     doc.add_paragraph('5. 解析可选，用 <解析>...</解析> 包围')
     doc.add_paragraph('6. 参考答案用 <参考答案>...</参考答案> 包围')
     doc.add_paragraph('7. 中文内容用 （中文） 标注，英文内容用 （英文） 标注')
+    doc.add_paragraph('8. 英文选项格式：[A_en]English option（紧跟中文选项后）')
+    doc.add_paragraph('9. 解析区段内可包含元数据行：知识点:xxx / 标签:xxx / 英文题目:xxx / 难度:easy|medium|hard')
 
     # Query all question types from DB
     question_types = QuestionTypeModel.query.order_by(QuestionTypeModel.id).all()
@@ -48,9 +50,15 @@ def generate_word_template():
     for qt in question_types:
         doc.add_heading(f'{qt.label}示例：', level=1)
         if qt.has_options:
-            example_text = f"[{qt.name}][A]\n示例题目内容？\n[A]选项A\n[B]选项B\n[C]选项C\n[D]选项D\n<解析>\n这是一段解析\n<解析>"
+            example_text = (f"[{qt.name}][A]\n示例题目内容？\n"
+                          f"[A]选项A\n[B]选项B\n[C]选项C\n[D]选项D\n"
+                          f"[A_en]Option A\n[B_en]Option B\n[C_en]Option C\n[D_en]Option D\n"
+                          f"<解析>\n这是一段解析\n知识点:林业经济\n标签:基础,概念\n"
+                          f"英文题目:Example question content?\n难度:medium\n</解析>")
         else:
-            example_text = f"[{qt.name}]\n示例题目内容？\n<参考答案>\n这是一段参考答案\n<参考答案>\n<解析>\n这是一段解析\n<解析>"
+            example_text = (f"[{qt.name}]\n示例题目内容？\n<参考答案>\n这是一段参考答案\n</参考答案>\n"
+                          f"<解析>\n这是一段解析\n知识点:林业经济\n标签:基础,概念\n"
+                          f"英文题目:Example question content?\n难度:medium\n</解析>")
         doc.add_paragraph(example_text)
 
     # Create temp directory
@@ -62,10 +70,12 @@ def generate_word_template():
     return template_path
 
 
-def export_exam_to_word(exam, filepath: str):
+def export_exam_to_word(exam, filepath: str, mode: str = 'zh', show_answer: bool = True):
     """Export an exam to a Word document with proper formatting.
 
     Accepts an ExamModel instance (SQLAlchemy model).
+    mode: 'zh' (Chinese only), 'en' (English only), 'both' (bilingual side-by-side)
+    show_answer: True = include answers/explanations, False = questions only
     """
     doc = Document()
 
@@ -95,27 +105,52 @@ def export_exam_to_word(exam, filepath: str):
         doc.add_heading(f'{q_type}', level=1)
 
         for i, question in enumerate(type_questions, 1):
-            # Add question number and content
+            options_zh = json.loads(question.options) if question.options else []
+            options_en = json.loads(question.options_en) if question.options_en else []
+            content_en = question.content_en or ''
+
+            # Add question number and content based on mode
             p = doc.add_paragraph()
-            p.add_run(f'{i}. {question.content}').bold = True
+            if mode == 'zh':
+                p.add_run(f'{i}. {question.content}').bold = True
+            elif mode == 'en':
+                display_content = content_en if content_en else question.content
+                p.add_run(f'{i}. {display_content}').bold = True
+            else:  # both
+                p.add_run(f'{i}. {question.content}').bold = True
+                if content_en:
+                    p.add_run(f'\n    {content_en}')
 
-            # Add options if it's a choice question
-            options = json.loads(question.options) if question.options else []
-            if options:
-                for j, option in enumerate(options):
+            # Add options based on mode
+            if mode == 'zh':
+                for j, option in enumerate(options_zh):
                     doc.add_paragraph(f'   {chr(65+j)}. {option}')
+            elif mode == 'en':
+                display_options = options_en if options_en else options_zh
+                for j, option in enumerate(display_options):
+                    doc.add_paragraph(f'   {chr(65+j)}. {option}')
+            else:  # both
+                max_len = max(len(options_zh), len(options_en))
+                for j in range(max_len):
+                    zh_opt = options_zh[j] if j < len(options_zh) else ''
+                    en_opt = options_en[j] if j < len(options_en) else ''
+                    if en_opt:
+                        doc.add_paragraph(f'   {chr(65+j)}. {zh_opt} / {en_opt}')
+                    else:
+                        doc.add_paragraph(f'   {chr(65+j)}. {zh_opt}')
 
-            # Add answer if available
-            if question.answer:
-                doc.add_paragraph(f'   答案: {question.answer}')
+            if show_answer:
+                # Add answer if available
+                if question.answer:
+                    doc.add_paragraph(f'   答案: {question.answer}')
 
-            # Add reference answer if available
-            if question.reference_answer:
-                doc.add_paragraph(f'   参考答案: {question.reference_answer}')
+                # Add reference answer if available
+                if question.reference_answer:
+                    doc.add_paragraph(f'   参考答案: {question.reference_answer}')
 
-            # Add explanation if available
-            if question.explanation:
-                doc.add_paragraph(f'   解析: {question.explanation}')
+                # Add explanation if available
+                if question.explanation:
+                    doc.add_paragraph(f'   解析: {question.explanation}')
 
             doc.add_paragraph()  # Add spacing between questions
 
@@ -138,7 +173,7 @@ def parse_question_template(content: str) -> list:
     while i < len(lines):
         line = lines[i].strip()
         
-        if line.startswith('[') and ']' in line[:20] and not (len(line) >= 3 and line[1].isalpha() and line[2] == ']'):
+        if line.startswith('[') and ']' in line[:20] and not (len(line) >= 3 and line[1].isalpha() and line[2] == ']') and not re.match(r'^\[[A-Z]_en\]', line):
             # Found a new question
             if current_question:
                 questions.append(current_question)
@@ -167,6 +202,11 @@ def parse_question_template(content: str) -> list:
                 'specific_type': specific_type,
                 'content': '',
                 'options': [],
+                'options_en': [],
+                'content_en': '',
+                'knowledge_point': '',
+                'tags': '',
+                'difficulty': '',
                 'answer': answer,
                 'reference_answer': '',
                 'explanation': ''
@@ -180,6 +220,11 @@ def parse_question_template(content: str) -> list:
                 if i < len(lines):
                     current_question['content'] = lines[i].strip()
         
+        elif current_question and re.match(r'^\[[A-Z]_en\]', line):
+            # English option line like [A_en] option text
+            option_text = re.sub(r'^\[[A-Z]_en\]\s*', '', line)
+            current_question['options_en'].append(option_text)
+
         elif current_question and line.startswith('[') and len(line) >= 3 and line[1].isalpha() and line[2] == ']':
             # Option line like [A] option text
             option_letter = line[1]
@@ -209,7 +254,16 @@ def parse_question_template(content: str) -> list:
             current_question['reference_answer'] += '\n' + line
         
         elif current_section == 'explanation':
-            current_question['explanation'] += '\n' + line
+            if re.match(r'^知识点[:：]', line):
+                current_question['knowledge_point'] = re.sub(r'^知识点[:：]\s*', '', line)
+            elif re.match(r'^标签[:：]', line):
+                current_question['tags'] = re.sub(r'^标签[:：]\s*', '', line)
+            elif re.match(r'^英文题目[:：]', line):
+                current_question['content_en'] = re.sub(r'^英文题目[:：]\s*', '', line)
+            elif re.match(r'^难度[:：]', line):
+                current_question['difficulty'] = re.sub(r'^难度[:：]\s*', '', line)
+            else:
+                current_question['explanation'] += '\n' + line
         
         elif current_question and current_section is None and not line.startswith('[') and not line.startswith('<') and not line.startswith('('):
             # Additional content for the question

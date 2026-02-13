@@ -3,6 +3,7 @@ from app.db_models import db, QuestionModel, ExamModel, QuestionTypeModel, exam_
 from app.utils import allowed_file, generate_word_template, export_exam_to_word
 import os
 import json
+import uuid
 from datetime import datetime
 
 bp = Blueprint('main', __name__)
@@ -21,6 +22,9 @@ def get_questions():
     keyword = request.args.get('keyword', '')
     question_type = request.args.get('type', '')
     language = request.args.get('language', '')
+    difficulty = request.args.get('difficulty', '')
+    knowledge_point = request.args.get('knowledge_point', '')
+    is_used = request.args.get('is_used', '')
 
     query = QuestionModel.query
 
@@ -30,6 +34,14 @@ def get_questions():
         query = query.filter_by(question_type=question_type)
     if language:
         query = query.filter_by(language=language)
+    if difficulty:
+        query = query.filter_by(difficulty=difficulty)
+    if knowledge_point:
+        query = query.filter(QuestionModel.knowledge_point.contains(knowledge_point))
+    if is_used == '1':
+        query = query.filter_by(is_used=True)
+    elif is_used == '0':
+        query = query.filter_by(is_used=False)
 
     questions = query.all()
     return jsonify([q.to_dict() for q in questions])
@@ -40,6 +52,14 @@ def add_question():
     """Add a new question"""
     data = request.json
     now = datetime.now()
+
+    content_en = data.get('content_en')
+    options_en = data.get('options_en')
+    language = data.get('language', 'zh')
+    # Auto-detect bilingual
+    if content_en and language == 'zh':
+        language = 'both'
+
     question = QuestionModel(
         question_id=data.get('question_id'),
         question_type=data.get('question_type'),
@@ -48,7 +68,12 @@ def add_question():
         answer=data.get('answer'),
         reference_answer=data.get('reference_answer'),
         explanation=data.get('explanation'),
-        language=data.get('language', 'zh'),
+        content_en=content_en,
+        options_en=json.dumps(options_en, ensure_ascii=False) if options_en else None,
+        knowledge_point=data.get('knowledge_point'),
+        tags=data.get('tags'),
+        difficulty=data.get('difficulty'),
+        language=language,
         metadata_json=json.dumps(data.get('metadata', {}), ensure_ascii=False),
         created_at=now,
         updated_at=now,
@@ -92,6 +117,19 @@ def update_question(question_id):
         question.reference_answer = data['reference_answer']
     if 'explanation' in data:
         question.explanation = data['explanation']
+    if 'content_en' in data:
+        question.content_en = data['content_en']
+    if 'options_en' in data:
+        question.options_en = json.dumps(data['options_en'], ensure_ascii=False) if data['options_en'] else None
+    if 'knowledge_point' in data:
+        question.knowledge_point = data['knowledge_point']
+    if 'tags' in data:
+        question.tags = data['tags']
+    if 'difficulty' in data:
+        question.difficulty = data['difficulty']
+    # Auto-upgrade language to 'both' if content_en is provided
+    if question.content_en and question.language == 'zh':
+        question.language = 'both'
     question.updated_at = datetime.now()
 
     db.session.commit()
@@ -133,6 +171,35 @@ def batch_delete_questions():
     return jsonify({'message': f'{deleted} questions deleted successfully', 'deleted_count': deleted})
 
 
+@bp.route('/api/questions/batch-update-type', methods=['POST'])
+def batch_update_question_type():
+    """Change question_type for multiple questions at once"""
+    data = request.json
+    question_ids = data.get('question_ids', [])
+    new_type = data.get('question_type', '')
+
+    if not question_ids:
+        return jsonify({'error': 'No question IDs provided'}), 400
+    if not new_type:
+        return jsonify({'error': 'No question_type provided'}), 400
+
+    # Verify the target type exists
+    qt = QuestionTypeModel.query.filter_by(name=new_type).first()
+    if not qt:
+        return jsonify({'error': f'Question type "{new_type}" not found'}), 400
+
+    now = datetime.now()
+    updated = QuestionModel.query.filter(
+        QuestionModel.question_id.in_(question_ids)
+    ).update({
+        QuestionModel.question_type: new_type,
+        QuestionModel.updated_at: now,
+    }, synchronize_session=False)
+    db.session.commit()
+
+    return jsonify({'message': f'{updated} questions updated to "{new_type}"', 'updated_count': updated})
+
+
 @bp.route('/api/questions/import', methods=['POST'])
 def import_questions():
     """Import questions from a file (Word or CSV)"""
@@ -160,10 +227,10 @@ def import_questions():
             if file.filename.lower().endswith('.docx'):
                 from app.utils import parse_question_template
                 import sys
-                parent_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                sys.path.insert(0, parent_dir)
+                project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                if project_root not in sys.path:
+                    sys.path.insert(0, project_root)
                 from word_to_csv_converter import convert_word_to_csv as actual_convert_word_to_csv, parse_csv_to_questions
-                sys.path.remove(parent_dir)
 
                 csv_path = actual_convert_word_to_csv(file_path)
                 questions_data = parse_csv_to_questions(csv_path)
@@ -172,6 +239,9 @@ def import_questions():
                 models = []
                 for i, q_data in enumerate(questions_data):
                     question_id = f"q_{now.strftime('%Y%m%d_%H%M%S')}_{i}"
+                    content_en = q_data.get('content_en') or None
+                    options_en = q_data.get('options_en') or []
+                    lang = 'both' if content_en else 'zh'
                     model = QuestionModel(
                         question_id=question_id,
                         question_type=q_data['type'],
@@ -180,7 +250,12 @@ def import_questions():
                         answer=q_data['answer'],
                         reference_answer=q_data['reference_answer'],
                         explanation=q_data['explanation'],
-                        language='zh',
+                        content_en=content_en,
+                        options_en=json.dumps(options_en, ensure_ascii=False) if options_en else None,
+                        knowledge_point=q_data.get('knowledge_point') or None,
+                        tags=q_data.get('tags') or None,
+                        difficulty=q_data.get('difficulty') or None,
+                        language=lang,
                         metadata_json='{}',
                         created_at=now,
                         updated_at=now,
@@ -202,6 +277,9 @@ def import_questions():
                 models = []
                 for i, q_data in enumerate(questions_data):
                     question_id = f"q_{now.strftime('%Y%m%d_%H%M%S')}_txt_{i}"
+                    content_en = q_data.get('content_en') or None
+                    options_en = q_data.get('options_en') or []
+                    lang = 'both' if content_en else 'zh'
                     model = QuestionModel(
                         question_id=question_id,
                         question_type=q_data['type'],
@@ -210,7 +288,12 @@ def import_questions():
                         answer=q_data.get('answer'),
                         reference_answer=q_data.get('reference_answer', ''),
                         explanation=q_data.get('explanation', ''),
-                        language='zh',
+                        content_en=content_en,
+                        options_en=json.dumps(options_en, ensure_ascii=False) if options_en else None,
+                        knowledge_point=q_data.get('knowledge_point') or None,
+                        tags=q_data.get('tags') or None,
+                        difficulty=q_data.get('difficulty') or None,
+                        language=lang,
                         metadata_json='{}',
                         created_at=now,
                         updated_at=now,
@@ -296,7 +379,7 @@ def create_exam():
     data = request.json
     now = datetime.now()
     exam = ExamModel(
-        exam_id=data.get('exam_id'),
+        exam_id=data.get('exam_id') or f"exam_{uuid.uuid4().hex[:8]}",
         name=data.get('name'),
         config=json.dumps(data.get('config', {}), ensure_ascii=False),
         created_at=now,
@@ -404,7 +487,7 @@ def generate_exam():
 
     # Create a new exam
     exam = ExamModel(
-        exam_id=data.get('exam_id'),
+        exam_id=data.get('exam_id') or f"exam_{uuid.uuid4().hex[:8]}",
         name=name,
         config=json.dumps(config, ensure_ascii=False),
         created_at=now,
@@ -424,8 +507,6 @@ def generate_exam():
         ).limit(count).all()
 
         for q in available:
-            q.is_used = True
-            q.used_date = now
             db.session.execute(exam_questions.insert().values(
                 exam_id=exam.exam_id,
                 question_id=q.question_id,
@@ -449,7 +530,11 @@ def export_exam(exam_id):
         filepath = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'exports', filename)
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
-        export_exam_to_word(exam, filepath)
+        mode = request.args.get('mode', 'zh')
+        if mode not in ('zh', 'en', 'both'):
+            mode = 'zh'
+        show_answer = request.args.get('show_answer', '1') != '0'
+        export_exam_to_word(exam, filepath, mode=mode, show_answer=show_answer)
 
         return send_file(filepath, as_attachment=True)
     except Exception as e:
@@ -576,13 +661,8 @@ def replace_question_in_exam(exam_id):
     if old_question.question_type != new_question.question_type:
         return jsonify({'error': 'New question must be of the same type as the old question'}), 400
 
-    # Mark old as unused, new as used
-    old_question.is_used = False
-    old_question.used_date = None
-    new_question.is_used = True
-    new_question.used_date = datetime.now()
-
     # Replace in association table (keep same position)
+    # Note: is_used is NOT changed here — only confirm/revert manages that
     position = assoc.position
     db.session.execute(
         exam_questions.delete().where(
@@ -634,3 +714,25 @@ def revert_exam_confirmation(exam_id):
     db.session.commit()
 
     return jsonify({'message': 'Exam confirmation reverted successfully', 'exam': exam.to_dict()})
+
+
+# Usage Management Routes
+@bp.route('/api/questions/batch-release', methods=['POST'])
+def batch_release_questions():
+    """Release (mark as unused) multiple questions at once"""
+    data = request.json
+    question_ids = data.get('question_ids', [])
+
+    if not question_ids:
+        return jsonify({'error': 'No question IDs provided'}), 400
+
+    released = 0
+    for qid in question_ids:
+        q = db.session.get(QuestionModel, qid)
+        if q and q.is_used:
+            q.is_used = False
+            q.used_date = None
+            released += 1
+
+    db.session.commit()
+    return jsonify({'message': f'{released} questions released', 'released_count': released})

@@ -54,7 +54,9 @@ def sample_exam_data():
 
 def create_question_in_db(db_session, question_id='test_q_001', question_type='单选',
                            content='测试题目', options=None, answer='A',
-                           language='zh', is_used=False):
+                           language='zh', is_used=False,
+                           content_en=None, options_en=None,
+                           knowledge_point=None, tags=None, difficulty=None):
     """Helper to insert a QuestionModel directly into the DB."""
     now = datetime.now()
     q = QuestionModel(
@@ -63,6 +65,11 @@ def create_question_in_db(db_session, question_id='test_q_001', question_type='�
         content=content,
         options=json.dumps(options or ['A选项', 'B选项', 'C选项', 'D选项'], ensure_ascii=False),
         answer=answer,
+        content_en=content_en,
+        options_en=json.dumps(options_en, ensure_ascii=False) if options_en else None,
+        knowledge_point=knowledge_point,
+        tags=tags,
+        difficulty=difficulty,
         language=language,
         metadata_json='{}',
         is_used=is_used,

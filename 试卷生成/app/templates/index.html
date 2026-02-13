@@ -511,6 +511,9 @@
             <button class="tab-button" data-tab="type-management">
                 <i class="fas fa-tags"></i> 题型管理
             </button>
+            <button class="tab-button" data-tab="usage-management">
+                <i class="fas fa-history"></i> 使用管理
+            </button>
         </div>
 
         <div class="main-content">
@@ -575,6 +578,55 @@
                         <textarea id="question-explanation" rows="2"></textarea>
                     </div>
 
+                    <details id="bilingual-details" style="margin-bottom: 20px;">
+                        <summary style="cursor:pointer; font-weight:500; color:var(--primary-color); padding:8px 0;">
+                            <i class="fas fa-globe"></i> 双语与元数据（可选）
+                        </summary>
+                        <div style="padding: 15px; background: #f8f9fa; border-radius: var(--border-radius); margin-top: 10px;">
+                            <div class="form-group">
+                                <label for="question-content-en">英文题目</label>
+                                <textarea id="question-content-en" rows="2" placeholder="English question content"></textarea>
+                            </div>
+                            <div class="form-row" id="options-en-container" style="display: none;">
+                                <div class="form-group">
+                                    <label for="option-a-en">英文选项A</label>
+                                    <input type="text" id="option-a-en" placeholder="Option A">
+                                </div>
+                                <div class="form-group">
+                                    <label for="option-b-en">英文选项B</label>
+                                    <input type="text" id="option-b-en" placeholder="Option B">
+                                </div>
+                                <div class="form-group">
+                                    <label for="option-c-en">英文选项C</label>
+                                    <input type="text" id="option-c-en" placeholder="Option C">
+                                </div>
+                                <div class="form-group">
+                                    <label for="option-d-en">英文选项D</label>
+                                    <input type="text" id="option-d-en" placeholder="Option D">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="question-knowledge-point">知识点</label>
+                                    <input type="text" id="question-knowledge-point" placeholder="如: 林业经济基础">
+                                </div>
+                                <div class="form-group">
+                                    <label for="question-tags">标签</label>
+                                    <input type="text" id="question-tags" placeholder="逗号分隔，如: 基础,概念">
+                                </div>
+                                <div class="form-group">
+                                    <label for="question-difficulty">难度</label>
+                                    <select id="question-difficulty">
+                                        <option value="">未设置</option>
+                                        <option value="easy">简单 (Easy)</option>
+                                        <option value="medium">中等 (Medium)</option>
+                                        <option value="hard">困难 (Hard)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </details>
+
                     <button id="add-question-btn" class="btn btn-primary">
                         <i class="fas fa-save"></i> 保存题目
                     </button>
@@ -609,10 +661,15 @@
                 </div>
 
                 <div class="batch-bar" id="batch-bar">
+                    <span style="color: var(--dark-gray); font-weight:500;">已选择 <span id="batch-count2">0</span> 题</span>
+                    <select id="batch-type-select" style="padding:6px 10px; border:1px solid #ddd; border-radius:var(--border-radius); font-size:0.9rem;">
+                    </select>
+                    <button id="batch-type-btn" class="btn btn-primary btn-sm">
+                        <i class="fas fa-exchange-alt"></i> 批量修改题型
+                    </button>
                     <button id="batch-delete-btn" class="btn btn-danger btn-sm">
                         <i class="fas fa-trash"></i> 批量删除 (<span id="batch-count">0</span>)
                     </button>
-                    <span style="color: var(--dark-gray);">已选择 <span id="batch-count2">0</span> 题</span>
                 </div>
 
                 <div class="table-container">
@@ -623,6 +680,7 @@
                                 <th>ID</th>
                                 <th>题型</th>
                                 <th>内容</th>
+                                <th>难度</th>
                                 <th>语言</th>
                                 <th>状态</th>
                                 <th>操作</th>
@@ -663,6 +721,13 @@
                 <div class="exam-preview" id="exam-preview-section" style="display: none;">
                     <h3><i class="fas fa-eye"></i> 试卷预览</h3>
 
+                    <div style="margin-bottom: 15px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                        <span style="font-weight: 500; color: var(--primary-color);">显示语言：</span>
+                        <button class="btn btn-sm btn-primary" id="mode-zh-btn" onclick="setExamDisplayMode('zh')">中文</button>
+                        <button class="btn btn-sm btn-outline" id="mode-en-btn" onclick="setExamDisplayMode('en')">英文</button>
+                        <button class="btn btn-sm btn-outline" id="mode-both-btn" onclick="setExamDisplayMode('both')">中英对照</button>
+                    </div>
+
                     <div id="exam-questions-container">
                         <!-- Exam questions will be displayed here -->
                     </div>
@@ -670,12 +735,30 @@
                     <div class="final-confirmation" id="final-confirmation-section" style="display: none;">
                         <h3><i class="fas fa-check-circle"></i> 试卷最终决定</h3>
                         <p>确认后，试卷中的题目将被标记为已使用，避免在其他试卷中重复出现。</p>
-                        <button id="confirm-exam-btn" class="btn btn-success">
-                            <i class="fas fa-check"></i> 确认试卷
-                        </button>
-                        <button id="revert-exam-btn" class="btn btn-warning" style="display: none;">
-                            <i class="fas fa-undo"></i> 撤销确认
-                        </button>
+                        <div style="display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap; margin-bottom: 15px;">
+                            <button id="confirm-exam-btn" class="btn btn-success">
+                                <i class="fas fa-check"></i> 确认试卷
+                            </button>
+                            <button id="revert-exam-btn" class="btn btn-warning" style="display: none;">
+                                <i class="fas fa-undo"></i> 撤销确认
+                            </button>
+                        </div>
+                        <div style="margin-top: 10px; display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap;">
+                            <label for="export-mode-select" style="font-weight:500;">语言：</label>
+                            <select id="export-mode-select" style="padding:8px 12px; border:1px solid #ddd; border-radius:var(--border-radius);">
+                                <option value="zh">中文</option>
+                                <option value="en">英文</option>
+                                <option value="both">中英对照</option>
+                            </select>
+                            <label for="export-answer-select" style="font-weight:500;">内容：</label>
+                            <select id="export-answer-select" style="padding:8px 12px; border:1px solid #ddd; border-radius:var(--border-radius);">
+                                <option value="0">只导出题目</option>
+                                <option value="1">题目 + 答案</option>
+                            </select>
+                            <button class="btn btn-template btn-sm" onclick="exportCurrentExam()">
+                                <i class="fas fa-file-word"></i> 导出Word
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -774,6 +857,70 @@
                     </table>
                 </div>
             </div>
+
+            <!-- Usage Management Tab -->
+            <div id="usage-management" class="tab-content">
+                <h3><i class="fas fa-history"></i> 题目使用管理</h3>
+                <p>查看和管理已使用题目，按使用日期筛选后可一键释放，释放后题目可重新参与组卷。</p>
+
+                <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin:20px 0;">
+                    <div class="form-group" style="margin-bottom:0; min-width:160px;">
+                        <label for="usage-date-from">使用日期从</label>
+                        <input type="date" id="usage-date-from" style="padding:6px 10px; border:1px solid #ddd; border-radius:var(--border-radius);">
+                    </div>
+                    <div class="form-group" style="margin-bottom:0; min-width:160px;">
+                        <label for="usage-date-to">使用日期到</label>
+                        <input type="date" id="usage-date-to" style="padding:6px 10px; border:1px solid #ddd; border-radius:var(--border-radius);">
+                    </div>
+                    <div class="form-group" style="margin-bottom:0; min-width:140px;">
+                        <label for="usage-type-filter">题型</label>
+                        <select id="usage-type-filter" style="padding:6px 10px; border:1px solid #ddd; border-radius:var(--border-radius);">
+                            <option value="">全部题型</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="loadUsedQuestions()">
+                        <i class="fas fa-search"></i> 查询
+                    </button>
+                    <button class="btn btn-outline btn-sm" onclick="clearUsageFilters()">
+                        <i class="fas fa-redo"></i> 重置
+                    </button>
+                </div>
+
+                <div id="usage-summary" style="margin-bottom:15px; padding:12px 18px; background:#f8f9fa; border-radius:var(--border-radius); display:none;">
+                </div>
+
+                <div class="batch-bar" id="usage-batch-bar" style="display:none; margin-bottom:10px; padding:10px 15px; background:#fff3e0; border-radius:var(--border-radius); display:none; align-items:center; gap:10px;">
+                    <span style="font-weight:500;">已选择 <span id="usage-batch-count">0</span> 题</span>
+                    <button class="btn btn-warning btn-sm" id="usage-release-btn">
+                        <i class="fas fa-unlock"></i> 释放选中题目
+                    </button>
+                    <button class="btn btn-warning btn-sm" id="usage-release-all-btn">
+                        <i class="fas fa-unlock-alt"></i> 释放全部筛选结果
+                    </button>
+                </div>
+
+                <div class="table-container">
+                    <table id="usage-table">
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" id="usage-select-all"></th>
+                                <th>ID</th>
+                                <th>题型</th>
+                                <th>内容</th>
+                                <th>难度</th>
+                                <th>使用日期</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usage-tbody">
+                        </tbody>
+                    </table>
+                </div>
+                <div id="usage-empty" style="display:none; padding:30px; text-align:center; color:#999;">
+                    <i class="fas fa-check-circle" style="font-size:2em; margin-bottom:10px; display:block;"></i>
+                    暂无已使用的题目
+                </div>
+            </div>
         </div>
     </div>
 
@@ -825,12 +972,24 @@
                 searchSelect.appendChild(opt);
             });
             if (searchVal) searchSelect.value = searchVal;
+
+            // Batch type change dropdown
+            const batchSelect = document.getElementById('batch-type-select');
+            batchSelect.innerHTML = '';
+            questionTypesCache.forEach(qt => {
+                const opt = document.createElement('option');
+                opt.value = qt.name;
+                opt.textContent = qt.label;
+                batchSelect.appendChild(opt);
+            });
         }
 
         function toggleOptionsContainer() {
             const typeSelect = document.getElementById('question-type');
-            const optionsContainer = document.getElementById('options-container');
-            optionsContainer.style.display = isChoiceType(typeSelect.value) ? 'flex' : 'none';
+            const isChoice = isChoiceType(typeSelect.value);
+            document.getElementById('options-container').style.display = isChoice ? 'flex' : 'none';
+            const enContainer = document.getElementById('options-en-container');
+            if (enContainer) enContainer.style.display = isChoice ? 'flex' : 'none';
         }
 
         // Tab switching functionality
@@ -848,6 +1007,7 @@
                 document.getElementById(tabId).classList.add('active');
 
                 if (tabId === 'type-management') renderQuestionTypesTable();
+                if (tabId === 'usage-management') loadUsedQuestions();
             });
         });
 
@@ -877,6 +1037,23 @@
             const reference = document.getElementById('question-reference').value;
             const explanation = document.getElementById('question-explanation').value;
 
+            // Collect bilingual/metadata fields
+            const contentEn = document.getElementById('question-content-en').value;
+            let optionsEn = [];
+            if (isChoiceType(questionType)) {
+                const oa = document.getElementById('option-a-en').value;
+                const ob = document.getElementById('option-b-en').value;
+                const oc = document.getElementById('option-c-en').value;
+                const od = document.getElementById('option-d-en').value;
+                if (oa) optionsEn.push(oa);
+                if (ob) optionsEn.push(ob);
+                if (oc) optionsEn.push(oc);
+                if (od) optionsEn.push(od);
+            }
+            const knowledgePoint = document.getElementById('question-knowledge-point').value;
+            const tags = document.getElementById('question-tags').value;
+            const difficulty = document.getElementById('question-difficulty').value;
+
             const questionData = {
                 question_type: questionType,
                 content: content,
@@ -884,7 +1061,12 @@
                 answer: answer,
                 reference_answer: reference,
                 explanation: explanation,
-                language: language
+                language: language,
+                content_en: contentEn || null,
+                options_en: optionsEn.length > 0 ? optionsEn : null,
+                knowledge_point: knowledgePoint || null,
+                tags: tags || null,
+                difficulty: difficulty || null,
             };
 
             try {
@@ -968,6 +1150,35 @@
             }
         });
 
+        document.getElementById('batch-type-btn').addEventListener('click', async () => {
+            if (selectedQuestionIds.size === 0) return;
+            const newType = document.getElementById('batch-type-select').value;
+            const qt = questionTypesCache.find(t => t.name === newType);
+            const label = qt ? qt.label : newType;
+            if (!confirm(`确定要将选中的 ${selectedQuestionIds.size} 道题目的题型修改为「${label}」吗？`)) return;
+            try {
+                const response = await fetch('/api/questions/batch-update-type', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question_ids: Array.from(selectedQuestionIds), question_type: newType })
+                });
+                if (response.ok) {
+                    const result = await response.json();
+                    alert(`成功修改 ${result.updated_count} 道题目的题型为「${label}」！`);
+                    selectedQuestionIds.clear();
+                    document.getElementById('select-all-cb').checked = false;
+                    updateBatchBar();
+                    loadQuestions();
+                } else {
+                    const err = await response.json().catch(() => null);
+                    alert(err?.error || '批量修改题型失败！');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('批量修改题型时发生错误！');
+            }
+        });
+
         // Load questions function
         async function loadQuestions() {
             const keyword = document.getElementById('search-keyword').value;
@@ -999,11 +1210,20 @@
                     const status = question.is_used ? '已使用' : '未使用';
                     const statusClass = question.is_used ? 'status-used' : 'status-unused';
 
+                    const bilingualIcon = question.content_en ? ' <i class="fas fa-globe" title="双语" style="color:var(--secondary-color);"></i>' : '';
+                    const difficultyMap = { easy: '简单', medium: '中等', hard: '困难' };
+                    const difficultyText = question.difficulty ? (difficultyMap[question.difficulty] || question.difficulty) : '-';
+                    const metaTitle = [
+                        question.knowledge_point ? '知识点: ' + question.knowledge_point : '',
+                        question.tags ? '标签: ' + question.tags : ''
+                    ].filter(Boolean).join('\n');
+
                     row.innerHTML = `
                         <td><input type="checkbox" class="question-cb" data-id="${question.question_id}"></td>
                         <td>${question.question_id.substring(0, 8)}...</td>
                         <td>${question.question_type}</td>
-                        <td>${question.content.substring(0, 50)}${question.content.length > 50 ? '...' : ''}</td>
+                        <td title="${escapeHtml(metaTitle)}">${question.content.substring(0, 50)}${question.content.length > 50 ? '...' : ''}${bilingualIcon}</td>
+                        <td>${difficultyText}</td>
                         <td>${question.language}</td>
                         <td><span class="${statusClass}">${status}</span></td>
                         <td>
@@ -1078,6 +1298,21 @@
                     document.getElementById('option-d').value = '';
                 }
 
+                // Fill bilingual/metadata fields
+                document.getElementById('question-content-en').value = question.content_en || '';
+                const optionsEn = question.options_en || [];
+                document.getElementById('option-a-en').value = optionsEn[0] || '';
+                document.getElementById('option-b-en').value = optionsEn[1] || '';
+                document.getElementById('option-c-en').value = optionsEn[2] || '';
+                document.getElementById('option-d-en').value = optionsEn[3] || '';
+                document.getElementById('question-knowledge-point').value = question.knowledge_point || '';
+                document.getElementById('question-tags').value = question.tags || '';
+                document.getElementById('question-difficulty').value = question.difficulty || '';
+                // Open the details if bilingual data exists
+                if (question.content_en || question.knowledge_point || question.tags || question.difficulty) {
+                    document.getElementById('bilingual-details').open = true;
+                }
+
                 editingQuestionId = questionId;
                 const btn = document.getElementById('add-question-btn');
                 btn.innerHTML = '<i class="fas fa-save"></i> 更新题目';
@@ -1125,6 +1360,15 @@
             document.getElementById('question-answer').value = '';
             document.getElementById('question-reference').value = '';
             document.getElementById('question-explanation').value = '';
+            document.getElementById('question-content-en').value = '';
+            document.getElementById('option-a-en').value = '';
+            document.getElementById('option-b-en').value = '';
+            document.getElementById('option-c-en').value = '';
+            document.getElementById('option-d-en').value = '';
+            document.getElementById('question-knowledge-point').value = '';
+            document.getElementById('question-tags').value = '';
+            document.getElementById('question-difficulty').value = '';
+            document.getElementById('bilingual-details').open = false;
             toggleOptionsContainer();
         }
 
@@ -1367,6 +1611,47 @@
             }
         });
 
+        // ========== Exam display mode ==========
+        let examDisplayMode = 'zh';
+
+        function setExamDisplayMode(mode) {
+            examDisplayMode = mode;
+            // Update button styles
+            ['zh', 'en', 'both'].forEach(m => {
+                const btn = document.getElementById(`mode-${m}-btn`);
+                if (btn) {
+                    btn.className = m === mode ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-outline';
+                }
+            });
+            if (currentExam) displayExam(currentExam);
+        }
+
+        async function exportCurrentExam() {
+            if (!currentExam) { alert('请先生成试卷！'); return; }
+            const mode = document.getElementById('export-mode-select').value;
+            const showAnswer = document.getElementById('export-answer-select').value;
+            const suffix = showAnswer === '1' ? '含答案' : '题目';
+            try {
+                const response = await fetch(`/api/exams/${currentExam.exam_id}/export?mode=${mode}&show_answer=${showAnswer}`);
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${currentExam.name}_${mode}_${suffix}.docx`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                } else {
+                    alert('导出失败！');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('导出试卷时发生错误！');
+            }
+        }
+
         // ========== Display exam ==========
         function displayExam(exam) {
             currentExam = exam;
@@ -1406,14 +1691,53 @@
                     questionDiv.className = 'question-preview';
                     questionDiv.id = `exam-q-${question.question_id}`;
 
-                    let html = `<div class="exam-question-content">`;
-                    html += `<strong>${globalIndex}. ${escapeHtml(question.content)}</strong>`;
+                    const mode = examDisplayMode;
+                    const contentEn = question.content_en || '';
+                    const optionsEn = question.options_en || [];
 
-                    if (question.options && question.options.length > 0) {
+                    let html = `<div class="exam-question-content">`;
+
+                    // Content based on display mode
+                    if (mode === 'zh') {
+                        html += `<strong>${globalIndex}. ${escapeHtml(question.content)}</strong>`;
+                    } else if (mode === 'en') {
+                        const displayContent = contentEn || question.content;
+                        html += `<strong>${globalIndex}. ${escapeHtml(displayContent)}</strong>`;
+                    } else {
+                        html += `<strong>${globalIndex}. ${escapeHtml(question.content)}</strong>`;
+                        if (contentEn) {
+                            html += `<div style="margin-top:4px; color:#555; font-style:italic;">${escapeHtml(contentEn)}</div>`;
+                        }
+                    }
+
+                    // Options based on display mode
+                    if (mode === 'zh' && question.options && question.options.length > 0) {
                         html += '<div style="margin: 8px 0 0 20px;">';
                         question.options.forEach((option, optIndex) => {
                             html += `<div>${String.fromCharCode(65 + optIndex)}. ${escapeHtml(option)}</div>`;
                         });
+                        html += '</div>';
+                    } else if (mode === 'en') {
+                        const displayOpts = optionsEn.length > 0 ? optionsEn : (question.options || []);
+                        if (displayOpts.length > 0) {
+                            html += '<div style="margin: 8px 0 0 20px;">';
+                            displayOpts.forEach((option, optIndex) => {
+                                html += `<div>${String.fromCharCode(65 + optIndex)}. ${escapeHtml(option)}</div>`;
+                            });
+                            html += '</div>';
+                        }
+                    } else if (mode === 'both' && question.options && question.options.length > 0) {
+                        html += '<div style="margin: 8px 0 0 20px;">';
+                        const maxLen = Math.max(question.options.length, optionsEn.length);
+                        for (let oi = 0; oi < maxLen; oi++) {
+                            const zhOpt = question.options[oi] || '';
+                            const enOpt = optionsEn[oi] || '';
+                            if (enOpt) {
+                                html += `<div>${String.fromCharCode(65 + oi)}. ${escapeHtml(zhOpt)} / ${escapeHtml(enOpt)}</div>`;
+                            } else {
+                                html += `<div>${String.fromCharCode(65 + oi)}. ${escapeHtml(zhOpt)}</div>`;
+                            }
+                        }
                         html += '</div>';
                     }
 
@@ -1425,6 +1749,19 @@
                     }
                     if (question.explanation) {
                         html += `<div><strong>解析:</strong> ${escapeHtml(question.explanation)}</div>`;
+                    }
+
+                    // Metadata tags
+                    const metaTags = [];
+                    if (question.knowledge_point) metaTags.push(`<span style="background:#e3f2fd;padding:2px 8px;border-radius:4px;font-size:0.85em;margin-right:4px;">知识点: ${escapeHtml(question.knowledge_point)}</span>`);
+                    if (question.difficulty) {
+                        const dMap = {easy:'简单',medium:'中等',hard:'困难'};
+                        const dColor = {easy:'#e8f5e9',medium:'#fff8e1',hard:'#ffebee'};
+                        metaTags.push(`<span style="background:${dColor[question.difficulty]||'#f5f5f5'};padding:2px 8px;border-radius:4px;font-size:0.85em;margin-right:4px;">${dMap[question.difficulty]||question.difficulty}</span>`);
+                    }
+                    if (question.tags) metaTags.push(`<span style="background:#f3e5f5;padding:2px 8px;border-radius:4px;font-size:0.85em;">${escapeHtml(question.tags)}</span>`);
+                    if (metaTags.length > 0) {
+                        html += `<div style="margin-top:6px;">${metaTags.join(' ')}</div>`;
                     }
 
                     html += `</div>`;
@@ -1557,6 +1894,9 @@
         }
 
         // ========== Replace question ==========
+        let _replaceCandidates = [];
+        let _replaceCtx = {};
+
         async function openReplaceModal(examId, oldQuestionId, questionType) {
             try {
                 const response = await fetch(`/api/questions?type=${encodeURIComponent(questionType)}`);
@@ -1564,30 +1904,47 @@
                 const allQuestions = await response.json();
 
                 const examQuestionIds = new Set(currentExam.questions.map(q => q.question_id));
-                const candidates = allQuestions.filter(q => !q.is_used && !examQuestionIds.has(q.question_id));
+                _replaceCandidates = allQuestions.filter(q => !q.is_used && !examQuestionIds.has(q.question_id));
+                _replaceCtx = { examId, oldQuestionId, questionType };
 
-                if (candidates.length === 0) {
+                if (_replaceCandidates.length === 0) {
                     alert(`没有可用的 ${questionType} 替换题目（所有同类型题目已被使用或已在试卷中）`);
                     return;
                 }
 
+                // Collect unique knowledge points and difficulties for filter dropdowns
+                const kpSet = new Set();
+                const diffSet = new Set();
+                _replaceCandidates.forEach(q => {
+                    if (q.knowledge_point) kpSet.add(q.knowledge_point);
+                    if (q.difficulty) diffSet.add(q.difficulty);
+                });
+
                 const container = document.getElementById(`exam-q-${oldQuestionId}`);
                 if (!container) return;
 
+                const diffLabels = { easy: '简单', medium: '中等', hard: '困难' };
+
                 let html = `<div class="form-container" style="margin:0; padding:15px;">`;
-                html += `<h4 style="margin-bottom:10px;"><i class="fas fa-sync-alt"></i> 替换题目 — 选择一道 ${escapeHtml(questionType)} 题</h4>`;
-                html += `<div style="max-height:300px; overflow-y:auto; border:1px solid #ddd; border-radius:6px; padding:10px; background:white;">`;
+                html += `<h4 style="margin-bottom:10px;"><i class="fas fa-sync-alt"></i> 替换题目 — 选择一道 ${escapeHtml(questionType)} 题 <span style="font-weight:normal;font-size:0.85em;color:#888;">（共 ${_replaceCandidates.length} 道可用）</span></h4>`;
 
-                candidates.forEach(q => {
-                    html += `<div style="padding:10px; border-bottom:1px solid #eee; cursor:pointer; transition: background 0.2s;"
-                        onmouseenter="this.style.background='#e3f2fd'" onmouseleave="this.style.background='white'"
-                        onclick="doReplace('${examId}', '${oldQuestionId}', '${q.question_id}')">
-                        <strong>${escapeHtml(q.content.substring(0, 80))}${q.content.length > 80 ? '...' : ''}</strong>`;
-                    if (q.answer) html += `<div style="color:#666; font-size:0.9em;">答案: ${escapeHtml(q.answer)}</div>`;
-                    html += `</div>`;
-                });
-
+                // Search bar
+                html += `<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center;">`;
+                html += `<input type="text" id="replace-keyword" placeholder="搜索题目内容..." style="flex:1; min-width:180px; padding:6px 10px; border:1px solid #ddd; border-radius:var(--border-radius); font-size:0.9rem;" oninput="filterReplaceCandidates()">`;
+                html += `<select id="replace-difficulty" style="padding:6px 10px; border:1px solid #ddd; border-radius:var(--border-radius); font-size:0.9rem;" onchange="filterReplaceCandidates()">`;
+                html += `<option value="">全部难度</option>`;
+                diffSet.forEach(d => { html += `<option value="${d}">${diffLabels[d] || d}</option>`; });
+                html += `</select>`;
+                html += `<select id="replace-knowledge-point" style="padding:6px 10px; border:1px solid #ddd; border-radius:var(--border-radius); font-size:0.9rem; max-width:200px;" onchange="filterReplaceCandidates()">`;
+                html += `<option value="">全部知识点</option>`;
+                kpSet.forEach(kp => { html += `<option value="${escapeHtml(kp)}">${escapeHtml(kp)}</option>`; });
+                html += `</select>`;
                 html += `</div>`;
+
+                html += `<div id="replace-candidates-list" style="max-height:300px; overflow-y:auto; border:1px solid #ddd; border-radius:6px; padding:10px; background:white;">`;
+                html += buildReplaceCandidatesHtml(_replaceCandidates);
+                html += `</div>`;
+                html += `<div id="replace-no-result" style="display:none; padding:15px; text-align:center; color:#999;">没有匹配的候选题目</div>`;
                 html += `<div style="margin-top:10px;">
                     <button class="btn btn-outline btn-sm" onclick="refreshExam()"><i class="fas fa-times"></i> 取消</button>
                 </div>`;
@@ -1597,6 +1954,51 @@
             } catch (error) {
                 console.error('Error:', error);
                 alert('获取候选题目时发生错误！');
+            }
+        }
+
+        function buildReplaceCandidatesHtml(list) {
+            const { examId, oldQuestionId } = _replaceCtx;
+            const diffLabels = { easy: '简单', medium: '中等', hard: '困难' };
+            const diffColors = { easy: '#e8f5e9', medium: '#fff8e1', hard: '#ffebee' };
+            let html = '';
+            list.forEach(q => {
+                html += `<div style="padding:10px; border-bottom:1px solid #eee; cursor:pointer; transition: background 0.2s;"
+                    onmouseenter="this.style.background='#e3f2fd'" onmouseleave="this.style.background='white'"
+                    onclick="doReplace('${examId}', '${oldQuestionId}', '${q.question_id}')">
+                    <strong>${escapeHtml(q.content.substring(0, 80))}${q.content.length > 80 ? '...' : ''}</strong>`;
+                // Meta tags row
+                const tags = [];
+                if (q.difficulty) tags.push(`<span style="background:${diffColors[q.difficulty]||'#f5f5f5'};padding:1px 6px;border-radius:3px;font-size:0.8em;">${diffLabels[q.difficulty]||q.difficulty}</span>`);
+                if (q.knowledge_point) tags.push(`<span style="background:#e3f2fd;padding:1px 6px;border-radius:3px;font-size:0.8em;">${escapeHtml(q.knowledge_point)}</span>`);
+                if (q.answer) tags.push(`<span style="color:#666;font-size:0.8em;">答案: ${escapeHtml(q.answer)}</span>`);
+                if (tags.length) html += `<div style="margin-top:4px;">${tags.join(' ')}</div>`;
+                html += `</div>`;
+            });
+            return html;
+        }
+
+        function filterReplaceCandidates() {
+            const keyword = (document.getElementById('replace-keyword').value || '').trim().toLowerCase();
+            const difficulty = document.getElementById('replace-difficulty').value;
+            const kp = document.getElementById('replace-knowledge-point').value;
+
+            const filtered = _replaceCandidates.filter(q => {
+                if (keyword && !q.content.toLowerCase().includes(keyword) && !(q.content_en && q.content_en.toLowerCase().includes(keyword))) return false;
+                if (difficulty && q.difficulty !== difficulty) return false;
+                if (kp && q.knowledge_point !== kp) return false;
+                return true;
+            });
+
+            const listEl = document.getElementById('replace-candidates-list');
+            const noResult = document.getElementById('replace-no-result');
+            if (filtered.length === 0) {
+                listEl.style.display = 'none';
+                noResult.style.display = 'block';
+            } else {
+                listEl.style.display = 'block';
+                noResult.style.display = 'none';
+                listEl.innerHTML = buildReplaceCandidatesHtml(filtered);
             }
         }
 
@@ -1757,6 +2159,206 @@
                 console.error('Error:', error);
                 alert('删除题型时发生错误！');
             }
+        }
+
+        // ========== Usage Management ==========
+        let usedQuestionsData = [];
+        let selectedUsageIds = new Set();
+
+        async function loadUsedQuestions() {
+            try {
+                const dateFrom = document.getElementById('usage-date-from').value;
+                const dateTo = document.getElementById('usage-date-to').value;
+                const typeFilter = document.getElementById('usage-type-filter').value;
+
+                let url = '/api/questions?is_used=1';
+                if (typeFilter) url += `&type=${encodeURIComponent(typeFilter)}`;
+
+                const response = await fetch(url);
+                if (!response.ok) { alert('获取已使用题目失败！'); return; }
+                let questions = await response.json();
+
+                // Client-side date filtering
+                if (dateFrom) {
+                    const from = new Date(dateFrom);
+                    from.setHours(0, 0, 0, 0);
+                    questions = questions.filter(q => q.used_date && new Date(q.used_date) >= from);
+                }
+                if (dateTo) {
+                    const to = new Date(dateTo);
+                    to.setHours(23, 59, 59, 999);
+                    questions = questions.filter(q => q.used_date && new Date(q.used_date) <= to);
+                }
+
+                // Sort by used_date descending
+                questions.sort((a, b) => {
+                    if (!a.used_date) return 1;
+                    if (!b.used_date) return -1;
+                    return new Date(b.used_date) - new Date(a.used_date);
+                });
+
+                usedQuestionsData = questions;
+                selectedUsageIds.clear();
+                document.getElementById('usage-select-all').checked = false;
+                renderUsageTable();
+                renderUsageSummary();
+                updateUsageBatchBar();
+
+                // Populate type filter from cache
+                const sel = document.getElementById('usage-type-filter');
+                const curVal = sel.value;
+                sel.innerHTML = '<option value="">全部题型</option>';
+                questionTypesCache.forEach(qt => {
+                    const opt = document.createElement('option');
+                    opt.value = qt.name;
+                    opt.textContent = qt.label;
+                    sel.appendChild(opt);
+                });
+                sel.value = curVal;
+            } catch (error) {
+                console.error('Error:', error);
+                alert('加载使用记录时发生错误！');
+            }
+        }
+
+        function renderUsageSummary() {
+            const el = document.getElementById('usage-summary');
+            if (usedQuestionsData.length === 0) {
+                el.style.display = 'none';
+                return;
+            }
+            // Group by date
+            const dateMap = {};
+            const typeMap = {};
+            usedQuestionsData.forEach(q => {
+                const dateStr = q.used_date ? q.used_date.substring(0, 10) : '未知日期';
+                dateMap[dateStr] = (dateMap[dateStr] || 0) + 1;
+                typeMap[q.question_type] = (typeMap[q.question_type] || 0) + 1;
+            });
+
+            let html = `<strong>共 ${usedQuestionsData.length} 道已使用题目</strong>`;
+            html += `<span style="margin-left:20px;">`;
+            html += Object.entries(typeMap).map(([t, c]) => `${t}: ${c}题`).join('，');
+            html += `</span>`;
+
+            const dates = Object.keys(dateMap).sort().reverse();
+            if (dates.length > 0) {
+                html += `<div style="margin-top:6px; font-size:0.9em; color:#666;">使用日期分布：`;
+                html += dates.map(d => `${d}(${dateMap[d]}题)`).join('、');
+                html += `</div>`;
+            }
+
+            el.innerHTML = html;
+            el.style.display = 'block';
+        }
+
+        function renderUsageTable() {
+            const tbody = document.getElementById('usage-tbody');
+            const emptyEl = document.getElementById('usage-empty');
+            const tableEl = document.getElementById('usage-table');
+            const diffLabels = { easy: '简单', medium: '中等', hard: '困难' };
+
+            if (usedQuestionsData.length === 0) {
+                tbody.innerHTML = '';
+                tableEl.style.display = 'none';
+                emptyEl.style.display = 'block';
+                return;
+            }
+
+            tableEl.style.display = 'table';
+            emptyEl.style.display = 'none';
+
+            tbody.innerHTML = '';
+            usedQuestionsData.forEach(q => {
+                const tr = document.createElement('tr');
+                const dateStr = q.used_date ? q.used_date.substring(0, 10) : '-';
+                const diffText = q.difficulty ? (diffLabels[q.difficulty] || q.difficulty) : '-';
+                tr.innerHTML = `
+                    <td><input type="checkbox" class="usage-cb" data-id="${q.question_id}" ${selectedUsageIds.has(q.question_id) ? 'checked' : ''}></td>
+                    <td title="${q.question_id}">${q.question_id.substring(0, 8)}...</td>
+                    <td>${q.question_type}</td>
+                    <td title="${escapeHtml(q.content)}">${escapeHtml(q.content.substring(0, 50))}${q.content.length > 50 ? '...' : ''}</td>
+                    <td>${diffText}</td>
+                    <td>${dateStr}</td>
+                    <td>
+                        <button class="btn btn-warning btn-sm" onclick="releaseSingle('${q.question_id}')">
+                            <i class="fas fa-unlock"></i> 释放
+                        </button>
+                    </td>`;
+                tbody.appendChild(tr);
+            });
+
+            // Bind checkbox events
+            tbody.querySelectorAll('.usage-cb').forEach(cb => {
+                cb.addEventListener('change', () => {
+                    if (cb.checked) selectedUsageIds.add(cb.dataset.id);
+                    else selectedUsageIds.delete(cb.dataset.id);
+                    updateUsageBatchBar();
+                });
+            });
+        }
+
+        document.getElementById('usage-select-all').addEventListener('change', function () {
+            const checked = this.checked;
+            document.querySelectorAll('.usage-cb').forEach(cb => {
+                cb.checked = checked;
+                if (checked) selectedUsageIds.add(cb.dataset.id);
+                else selectedUsageIds.delete(cb.dataset.id);
+            });
+            updateUsageBatchBar();
+        });
+
+        function updateUsageBatchBar() {
+            const bar = document.getElementById('usage-batch-bar');
+            const count = selectedUsageIds.size;
+            document.getElementById('usage-batch-count').textContent = count;
+            bar.style.display = (count > 0 || usedQuestionsData.length > 0) ? 'flex' : 'none';
+            document.getElementById('usage-release-btn').disabled = count === 0;
+        }
+
+        document.getElementById('usage-release-btn').addEventListener('click', async () => {
+            if (selectedUsageIds.size === 0) return;
+            if (!confirm(`确定要释放选中的 ${selectedUsageIds.size} 道题目吗？释放后可重新参与组卷。`)) return;
+            await doRelease(Array.from(selectedUsageIds));
+        });
+
+        document.getElementById('usage-release-all-btn').addEventListener('click', async () => {
+            if (usedQuestionsData.length === 0) return;
+            if (!confirm(`确定要释放当前筛选结果中的全部 ${usedQuestionsData.length} 道题目吗？`)) return;
+            await doRelease(usedQuestionsData.map(q => q.question_id));
+        });
+
+        async function doRelease(questionIds) {
+            try {
+                const response = await fetch('/api/questions/batch-release', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question_ids: questionIds })
+                });
+                if (response.ok) {
+                    const result = await response.json();
+                    alert(`成功释放 ${result.released_count} 道题目！`);
+                    loadUsedQuestions();
+                } else {
+                    const err = await response.json().catch(() => null);
+                    alert('释放失败！' + (err?.error || ''));
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('释放题目时发生错误！');
+            }
+        }
+
+        async function releaseSingle(questionId) {
+            if (!confirm('确定要释放这道题目吗？')) return;
+            await doRelease([questionId]);
+        }
+
+        function clearUsageFilters() {
+            document.getElementById('usage-date-from').value = '';
+            document.getElementById('usage-date-to').value = '';
+            document.getElementById('usage-type-filter').value = '';
+            loadUsedQuestions();
         }
 
         // ========== Initialization ==========

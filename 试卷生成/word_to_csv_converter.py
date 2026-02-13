@@ -60,10 +60,19 @@ def convert_word_to_csv(filepath):
                     'type': q_type,
                     'content': content,
                     'options': [],
+                    'options_en': [],
+                    'content_en': '',
+                    'knowledge_point': '',
+                    'tags': '',
+                    'difficulty': '',
                     'answer': answer,
                     'reference_answer': '',
                     'explanation': ''
                 }
+            # Check if this is an English option line [A_en], [B_en], etc.
+            elif current_question is not None and re.match(r'^\[[A-Z]_en\]', para):
+                option_text = re.sub(r'^\[[A-Z]_en\]\s*', '', para)
+                current_question['options_en'].append(option_text)
             # Check if this is an option line [A], [B], etc.
             elif len(para) >= 3 and para[1].isalpha() and para[2] == ']':
                 if current_question is not None:
@@ -73,7 +82,7 @@ def convert_word_to_csv(filepath):
         # Check if this is a reference answer section
         elif para.startswith('<参考答案>'):
             if current_question is not None:
-                ref_answer_content = para[5:]  # Remove '<参考答案>'
+                ref_answer_content = para[len('<参考答案>'):]
                 if '</参考答案>' in ref_answer_content:
                     end_idx = ref_answer_content.find('</参考答案>')
                     ref_answer_content = ref_answer_content[:end_idx]
@@ -82,12 +91,11 @@ def convert_word_to_csv(filepath):
                     # Collect content until we find the closing tag
                     i += 1
                     ref_answer_content_lines = []
+                    if ref_answer_content.strip():
+                        ref_answer_content_lines.append(ref_answer_content.strip())
                     while i < len(paragraphs):
-                        # If we encounter the closing tag, add any remaining content and break
-                        if paragraphs[i].startswith('</参考答案>'):
-                            extra_content = paragraphs[i][9:]  # Remove '</参考答案>'
-                            if extra_content:
-                                ref_answer_content_lines.append(extra_content)
+                        # Closing tag: </参考答案> or <参考答案> (same tag used as closer)
+                        if paragraphs[i].startswith('</参考答案>') or paragraphs[i].strip() == '<参考答案>':
                             break
                         # If we encounter a new question, we need to break and process it in the next iteration
                         elif paragraphs[i].startswith('[') and any(qt in paragraphs[i][1:paragraphs[i].find(']')] if ']' in paragraphs[i] else '' for qt in ['单选', '多选', '是非', '简答']):
@@ -101,7 +109,7 @@ def convert_word_to_csv(filepath):
         # Check if this is an explanation section
         elif para.startswith('<解析>'):
             if current_question is not None:
-                explanation_content = para[3:]  # Remove '<解析>'
+                explanation_content = para[len('<解析>'):]
                 if '</解析>' in explanation_content:
                     end_idx = explanation_content.find('</解析>')
                     explanation_content = explanation_content[:end_idx]
@@ -110,12 +118,11 @@ def convert_word_to_csv(filepath):
                     # Collect content until we find the closing tag
                     i += 1
                     explanation_content_lines = []
+                    if explanation_content.strip():
+                        explanation_content_lines.append(explanation_content.strip())
                     while i < len(paragraphs):
-                        # If we encounter the closing tag, add any remaining content and break
-                        if paragraphs[i].startswith('</解析>'):
-                            extra_content = paragraphs[i][5:]  # Remove '</解析>'
-                            if extra_content:
-                                explanation_content_lines.append(extra_content)
+                        # Closing tag: </解析> or <解析> (same tag used as closer)
+                        if paragraphs[i].startswith('</解析>') or paragraphs[i].strip() == '<解析>':
                             break
                         # If we encounter a new question, we need to break and process it in the next iteration
                         elif paragraphs[i].startswith('[') and any(qt in paragraphs[i][1:paragraphs[i].find(']')] if ']' in paragraphs[i] else '' for qt in ['单选', '多选', '是非', '简答']):
@@ -124,8 +131,21 @@ def convert_word_to_csv(filepath):
                         else:
                             explanation_content_lines.append(paragraphs[i])
                             i += 1
-                    current_question['explanation'] = '\n'.join(explanation_content_lines)
-        
+                    # Extract metadata lines from explanation
+                    filtered_lines = []
+                    for eline in explanation_content_lines:
+                        if re.match(r'^知识点[:：]', eline):
+                            current_question['knowledge_point'] = re.sub(r'^知识点[:：]\s*', '', eline)
+                        elif re.match(r'^标签[:：]', eline):
+                            current_question['tags'] = re.sub(r'^标签[:：]\s*', '', eline)
+                        elif re.match(r'^英文题目[:：]', eline):
+                            current_question['content_en'] = re.sub(r'^英文题目[:：]\s*', '', eline)
+                        elif re.match(r'^难度[:：]', eline):
+                            current_question['difficulty'] = re.sub(r'^难度[:：]\s*', '', eline)
+                        else:
+                            filtered_lines.append(eline)
+                    current_question['explanation'] = '\n'.join(filtered_lines)
+
         # If we have a current question and this is content for it (not a new question marker)
         elif current_question is not None and not para.startswith('[') and not para.startswith('<'):
             # Add to content if it's not already set
@@ -140,20 +160,27 @@ def convert_word_to_csv(filepath):
     
     # Write the questions data to CSV
     with open(csv_path, 'w', newline='', encoding='utf-8') as csvfile:
-        fieldnames = ['type', 'content', 'options', 'answer', 'reference_answer', 'explanation']
+        fieldnames = ['type', 'content', 'options', 'answer', 'reference_answer', 'explanation',
+                      'content_en', 'options_en', 'knowledge_point', 'tags', 'difficulty']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        
+
         writer.writeheader()
         for question in questions_data:
             # Convert options list to a string representation
             options_str = '|'.join(question['options']) if question['options'] else ''
+            options_en_str = '|'.join(question.get('options_en', [])) if question.get('options_en') else ''
             writer.writerow({
                 'type': question['type'],
                 'content': question['content'],
                 'options': options_str,
                 'answer': question['answer'] or '',
                 'reference_answer': question['reference_answer'],
-                'explanation': question['explanation']
+                'explanation': question['explanation'],
+                'content_en': question.get('content_en', ''),
+                'options_en': options_en_str,
+                'knowledge_point': question.get('knowledge_point', ''),
+                'tags': question.get('tags', ''),
+                'difficulty': question.get('difficulty', ''),
             })
     
     return csv_path
@@ -170,13 +197,23 @@ def parse_csv_to_questions(csv_path):
             if options == ['']:  # Handle empty options
                 options = []
                 
+            options_en_str = row.get('options_en', '')
+            options_en = options_en_str.split('|') if options_en_str else []
+            if options_en == ['']:
+                options_en = []
+
             question = {
                 'type': row['type'],
                 'content': row['content'],
                 'options': options,
                 'answer': row['answer'] or None,
                 'reference_answer': row['reference_answer'] or None,
-                'explanation': row['explanation'] or None
+                'explanation': row['explanation'] or None,
+                'content_en': row.get('content_en', '') or None,
+                'options_en': options_en,
+                'knowledge_point': row.get('knowledge_point', '') or None,
+                'tags': row.get('tags', '') or None,
+                'difficulty': row.get('difficulty', '') or None,
             }
             questions.append(question)
     

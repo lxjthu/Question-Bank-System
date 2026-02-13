@@ -27,8 +27,8 @@ class TestUsageTracking:
         assert len(data['questions']) == 1
         assert data['questions'][0]['question_id'] == 'gu2'
 
-    def test_generate_marks_selected_as_used(self, client, db):
-        """After generation, selected questions are marked as used."""
+    def test_generate_does_not_mark_used(self, client, db):
+        """Generate does NOT mark questions as used — only confirm does."""
         create_question_in_db(db, question_id='gm1')
         client.post('/api/exams/generate', json={
             'exam_id': 'gme1',
@@ -36,10 +36,10 @@ class TestUsageTracking:
             'config': {'单选': {'count': 1, 'points': 5}},
         })
         resp = client.get('/api/questions/gm1')
-        assert resp.get_json()['is_used'] is True
+        assert resp.get_json()['is_used'] is False
 
-    def test_confirm_then_generate_no_overlap(self, client, db):
-        """After confirming, regenerating doesn't reuse questions."""
+    def test_confirm_marks_then_generate_no_overlap(self, client, db):
+        """After confirming, regenerating doesn't reuse confirmed questions."""
         create_question_in_db(db, question_id='co1', content='第一题')
         create_question_in_db(db, question_id='co2', content='第二题')
 
@@ -49,10 +49,10 @@ class TestUsageTracking:
             'name': '第一次',
             'config': {'单选': {'count': 1, 'points': 5}},
         })
-        # Confirm it
+        # Confirm it — this marks questions as used
         client.post('/api/exams/coe1/confirm')
 
-        # Generate second exam
+        # Generate second exam — should only pick from unused questions
         resp = client.post('/api/exams/generate', json={
             'exam_id': 'coe2',
             'name': '第二次',
@@ -63,8 +63,8 @@ class TestUsageTracking:
         if len(data['questions']) == 1:
             assert data['questions'][0]['question_id'] == 'co2'
 
-    def test_replace_updates_used_flags(self, client, db):
-        """Replace: old question unused, new question used."""
+    def test_replace_does_not_change_used_flags(self, client, db):
+        """Replace only swaps the association, does not change is_used."""
         create_question_in_db(db, question_id='ru1', is_used=True)
         create_question_in_db(db, question_id='ru2', is_used=False, content='替换题目')
         create_exam_in_db(db, exam_id='rue1', question_ids=['ru1'])
@@ -72,12 +72,11 @@ class TestUsageTracking:
             'old_question_id': 'ru1',
             'new_question_id': 'ru2',
         })
-        # Old question should be unused
+        # is_used flags should be unchanged by replace
         resp1 = client.get('/api/questions/ru1')
-        assert resp1.get_json()['is_used'] is False
-        # New question should be used
+        assert resp1.get_json()['is_used'] is True
         resp2 = client.get('/api/questions/ru2')
-        assert resp2.get_json()['is_used'] is True
+        assert resp2.get_json()['is_used'] is False
 
 
 class TestBilingualSupport:
