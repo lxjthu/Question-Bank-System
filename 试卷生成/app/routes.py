@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, render_template, send_file
-from app.db_models import db, QuestionModel, ExamModel, QuestionTypeModel, exam_questions
+from app.db_models import db, QuestionModel, ExamModel, QuestionTypeModel, CourseSettingsModel, exam_questions
 from app.utils import allowed_file, generate_word_template, export_exam_to_word
 import os
 import json
@@ -736,3 +736,51 @@ def batch_release_questions():
 
     db.session.commit()
     return jsonify({'message': f'{released} questions released', 'released_count': released})
+
+
+# Course Settings Routes
+def _get_or_create_course_settings():
+    """Get the single course settings row, creating it if needed."""
+    settings = CourseSettingsModel.query.first()
+    if not settings:
+        settings = CourseSettingsModel(updated_at=datetime.now())
+        db.session.add(settings)
+        db.session.commit()
+    return settings
+
+
+@bp.route('/api/course-settings', methods=['GET'])
+def get_course_settings():
+    """Get course settings"""
+    settings = _get_or_create_course_settings()
+    return jsonify(settings.to_dict())
+
+
+@bp.route('/api/course-settings', methods=['PUT'])
+def update_course_settings():
+    """Update course settings"""
+    settings = _get_or_create_course_settings()
+    data = request.json
+
+    if 'course_name' in data:
+        settings.course_name = data['course_name']
+    if 'course_code' in data:
+        settings.course_code = data['course_code']
+    if 'exam_format' in data:
+        settings.exam_format = data['exam_format']
+    if 'exam_method' in data:
+        settings.exam_method = data['exam_method']
+    if 'target_audience' in data:
+        settings.target_audience = data['target_audience']
+    if 'institution_name' in data:
+        settings.institution_name = data['institution_name']
+    if 'semester_info' in data:
+        settings.semester_info = data['semester_info']
+    if 'exam_title' in data:
+        settings.exam_title = data['exam_title']
+    if 'paper_label' in data:
+        settings.paper_label = data['paper_label']
+    settings.updated_at = datetime.now()
+
+    db.session.commit()
+    return jsonify(settings.to_dict())

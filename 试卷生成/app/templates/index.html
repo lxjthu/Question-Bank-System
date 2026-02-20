@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>林业经济学（双语）试题管理系统</title>
+    <title>试题管理系统</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root {
@@ -494,8 +494,8 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1><i class="fas fa-graduation-cap"></i> 林业经济学（双语）试题管理系统</h1>
-            <p>高效管理试题，智能生成试卷</p>
+            <h1 id="site-title"><i class="fas fa-graduation-cap"></i> 试题管理系统</h1>
+            <p id="site-subtitle">高效管理试题，智能生成试卷</p>
         </div>
 
         <div class="nav-tabs">
@@ -513,6 +513,9 @@
             </button>
             <button class="tab-button" data-tab="usage-management">
                 <i class="fas fa-history"></i> 使用管理
+            </button>
+            <button class="tab-button" data-tab="system-settings">
+                <i class="fas fa-cog"></i> 系统设置
             </button>
         </div>
 
@@ -608,7 +611,7 @@
                             <div class="form-row">
                                 <div class="form-group">
                                     <label for="question-knowledge-point">知识点</label>
-                                    <input type="text" id="question-knowledge-point" placeholder="如: 林业经济基础">
+                                    <input type="text" id="question-knowledge-point" placeholder="如: 经济学基础">
                                 </div>
                                 <div class="form-group">
                                     <label for="question-tags">标签</label>
@@ -919,6 +922,77 @@
                 <div id="usage-empty" style="display:none; padding:30px; text-align:center; color:#999;">
                     <i class="fas fa-check-circle" style="font-size:2em; margin-bottom:10px; display:block;"></i>
                     暂无已使用的题目
+                </div>
+            </div>
+
+            <!-- System Settings Tab -->
+            <div id="system-settings" class="tab-content">
+                <div class="form-container">
+                    <h3><i class="fas fa-cog"></i> 课程与系统设置</h3>
+                    <p style="margin-bottom:20px; color:var(--dark-gray);">配置课程信息后，页面标题和导出试卷将自动使用这些信息。</p>
+
+                    <h4 style="margin:16px 0 10px; color:#555; border-bottom:1px solid #eee; padding-bottom:6px;">试卷头部信息</h4>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="settings-institution-name">学校/机构名称</label>
+                            <input type="text" id="settings-institution-name" placeholder="如: 中南财经政法大学">
+                        </div>
+                        <div class="form-group">
+                            <label for="settings-semester-info">学期信息</label>
+                            <input type="text" id="settings-semester-info" placeholder="如: 2023–2024学年第1学期">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="settings-exam-title">考试标题</label>
+                            <input type="text" id="settings-exam-title" placeholder="如: 期末考试试卷">
+                        </div>
+                        <div class="form-group">
+                            <label for="settings-paper-label">试卷标签</label>
+                            <input type="text" id="settings-paper-label" placeholder="如: A" maxlength="4" style="max-width:80px;">
+                        </div>
+                    </div>
+
+                    <h4 style="margin:16px 0 10px; color:#555; border-bottom:1px solid #eee; padding-bottom:6px;">课程信息</h4>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="settings-course-name">课程名称</label>
+                            <input type="text" id="settings-course-name" placeholder="如: 林业经济学（双语）">
+                        </div>
+                        <div class="form-group">
+                            <label for="settings-course-code">课程代号</label>
+                            <input type="text" id="settings-course-code" placeholder="如: FE301">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="settings-exam-format">考试形式</label>
+                            <select id="settings-exam-format">
+                                <option value="">未设置</option>
+                                <option value="开卷">开卷</option>
+                                <option value="闭卷">闭卷</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="settings-exam-method">考试方式</label>
+                            <select id="settings-exam-method">
+                                <option value="">未设置</option>
+                                <option value="笔试">笔试</option>
+                                <option value="口试">口试</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="settings-target-audience">使用对象</label>
+                        <input type="text" id="settings-target-audience" placeholder="如: 林学专业本科生">
+                    </div>
+
+                    <button id="save-settings-btn" class="btn btn-primary">
+                        <i class="fas fa-save"></i> 保存设置
+                    </button>
                 </div>
             </div>
         </div>
@@ -2361,11 +2435,96 @@
             loadUsedQuestions();
         }
 
+        // ========== Course Settings ==========
+        async function loadCourseSettings() {
+            try {
+                const response = await fetch('/api/course-settings');
+                if (!response.ok) return;
+                const settings = await response.json();
+                applyCourseSettings(settings);
+                fillSettingsForm(settings);
+            } catch (error) {
+                console.error('Error loading course settings:', error);
+            }
+        }
+
+        function applyCourseSettings(settings) {
+            const titleEl = document.getElementById('site-title');
+            const subtitleEl = document.getElementById('site-subtitle');
+
+            if (settings.course_name) {
+                const titleText = `${settings.course_name} 试题管理系统`;
+                titleEl.innerHTML = `<i class="fas fa-graduation-cap"></i> ${escapeHtml(titleText)}`;
+                document.title = titleText;
+            } else {
+                titleEl.innerHTML = '<i class="fas fa-graduation-cap"></i> 试题管理系统';
+                document.title = '试题管理系统';
+            }
+
+            const infoParts = [];
+            if (settings.course_code) infoParts.push(`课程代号: ${settings.course_code}`);
+            if (settings.exam_format) infoParts.push(`考试形式: ${settings.exam_format}`);
+            if (settings.exam_method) infoParts.push(`考试方式: ${settings.exam_method}`);
+            if (settings.target_audience) infoParts.push(`使用对象: ${settings.target_audience}`);
+
+            if (infoParts.length > 0) {
+                subtitleEl.textContent = infoParts.join(' | ');
+            } else {
+                subtitleEl.textContent = '高效管理试题，智能生成试卷';
+            }
+        }
+
+        function fillSettingsForm(settings) {
+            document.getElementById('settings-institution-name').value = settings.institution_name || '';
+            document.getElementById('settings-semester-info').value = settings.semester_info || '';
+            document.getElementById('settings-exam-title').value = settings.exam_title || '';
+            document.getElementById('settings-paper-label').value = settings.paper_label || '';
+            document.getElementById('settings-course-name').value = settings.course_name || '';
+            document.getElementById('settings-course-code').value = settings.course_code || '';
+            document.getElementById('settings-exam-format').value = settings.exam_format || '';
+            document.getElementById('settings-exam-method').value = settings.exam_method || '';
+            document.getElementById('settings-target-audience').value = settings.target_audience || '';
+        }
+
+        document.getElementById('save-settings-btn').addEventListener('click', async () => {
+            const data = {
+                institution_name: document.getElementById('settings-institution-name').value.trim(),
+                semester_info: document.getElementById('settings-semester-info').value.trim(),
+                exam_title: document.getElementById('settings-exam-title').value.trim(),
+                paper_label: document.getElementById('settings-paper-label').value.trim(),
+                course_name: document.getElementById('settings-course-name').value.trim(),
+                course_code: document.getElementById('settings-course-code').value.trim(),
+                exam_format: document.getElementById('settings-exam-format').value,
+                exam_method: document.getElementById('settings-exam-method').value,
+                target_audience: document.getElementById('settings-target-audience').value.trim(),
+            };
+
+            try {
+                const response = await fetch('/api/course-settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                if (response.ok) {
+                    const settings = await response.json();
+                    applyCourseSettings(settings);
+                    alert('设置保存成功！');
+                } else {
+                    alert('保存设置失败！');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('保存设置时发生错误！');
+            }
+        });
+
         // ========== Initialization ==========
         window.addEventListener('DOMContentLoaded', async () => {
             await loadQuestionTypes();
             renderDefaultExamConfig();
             loadQuestions();
+            loadCourseSettings();
         });
     </script>
 </body>

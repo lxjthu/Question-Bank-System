@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-林业经济学（双语）试题管理系统 — A Flask-based bilingual (Chinese/English) exam question management system for Forestry Economics. Supports question bank CRUD, automatic exam generation, Word document import/export, dynamic question type management, batch operations, and bilingual preview modes.
+通用试题管理系统 — A Flask-based bilingual (Chinese/English) exam question management system. Supports question bank CRUD, automatic exam generation, Word document import/export, dynamic question type management, batch operations, bilingual preview modes, and customizable course settings.
 
 ## Commands
 
@@ -23,7 +23,7 @@ pip install flask flask-sqlalchemy python-docx pytest
 ### Run tests
 ```bash
 python -m pytest tests/ -v
-# 104 tests, all using in-memory SQLite for isolation
+# 115 tests, all using in-memory SQLite for isolation
 ```
 
 ## Architecture
@@ -33,11 +33,11 @@ python -m pytest tests/ -v
 ```
 server.py              → Entry point, calls create_app('development')
 app/factory.py         → Flask app factory, initializes DB, seeds built-in question types
-app/db_models.py       → SQLAlchemy ORM models (QuestionModel, ExamModel, QuestionTypeModel, exam_questions)
+app/db_models.py       → SQLAlchemy ORM models (QuestionModel, ExamModel, QuestionTypeModel, CourseSettingsModel, exam_questions)
 app/routes.py          → All API routes (Blueprint 'main'), business logic
 app/utils.py           → Word template generation (dynamic from DB), exam-to-docx export, file parsing
 app/models.py          → Legacy data classes (Question/Exam, kept for reference)
-app/templates/index.html → Entire frontend SPA (5-tab: 题库管理, 试卷生成, 模板下载, 题型管理, 使用管理)
+app/templates/index.html → Entire frontend SPA (6-tab: 题库管理, 试卷生成, 模板下载, 题型管理, 使用管理, 系统设置)
 config.py              → Config classes (Development/Production/Testing)
 exam_system.db         → SQLite database file (auto-created on first run)
 ```
@@ -47,7 +47,8 @@ exam_system.db         → SQLite database file (auto-created on first run)
 - **SQLAlchemy ORM**: All data persisted via SQLAlchemy models to SQLite. No JSON file storage.
 - **QuestionTypeModel**: Dynamic question types stored in DB. 7 built-in types seeded on first run; custom types can be added/edited/deleted via API.
 - **Seed data**: `factory.py` seeds built-in question types (单选, 多选, 是非, 简答, 简答>计算, 简答>论述, 简答>材料分析) when the `question_types` table is empty.
-- **Monolithic frontend**: `index.html` contains all HTML, CSS, and JavaScript for the SPA. Five tabs: question bank, exam generation, template download, type management, usage management.
+- **CourseSettingsModel**: Single-row table storing course configuration (name, code, exam format/method, target audience, institution_name, semester_info, exam_title, paper_label). Auto-created on first access. Used in page title and Word export header.
+- **Monolithic frontend**: `index.html` contains all HTML, CSS, and JavaScript for the SPA. Six tabs: question bank, exam generation, template download, type management, usage management, system settings.
 - **Bilingual support**: Questions have `content_en`, `options_en` fields for English content alongside Chinese. `language` field auto-set to `both` when `content_en` provided. Preview and export support zh/en/both modes.
 - **Question metadata**: Questions have `knowledge_point`, `tags` (comma-separated), `difficulty` (easy/medium/hard) fields. Search API supports filtering by difficulty and knowledge_point.
 - **Usage tracking**: Questions track `is_used` and `used_date` to prevent reuse across exam years. Only `confirm` marks questions as used; `generate` and `replace` do NOT change `is_used`. `revert_confirmation` and `batch-release` reset to unused.
@@ -74,6 +75,8 @@ exam_system.db         → SQLite database file (auto-created on first run)
 - `GET /api/templates/download` — Download import template
 - `GET/POST /api/question-types` — List and create question types
 - `PUT/DELETE /api/question-types/<id>` — Update and delete question types
+- `GET /api/course-settings` — Get course settings
+- `PUT /api/course-settings` — Update course settings (course_name, course_code, exam_format, exam_method, target_audience, institution_name, semester_info, exam_title, paper_label)
 
 ### Data Flow
 
@@ -81,7 +84,7 @@ exam_system.db         → SQLite database file (auto-created on first run)
 2. Routes in `routes.py` use SQLAlchemy ORM to query/modify data
 3. Data persisted to `exam_system.db` (SQLite)
 4. Word import parses `.docx`/`.txt` files using generic type detection (not hardcoded types). Supports `[A_en]` English options and metadata lines in `<解析>` sections.
-5. Word export uses `utils.export_exam_to_word(exam, filepath, mode, show_answer)` to generate `.docx` via `python-docx`. Supports zh/en/both modes and answer toggle.
+5. Word export uses `utils.export_exam_to_word(exam, filepath, mode, show_answer)` to generate `.docx` via `python-docx`. Supports zh/en/both modes and answer toggle. Formal exam paper formatting: A4 page, 宋体+TNR fonts, structured header (institution/semester/course info), Chinese-numbered section titles with score stats, `[A]` option markers, page footer with page numbers.
 6. Question types loaded from DB → cached in frontend `questionTypesCache` → used for all dropdowns and type checks
 
 ### Test Structure
@@ -96,7 +99,8 @@ tests/
 ├── test_edge_cases.py      # Edge case tests (9)
 ├── test_question_types.py  # Question type CRUD tests (10)
 ├── test_batch_delete.py    # Batch delete tests (5)
-└── test_usage_management.py # Usage management tests (7)
+├── test_usage_management.py # Usage management tests (7)
+└── test_course_settings.py  # Course settings CRUD tests (11)
 ```
 
 ## Important Context

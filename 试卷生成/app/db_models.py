@@ -76,6 +76,36 @@ class QuestionModel(db.Model):
         }
 
 
+class CourseSettingsModel(db.Model):
+    __tablename__ = 'course_settings'
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    course_name = db.Column(db.String(256), default='')
+    course_code = db.Column(db.String(64), default='')
+    exam_format = db.Column(db.String(32), default='')     # 开卷/闭卷
+    exam_method = db.Column(db.String(32), default='')     # 笔试/口试
+    target_audience = db.Column(db.String(256), default='')
+    institution_name = db.Column(db.String(256), default='')   # 学校/机构名称
+    semester_info = db.Column(db.String(256), default='')      # 学期信息，如 "2023–2024学年第1学期"
+    exam_title = db.Column(db.String(256), default='期末考试试卷')  # 考试标题
+    paper_label = db.Column(db.String(16), default='A')        # 试卷标签，如 A/B
+    updated_at = db.Column(db.DateTime, default=datetime.now)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'course_name': self.course_name or '',
+            'course_code': self.course_code or '',
+            'exam_format': self.exam_format or '',
+            'exam_method': self.exam_method or '',
+            'target_audience': self.target_audience or '',
+            'institution_name': self.institution_name or '',
+            'semester_info': self.semester_info or '',
+            'exam_title': self.exam_title or '期末考试试卷',
+            'paper_label': self.paper_label or 'A',
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class ExamModel(db.Model):
     __tablename__ = 'exams'
     exam_id = db.Column(db.String(64), primary_key=True)
