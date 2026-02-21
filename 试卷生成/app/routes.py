@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify, render_template, send_file
-from app.db_models import db, QuestionModel, ExamModel, QuestionTypeModel, CourseSettingsModel, exam_questions
-from app.utils import allowed_file, generate_word_template, export_exam_to_word
+from app.db_models import db, QuestionModel, ExamModel, QuestionTypeModel, CourseSettingsModel, exam_questions, QuestionImageModel
+from app.utils import allowed_file, generate_word_template, export_exam_to_word, save_image_file, delete_question_images, _IMAGES_DIR, _associate_images_in_html
 import os
 import json
 import uuid
@@ -15,7 +15,64 @@ def index():
     return render_template('index.html')
 
 
-# Question Bank Management Routes
+# ─── Image Storage Routes ───────────────────────────────────────────────────
+
+@bp.route('/api/images/upload', methods=['POST'])
+def upload_image():
+    """Upload an image file and return {image_id, url}.
+
+    Called by the Quill editor's custom image handler.
+    The image is saved before the question is saved, so question_id may be null
+    initially; it is later associated via _associate_images_in_html().
+    """
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    f = request.files['file']
+    if not f or f.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    content_type = f.content_type or 'image/png'
+    image_bytes = f.read()
+    if len(image_bytes) == 0:
+        return jsonify({'error': 'Empty file'}), 400
+
+    try:
+        image_id = save_image_file(image_bytes, content_type, question_id=None)
+        db.session.commit()
+        return jsonify({'image_id': image_id, 'url': f'/api/images/{image_id}'}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/api/images/<image_id>', methods=['GET'])
+def serve_image(image_id):
+    """Serve an image file by its image_id."""
+    record = QuestionImageModel.query.filter_by(image_id=image_id).first()
+    if not record:
+        return jsonify({'error': 'Image not found'}), 404
+    filepath = os.path.join(_IMAGES_DIR, record.filename)
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'Image file missing'}), 404
+    return send_file(filepath, mimetype=record.content_type)
+
+
+@bp.route('/api/images/<image_id>', methods=['DELETE'])
+def delete_image(image_id):
+    """Delete an image file and its DB record."""
+    record = QuestionImageModel.query.filter_by(image_id=image_id).first()
+    if not record:
+        return jsonify({'error': 'Image not found'}), 404
+    try:
+        os.remove(os.path.join(_IMAGES_DIR, record.filename))
+    except OSError:
+        pass
+    db.session.delete(record)
+    db.session.commit()
+    return jsonify({'message': 'Image deleted'})
+
+
+# ─── Question Bank Management Routes ────────────────────────────────────────
 @bp.route('/api/questions', methods=['GET'])
 def get_questions():
     """Get all questions or search questions"""
@@ -96,6 +153,11 @@ def add_question():
     db.session.add(question)
     try:
         db.session.commit()
+        # Associate any images uploaded before the question was saved
+        html_fields = [question.content, question.reference_answer, question.explanation]
+        for html in html_fields:
+            _associate_images_in_html(html, question.question_id)
+        db.session.commit()
     except Exception:
         db.session.rollback()
         return jsonify({'error': 'Question with this ID already exists'}), 400
@@ -150,6 +212,10 @@ def update_question(question_id):
     question.updated_at = datetime.now()
 
     db.session.commit()
+    # Associate any newly uploaded images in updated fields
+    for html in [question.content, question.reference_answer, question.explanation]:
+        _associate_images_in_html(html, question.question_id)
+    db.session.commit()
     return jsonify(question.to_dict())
 
 
@@ -160,6 +226,7 @@ def delete_question(question_id):
     if not question:
         return jsonify({'error': 'Question not found'}), 404
 
+    delete_question_images(question_id)
     db.session.delete(question)
     db.session.commit()
     return jsonify({'message': 'Question deleted successfully'})
@@ -173,6 +240,10 @@ def batch_delete_questions():
 
     if not question_ids:
         return jsonify({'error': 'No question IDs provided'}), 400
+
+    # Cascade delete images for all questions
+    for qid in question_ids:
+        delete_question_images(qid)
 
     # Remove exam_questions associations first
     db.session.execute(
@@ -252,17 +323,22 @@ def import_questions():
             models = []
             skipped = 0
 
-            # Convert Word to CSV if needed
+            # Parse .docx using rich-content importer (supports images + tables)
             if file.filename.lower().endswith('.docx'):
-                from app.utils import parse_question_template
-                import sys
-                project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                if project_root not in sys.path:
-                    sys.path.insert(0, project_root)
-                from word_to_csv_converter import convert_word_to_csv as actual_convert_word_to_csv, parse_csv_to_questions
+                from app.docx_importer import parse_docx_with_rich_content
 
-                csv_path = actual_convert_word_to_csv(file_path)
-                questions_data = parse_csv_to_questions(csv_path)
+                # Collect known question type names for marker validation
+                known_types = {
+                    qt.name for qt in QuestionTypeModel.query.all()
+                }
+
+                # Wrapper: save_image_fn(bytes, content_type) -> image_id
+                def _save_img_fn(image_bytes, content_type):
+                    return save_image_file(image_bytes, content_type, question_id=None)
+
+                questions_data = parse_docx_with_rich_content(
+                    file_path, _save_img_fn, known_types
+                )
 
                 now = datetime.now()
                 for i, q_data in enumerate(questions_data):
@@ -279,10 +355,10 @@ def import_questions():
                         question_id=question_id,
                         question_type=q_data['type'],
                         content=q_data['content'],
-                        options=json.dumps(q_data['options'], ensure_ascii=False),
-                        answer=q_data['answer'],
-                        reference_answer=q_data['reference_answer'],
-                        explanation=q_data['explanation'],
+                        options=json.dumps(q_data.get('options', []), ensure_ascii=False),
+                        answer=q_data.get('answer'),
+                        reference_answer=q_data.get('reference_answer', ''),
+                        explanation=q_data.get('explanation', ''),
                         content_en=content_en,
                         options_en=json.dumps(options_en, ensure_ascii=False) if options_en else None,
                         subject=import_subject or q_data.get('subject') or None,
@@ -298,8 +374,13 @@ def import_questions():
                 db.session.add_all(models)
                 db.session.commit()
 
-                if os.path.exists(csv_path):
-                    os.remove(csv_path)
+                # Associate any images embedded during parsing with their question IDs
+                for model in models:
+                    for field in ('content', 'reference_answer', 'explanation'):
+                        html_val = getattr(model, field) or ''
+                        if '/api/images/' in html_val:
+                            _associate_images_in_html(html_val, model.question_id)
+                db.session.commit()
 
             elif file.filename.lower().endswith('.txt'):
                 from app.utils import parse_question_template

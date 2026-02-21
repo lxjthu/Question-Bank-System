@@ -1,5 +1,7 @@
 import os
 import json
+import uuid
+from html.parser import HTMLParser
 from werkzeug.utils import secure_filename
 from docx import Document
 from docx.shared import Inches, Pt, Cm, Emu
@@ -10,6 +12,10 @@ from docx.oxml import parse_xml
 import csv
 import re
 
+# Directory for storing question images on disk
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_IMAGES_DIR = os.path.join(os.path.dirname(_HERE), 'uploads', 'images')
+
 
 def allowed_file(filename):
     """Check if the uploaded file is allowed"""
@@ -18,6 +24,303 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def save_image_file(image_bytes: bytes, content_type: str,
+                    question_id=None, field: str = 'content') -> str:
+    """Save an image to disk and create a QuestionImageModel record.
+
+    Returns the image_id string (e.g. 'img_abc12345').
+    The DB record is flushed but NOT committed — caller must commit.
+    """
+    from app.db_models import db, QuestionImageModel
+
+    # Determine extension from content_type
+    ext_map = {
+        'image/png': '.png', 'image/jpeg': '.jpg', 'image/jpg': '.jpg',
+        'image/gif': '.gif', 'image/bmp': '.bmp', 'image/webp': '.webp',
+    }
+    ext = ext_map.get((content_type or '').lower(), '.png')
+
+    image_id = 'img_' + uuid.uuid4().hex[:8]
+    filename = image_id + ext
+
+    os.makedirs(_IMAGES_DIR, exist_ok=True)
+    filepath = os.path.join(_IMAGES_DIR, filename)
+    with open(filepath, 'wb') as f:
+        f.write(image_bytes)
+
+    record = QuestionImageModel(
+        image_id=image_id,
+        question_id=question_id,
+        field=field,
+        filename=filename,
+        content_type=content_type or 'image/png',
+        file_size=len(image_bytes),
+    )
+    db.session.add(record)
+    db.session.flush()
+    return image_id
+
+
+def delete_question_images(question_id: str) -> None:
+    """Delete all image files and DB records associated with question_id.
+
+    Caller must commit after this call.
+    """
+    from app.db_models import db, QuestionImageModel
+
+    records = QuestionImageModel.query.filter_by(question_id=question_id).all()
+    for rec in records:
+        try:
+            os.remove(os.path.join(_IMAGES_DIR, rec.filename))
+        except OSError:
+            pass
+        db.session.delete(rec)
+
+
+def _associate_images_in_html(html_content: str, question_id: str) -> None:
+    """Find all image_ids in HTML and update their question_id to question_id.
+
+    Call after a question is committed to associate orphan images (uploaded
+    before the question existed) with the question.
+    Does NOT commit — caller must commit.
+    """
+    from app.db_models import db, QuestionImageModel
+
+    if not html_content:
+        return
+    img_ids = re.findall(r'/api/images/(img_[a-f0-9]+)', html_content)
+    if img_ids:
+        QuestionImageModel.query.filter(
+            QuestionImageModel.image_id.in_(img_ids),
+            QuestionImageModel.question_id.is_(None)
+        ).update({'question_id': question_id}, synchronize_session=False)
+
+
+
+
+# ── HTML → Word helpers ──────────────────────────────────────────────────────
+
+def _apply_para_fmt(p, indent_cm=0, space_before_pt=2, space_after_pt=2):
+    """Apply standard paragraph formatting."""
+    p.paragraph_format.space_before = Pt(space_before_pt)
+    p.paragraph_format.space_after = Pt(space_after_pt)
+    p.paragraph_format.line_spacing = 1.15
+    if indent_cm:
+        p.paragraph_format.left_indent = Cm(indent_cm)
+
+
+class _HtmlToDocxParser(HTMLParser):
+    """Stream Quill / docx_importer HTML into python-docx paragraphs/tables/images."""
+
+    def __init__(self, doc, size_pt=10.5, indent_cm=0,
+                 space_before_pt=2, space_after_pt=2, prefix_text=''):
+        super().__init__(convert_charrefs=True)
+        self.doc = doc
+        self.size_pt = size_pt
+        self.indent_cm = indent_cm
+        self.space_before_pt = space_before_pt
+        self.space_after_pt = space_after_pt
+
+        self._para = None
+        self._first_para = True
+        self._prefix_text = prefix_text
+
+        self._bold = False
+        self._italic = False
+        self._underline = False
+
+        # Table accumulation
+        self._in_table = False
+        self._table_rows = []   # list[list[str]]
+        self._cur_row = None    # list[str] | None
+        self._cur_cell = None   # str | None
+
+    def _ensure_para(self):
+        if self._para is None:
+            self._para = self.doc.add_paragraph()
+            _apply_para_fmt(self._para, self.indent_cm,
+                            self.space_before_pt, self.space_after_pt)
+            if self._first_para and self._prefix_text:
+                run = self._para.add_run(self._prefix_text)
+                _set_run_font(run, self.size_pt)
+            self._first_para = False
+        return self._para
+
+    def _close_para(self):
+        self._para = None
+
+    def handle_starttag(self, tag, attrs):
+        attrs_d = dict(attrs)
+        if tag == 'p':
+            self._close_para()
+        elif tag == 'br':
+            if self._para is not None:
+                run = self._para.add_run('\n')
+                _set_run_font(run, self.size_pt)
+        elif tag in ('strong', 'b'):
+            self._bold = True
+        elif tag in ('em', 'i'):
+            self._italic = True
+        elif tag == 'u':
+            self._underline = True
+        elif tag == 'img':
+            src = attrs_d.get('src', '')
+            m = re.search(r'/api/images/(img_[a-f0-9]+)', src)
+            if m:
+                self._close_para()
+                self._insert_image(m.group(1))
+                self._close_para()
+        elif tag == 'table':
+            self._close_para()
+            self._in_table = True
+            self._table_rows = []
+        elif tag == 'tr':
+            self._cur_row = []
+        elif tag in ('td', 'th'):
+            self._cur_cell = ''
+
+    def handle_endtag(self, tag):
+        if tag == 'p':
+            self._close_para()
+        elif tag in ('strong', 'b'):
+            self._bold = False
+        elif tag in ('em', 'i'):
+            self._italic = False
+        elif tag == 'u':
+            self._underline = False
+        elif tag == 'tr':
+            if self._cur_row is not None:
+                self._table_rows.append(self._cur_row)
+            self._cur_row = None
+        elif tag in ('td', 'th'):
+            if self._cur_row is not None and self._cur_cell is not None:
+                self._cur_row.append(self._cur_cell)
+            self._cur_cell = None
+        elif tag == 'table':
+            self._in_table = False
+            self._render_table()
+
+    def handle_data(self, data):
+        if self._in_table:
+            if self._cur_cell is not None:
+                self._cur_cell += data
+            return
+        # Split on newlines: each \n separates logical paragraphs
+        segments = data.split('\n')
+        for idx, segment in enumerate(segments):
+            stripped = segment.strip()
+            if stripped:
+                para = self._ensure_para()
+                run = para.add_run(stripped)
+                run.bold = self._bold
+                run.italic = self._italic
+                run.underline = self._underline
+                _set_run_font(run, self.size_pt)
+            # Close paragraph between segments (not after the last)
+            if idx < len(segments) - 1:
+                self._close_para()
+
+    def _insert_image(self, image_id):
+        from app.db_models import QuestionImageModel
+        rec = QuestionImageModel.query.filter_by(image_id=image_id).first()
+        if rec is None:
+            return
+        img_path = os.path.join(_IMAGES_DIR, rec.filename)
+        if not os.path.exists(img_path):
+            return
+        para = self._ensure_para()
+        run = para.add_run()
+        try:
+            run.add_picture(img_path, width=Inches(3.5))
+        except Exception:
+            pass
+
+    def _render_table(self):
+        if not self._table_rows:
+            return
+        cols = max((len(r) for r in self._table_rows), default=0)
+        if cols == 0:
+            return
+        tbl = self.doc.add_table(rows=len(self._table_rows), cols=cols)
+        try:
+            tbl.style = 'Table Grid'
+        except Exception:
+            pass
+        for r_idx, row_data in enumerate(self._table_rows):
+            for c_idx in range(cols):
+                cell_text = row_data[c_idx] if c_idx < len(row_data) else ''
+                cell = tbl.rows[r_idx].cells[c_idx]
+                cell.text = cell_text
+                for run in cell.paragraphs[0].runs:
+                    _set_run_font(run, self.size_pt - 1)
+
+
+def _add_html_to_doc(doc, html_str: str, size_pt: float = 10.5,
+                     indent_cm: float = 0,
+                     space_before_pt: float = 2, space_after_pt: float = 2,
+                     prefix_text: str = ''):
+    """Append html_str as Word content to doc.
+
+    Handles Quill-generated HTML (<p>, <strong>, <img>, etc.) and
+    docx_importer output (plain text + <img> + <table> joined by newlines).
+    Falls back to plain-text fast path if no '<' found.
+    prefix_text is prepended to the very first run (e.g. '1. ').
+    """
+    if not html_str and not prefix_text:
+        return
+
+    if not html_str:
+        p = doc.add_paragraph()
+        _apply_para_fmt(p, indent_cm, space_before_pt, space_after_pt)
+        run = p.add_run(prefix_text)
+        _set_run_font(run, size_pt)
+        return
+
+    if '<' not in html_str:
+        # Plain-text fast path
+        first = True
+        for line in html_str.split('\n'):
+            text = line.strip()
+            if not text and not first:
+                continue
+            p = doc.add_paragraph()
+            _apply_para_fmt(p, indent_cm, space_before_pt, space_after_pt)
+            run = p.add_run((prefix_text if first else '') + text)
+            _set_run_font(run, size_pt)
+            first = False
+        return
+
+    # HTML path
+    parser = _HtmlToDocxParser(doc, size_pt=size_pt, indent_cm=indent_cm,
+                                space_before_pt=space_before_pt,
+                                space_after_pt=space_after_pt,
+                                prefix_text=prefix_text)
+    parser.feed(html_str)
+
+
+def _add_labeled_html_field(doc, label: str, content: str,
+                             size_pt: float = 10.5, indent_cm: float = 0.5):
+    """Add a bold label followed by content that may contain HTML.
+
+    For plain text: label + content on the same paragraph.
+    For HTML: bold label paragraph, then HTML content paragraphs.
+    """
+    if not content:
+        return
+    if '<' not in content:
+        p = doc.add_paragraph()
+        _apply_para_fmt(p, indent_cm, 2, 0)
+        run_label = p.add_run(label)
+        _set_run_font(run_label, size_pt, bold=True)
+        run_text = p.add_run(content)
+        _set_run_font(run_text, size_pt)
+    else:
+        p_label = doc.add_paragraph()
+        _apply_para_fmt(p_label, indent_cm, 2, 0)
+        run_label = p_label.add_run(label)
+        _set_run_font(run_label, size_pt, bold=True)
+        _add_html_to_doc(doc, content, size_pt=size_pt, indent_cm=indent_cm,
+                         space_before_pt=0, space_after_pt=2)
 
 
 def generate_word_template():
@@ -274,35 +577,32 @@ def export_exam_to_word(exam, filepath: str, mode: str = 'zh', show_answer: bool
 
             # --- Question content ---
             if mode == 'both' and content_en:
-                # English first, then Chinese
+                # English first (always plain text), then Chinese (may be HTML)
                 p_en = doc.add_paragraph()
                 p_en.paragraph_format.space_before = Pt(3)
                 p_en.paragraph_format.space_after = Pt(1)
                 p_en.paragraph_format.line_spacing = 1.15
                 run_en = p_en.add_run(f'{i}. {content_en}')
                 _set_run_font(run_en, 10.5)
-
-                p_zh = doc.add_paragraph()
-                p_zh.paragraph_format.space_before = Pt(0)
-                p_zh.paragraph_format.space_after = Pt(3)
-                p_zh.paragraph_format.line_spacing = 1.15
-                run_zh = p_zh.add_run(f'   {question.content}')
-                _set_run_font(run_zh, 10.5)
+                _add_html_to_doc(doc, question.content, size_pt=10.5,
+                                 space_before_pt=0, space_after_pt=3,
+                                 prefix_text='   ')
             elif mode == 'en':
-                display = content_en if content_en else question.content
-                p = doc.add_paragraph()
-                p.paragraph_format.space_before = Pt(3)
-                p.paragraph_format.space_after = Pt(3)
-                p.paragraph_format.line_spacing = 1.15
-                run = p.add_run(f'{i}. {display}')
-                _set_run_font(run, 10.5)
+                if content_en:
+                    p = doc.add_paragraph()
+                    p.paragraph_format.space_before = Pt(3)
+                    p.paragraph_format.space_after = Pt(3)
+                    p.paragraph_format.line_spacing = 1.15
+                    run = p.add_run(f'{i}. {content_en}')
+                    _set_run_font(run, 10.5)
+                else:
+                    _add_html_to_doc(doc, question.content, size_pt=10.5,
+                                     space_before_pt=3, space_after_pt=3,
+                                     prefix_text=f'{i}. ')
             else:  # zh or both without English content
-                p = doc.add_paragraph()
-                p.paragraph_format.space_before = Pt(3)
-                p.paragraph_format.space_after = Pt(3)
-                p.paragraph_format.line_spacing = 1.15
-                run = p.add_run(f'{i}. {question.content}')
-                _set_run_font(run, 10.5)
+                _add_html_to_doc(doc, question.content, size_pt=10.5,
+                                 space_before_pt=3, space_after_pt=3,
+                                 prefix_text=f'{i}. ')
 
             # --- Options ---
             if mode == 'both' and options_en:
@@ -355,24 +655,10 @@ def export_exam_to_word(exam, filepath: str, mode: str = 'zh', show_answer: bool
                     _set_run_font(run, 10.5, bold=True)
 
                 if question.reference_answer:
-                    p = doc.add_paragraph()
-                    p.paragraph_format.space_before = Pt(2)
-                    p.paragraph_format.space_after = Pt(0)
-                    p.paragraph_format.left_indent = Cm(0.5)
-                    run_label = p.add_run('参考答案：')
-                    _set_run_font(run_label, 10.5, bold=True)
-                    run_text = p.add_run(question.reference_answer)
-                    _set_run_font(run_text, 10.5)
+                    _add_labeled_html_field(doc, '参考答案：', question.reference_answer)
 
                 if question.explanation:
-                    p = doc.add_paragraph()
-                    p.paragraph_format.space_before = Pt(2)
-                    p.paragraph_format.space_after = Pt(0)
-                    p.paragraph_format.left_indent = Cm(0.5)
-                    run_label = p.add_run('解析：')
-                    _set_run_font(run_label, 10.5, bold=True)
-                    run_text = p.add_run(question.explanation)
-                    _set_run_font(run_text, 10.5)
+                    _add_labeled_html_field(doc, '解析：', question.explanation)
 
     # --- Page footer with page numbers ---
     _add_page_number_footer(doc)

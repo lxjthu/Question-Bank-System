@@ -1,6 +1,7 @@
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import json
+import uuid
 
 db = SQLAlchemy()
 
@@ -105,6 +106,34 @@ class CourseSettingsModel(db.Model):
             'exam_title': self.exam_title or '期末考试试卷',
             'paper_label': self.paper_label or 'A',
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class QuestionImageModel(db.Model):
+    """Stores metadata for images embedded in question fields (content/reference_answer/explanation).
+    Actual image bytes are stored on disk in uploads/images/.
+    """
+    __tablename__ = 'question_images'
+    id           = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    image_id     = db.Column(db.String(64), unique=True, nullable=False,
+                             default=lambda: 'img_' + uuid.uuid4().hex[:8])
+    question_id  = db.Column(db.String(64), db.ForeignKey('questions.question_id'),
+                             nullable=True, index=True)
+    field        = db.Column(db.String(32))          # 'content' | 'reference_answer' | 'explanation'
+    filename     = db.Column(db.String(256), nullable=False)   # basename on disk
+    original_name = db.Column(db.String(256))
+    content_type = db.Column(db.String(64), default='image/png')
+    file_size    = db.Column(db.Integer)
+    created_at   = db.Column(db.DateTime, default=datetime.now)
+
+    def to_dict(self):
+        return {
+            'image_id': self.image_id,
+            'question_id': self.question_id,
+            'field': self.field,
+            'filename': self.filename,
+            'content_type': self.content_type,
+            'url': f'/api/images/{self.image_id}',
         }
 
 

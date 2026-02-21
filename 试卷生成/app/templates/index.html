@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>试题管理系统</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.snow.min.css">
     <style>
         :root {
             --primary-color: #2c3e50;
@@ -534,6 +535,22 @@
             min-width: auto;
             flex: 0 0 auto;
         }
+
+        /* Quill rich text editor */
+        .ql-toolbar.ql-snow {
+            border-radius: var(--border-radius) var(--border-radius) 0 0;
+            border-color: #ddd;
+            font-family: inherit;
+            background: #fafafa;
+        }
+        .ql-container.ql-snow {
+            border-radius: 0 0 var(--border-radius) var(--border-radius);
+            border-color: #ddd;
+            font-size: 14px;
+        }
+        .ql-editor { min-height: 80px; }
+        .ql-editor img { max-width: 100%; display: block; }
+        #quill-content .ql-editor { min-height: 120px; }
     </style>
 </head>
 <body>
@@ -592,8 +609,8 @@
                     </div>
 
                     <div class="form-group">
-                        <label for="question-content">题目内容</label>
-                        <textarea id="question-content" rows="3"></textarea>
+                        <label>题目内容</label>
+                        <div id="quill-content"></div>
                     </div>
 
                     <div class="form-row" id="options-container" style="display: none;">
@@ -621,14 +638,14 @@
                             <input type="text" id="question-answer">
                         </div>
                         <div class="form-group">
-                            <label for="question-reference">参考答案</label>
-                            <textarea id="question-reference" rows="2"></textarea>
+                            <label>参考答案</label>
+                            <div id="quill-reference"></div>
                         </div>
                     </div>
 
                     <div class="form-group">
-                        <label for="question-explanation">解析</label>
-                        <textarea id="question-explanation" rows="2"></textarea>
+                        <label>解析</label>
+                        <div id="quill-explanation"></div>
                     </div>
 
                     <details id="bilingual-details" style="margin-bottom: 20px;">
@@ -1097,6 +1114,7 @@
         </div>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.min.js"></script>
     <script>
         // ========== Global question types cache ==========
         let questionTypesCache = [];
@@ -1191,7 +1209,8 @@
         document.getElementById('add-question-btn').addEventListener('click', async () => {
             const questionType = document.getElementById('question-type').value;
             const language = document.getElementById('question-language').value;
-            const content = document.getElementById('question-content').value;
+            const _qcHtml = quillContent.root.innerHTML;
+            const content = (_qcHtml === '<p><br></p>' || _qcHtml === '') ? '' : _qcHtml;
 
             let options = [];
             if (isChoiceType(questionType)) {
@@ -1207,8 +1226,10 @@
             }
 
             const answer = document.getElementById('question-answer').value;
-            const reference = document.getElementById('question-reference').value;
-            const explanation = document.getElementById('question-explanation').value;
+            const _qrHtml = quillReference.root.innerHTML;
+            const reference = (_qrHtml === '<p><br></p>' || _qrHtml === '') ? '' : _qrHtml;
+            const _qeHtml = quillExplanation.root.innerHTML;
+            const explanation = (_qeHtml === '<p><br></p>' || _qeHtml === '') ? '' : _qeHtml;
 
             // Collect bilingual/metadata fields
             const contentEn = document.getElementById('question-content-en').value;
@@ -1408,7 +1429,7 @@
                         <td>${question.question_id.substring(0, 8)}...</td>
                         <td>${question.subject || '-'}</td>
                         <td>${question.question_type}</td>
-                        <td title="${escapeHtml(metaTitle)}">${question.content.substring(0, 50)}${question.content.length > 50 ? '...' : ''}${bilingualIcon}</td>
+                        <td title="${escapeHtml(metaTitle)}">${escapeHtml(stripHtml(question.content).substring(0, 50))}${stripHtml(question.content).length > 50 ? '...' : ''}${bilingualIcon}</td>
                         <td>${difficultyText}</td>
                         <td><span class="${statusClass}">${status}</span></td>
                         <td><div class="action-btns">
@@ -1470,10 +1491,10 @@
                 document.getElementById('question-subject').value = question.subject || '';
                 document.getElementById('question-type').value = question.question_type;
                 document.getElementById('question-language').value = question.language || 'zh';
-                document.getElementById('question-content').value = question.content || '';
+                quillContent.root.innerHTML = question.content || '';
                 document.getElementById('question-answer').value = question.answer || '';
-                document.getElementById('question-reference').value = question.reference_answer || '';
-                document.getElementById('question-explanation').value = question.explanation || '';
+                quillReference.root.innerHTML = question.reference_answer || '';
+                quillExplanation.root.innerHTML = question.explanation || '';
 
                 // Show/hide options and fill them
                 const optionsContainer = document.getElementById('options-container');
@@ -1547,14 +1568,14 @@
             document.getElementById('question-subject').value = '';
             document.getElementById('question-type').value = questionTypesCache.length ? questionTypesCache[0].name : '';
             document.getElementById('question-language').value = 'zh';
-            document.getElementById('question-content').value = '';
+            quillContent.setText('');
             document.getElementById('option-a').value = '';
             document.getElementById('option-b').value = '';
             document.getElementById('option-c').value = '';
             document.getElementById('option-d').value = '';
             document.getElementById('question-answer').value = '';
-            document.getElementById('question-reference').value = '';
-            document.getElementById('question-explanation').value = '';
+            quillReference.setText('');
+            quillExplanation.setText('');
             document.getElementById('question-content-en').value = '';
             document.getElementById('option-a-en').value = '';
             document.getElementById('option-b-en').value = '';
@@ -2007,6 +2028,13 @@
             return div.innerHTML;
         }
 
+        function stripHtml(html) {
+            if (!html || !html.includes('<')) return html || '';
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            return tmp.textContent || tmp.innerText || '';
+        }
+
         // ========== Edit question in exam (inline) ==========
         async function editExamQuestion(questionId) {
             try {
@@ -2251,7 +2279,7 @@
                 html += `<div style="padding:10px; border-bottom:1px solid #eee; cursor:pointer; transition: background 0.2s;"
                     onmouseenter="this.style.background='#e3f2fd'" onmouseleave="this.style.background='white'"
                     onclick="doReplace('${examId}', '${oldQuestionId}', '${q.question_id}')">
-                    <strong>${escapeHtml(q.content.substring(0, 80))}${q.content.length > 80 ? '...' : ''}</strong>`;
+                    <strong>${escapeHtml(stripHtml(q.content).substring(0, 80))}${stripHtml(q.content).length > 80 ? '...' : ''}</strong>`;
                 // Meta tags row
                 const tags = [];
                 if (q.subject) tags.push(`<span style="background:#f3e5f5;padding:1px 6px;border-radius:3px;font-size:0.8em;">${escapeHtml(q.subject)}</span>`);
@@ -2564,7 +2592,7 @@
                     <td><input type="checkbox" class="usage-cb" data-id="${q.question_id}" ${selectedUsageIds.has(q.question_id) ? 'checked' : ''}></td>
                     <td title="${q.question_id}">${q.question_id.substring(0, 8)}...</td>
                     <td>${q.question_type}</td>
-                    <td title="${escapeHtml(q.content)}">${escapeHtml(q.content.substring(0, 50))}${q.content.length > 50 ? '...' : ''}</td>
+                    <td title="${escapeHtml(stripHtml(q.content))}">${escapeHtml(stripHtml(q.content).substring(0, 50))}${stripHtml(q.content).length > 50 ? '...' : ''}</td>
                     <td>${diffText}</td>
                     <td>${dateStr}</td>
                     <td>
@@ -3217,6 +3245,54 @@ Now please start generating questions. Output question content directly without 
                 setTimeout(() => { btn.innerHTML = '<i class="fas fa-copy"></i> 复制提示词'; }, 2000);
             });
         });
+
+        // ========== Quill Rich Text Editors ==========
+        function makeQuillEditor(containerId) {
+            const quill = new Quill(containerId, {
+                theme: 'snow',
+                modules: {
+                    toolbar: {
+                        container: [
+                            ['bold', 'italic', 'underline'],
+                            [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+                            ['image'],
+                            ['clean']
+                        ],
+                        handlers: {
+                            image: function () {
+                                const input = document.createElement('input');
+                                input.setAttribute('type', 'file');
+                                input.setAttribute('accept', 'image/*');
+                                input.click();
+                                input.onchange = async () => {
+                                    const file = input.files[0];
+                                    if (!file) return;
+                                    const fd = new FormData();
+                                    fd.append('file', file);
+                                    try {
+                                        const resp = await fetch('/api/images/upload', { method: 'POST', body: fd });
+                                        if (resp.ok) {
+                                            const data = await resp.json();
+                                            const range = quill.getSelection(true);
+                                            quill.insertEmbed(range.index, 'image', data.url, 'user');
+                                        } else {
+                                            alert('图片上传失败');
+                                        }
+                                    } catch (e) {
+                                        alert('图片上传出错：' + e.message);
+                                    }
+                                };
+                            }
+                        }
+                    }
+                }
+            });
+            return quill;
+        }
+
+        const quillContent     = makeQuillEditor('#quill-content');
+        const quillReference   = makeQuillEditor('#quill-reference');
+        const quillExplanation = makeQuillEditor('#quill-explanation');
 
         // ========== Initialization ==========
         window.addEventListener('DOMContentLoaded', async () => {

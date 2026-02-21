@@ -19,6 +19,9 @@ def create_app(config_name=None):
     with app.app_context():
         db.create_all()
         _seed_question_types()
+        # Ensure image upload directory exists
+        upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads')
+        os.makedirs(os.path.join(upload_folder, 'images'), exist_ok=True)
 
     # Register blueprints
     app.register_blueprint(bp)
