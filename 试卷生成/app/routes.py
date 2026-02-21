@@ -25,6 +25,7 @@ def get_questions():
     difficulty = request.args.get('difficulty', '')
     knowledge_point = request.args.get('knowledge_point', '')
     is_used = request.args.get('is_used', '')
+    subject = request.args.get('subject', '')
 
     query = QuestionModel.query
 
@@ -42,9 +43,22 @@ def get_questions():
         query = query.filter_by(is_used=True)
     elif is_used == '0':
         query = query.filter_by(is_used=False)
+    if subject:
+        query = query.filter_by(subject=subject)
 
     questions = query.all()
     return jsonify([q.to_dict() for q in questions])
+
+
+@bp.route('/api/questions/subjects', methods=['GET'])
+def get_subjects():
+    """Get all distinct subject values from the question bank"""
+    rows = db.session.query(QuestionModel.subject).filter(
+        QuestionModel.subject.isnot(None),
+        QuestionModel.subject != ''
+    ).distinct().all()
+    subjects = sorted([r[0] for r in rows if r[0]])
+    return jsonify(subjects)
 
 
 @bp.route('/api/questions', methods=['POST'])
@@ -70,6 +84,7 @@ def add_question():
         explanation=data.get('explanation'),
         content_en=content_en,
         options_en=json.dumps(options_en, ensure_ascii=False) if options_en else None,
+        subject=data.get('subject') or None,
         knowledge_point=data.get('knowledge_point'),
         tags=data.get('tags'),
         difficulty=data.get('difficulty'),
@@ -121,6 +136,8 @@ def update_question(question_id):
         question.content_en = data['content_en']
     if 'options_en' in data:
         question.options_en = json.dumps(data['options_en'], ensure_ascii=False) if data['options_en'] else None
+    if 'subject' in data:
+        question.subject = data['subject'] or None
     if 'knowledge_point' in data:
         question.knowledge_point = data['knowledge_point']
     if 'tags' in data:
@@ -221,7 +238,19 @@ def import_questions():
 
             file.save(file_path)
 
+            # Read subject from form field
+            import_subject = request.form.get('subject') or None
+
+            # Build a set of existing content for deduplication (trimmed)
+            existing_contents = set(
+                row[0].strip()
+                for row in db.session.query(QuestionModel.content).all()
+                if row[0]
+            )
+
             questions_data = []
+            models = []
+            skipped = 0
 
             # Convert Word to CSV if needed
             if file.filename.lower().endswith('.docx'):
@@ -236,8 +265,12 @@ def import_questions():
                 questions_data = parse_csv_to_questions(csv_path)
 
                 now = datetime.now()
-                models = []
                 for i, q_data in enumerate(questions_data):
+                    content_text = (q_data.get('content') or '').strip()
+                    if content_text in existing_contents:
+                        skipped += 1
+                        continue
+                    existing_contents.add(content_text)  # prevent duplicates within this batch
                     question_id = f"q_{now.strftime('%Y%m%d_%H%M%S')}_{i}"
                     content_en = q_data.get('content_en') or None
                     options_en = q_data.get('options_en') or []
@@ -252,6 +285,7 @@ def import_questions():
                         explanation=q_data['explanation'],
                         content_en=content_en,
                         options_en=json.dumps(options_en, ensure_ascii=False) if options_en else None,
+                        subject=import_subject or q_data.get('subject') or None,
                         knowledge_point=q_data.get('knowledge_point') or None,
                         tags=q_data.get('tags') or None,
                         difficulty=q_data.get('difficulty') or None,
@@ -274,8 +308,12 @@ def import_questions():
                 questions_data = parse_question_template(content)
 
                 now = datetime.now()
-                models = []
                 for i, q_data in enumerate(questions_data):
+                    content_text = (q_data.get('content') or '').strip()
+                    if content_text in existing_contents:
+                        skipped += 1
+                        continue
+                    existing_contents.add(content_text)  # prevent duplicates within this batch
                     question_id = f"q_{now.strftime('%Y%m%d_%H%M%S')}_txt_{i}"
                     content_en = q_data.get('content_en') or None
                     options_en = q_data.get('options_en') or []
@@ -290,6 +328,7 @@ def import_questions():
                         explanation=q_data.get('explanation', ''),
                         content_en=content_en,
                         options_en=json.dumps(options_en, ensure_ascii=False) if options_en else None,
+                        subject=import_subject or q_data.get('subject') or None,
                         knowledge_point=q_data.get('knowledge_point') or None,
                         tags=q_data.get('tags') or None,
                         difficulty=q_data.get('difficulty') or None,
@@ -306,7 +345,12 @@ def import_questions():
             if os.path.exists(file_path):
                 os.remove(file_path)
 
-            return jsonify({'message': 'Questions imported successfully', 'count': len(questions_data)})
+            imported = len(models)
+            return jsonify({
+                'message': 'Questions imported successfully',
+                'count': imported,
+                'skipped': skipped,
+            })
         except Exception as e:
             db.session.rollback()
             try:
@@ -483,6 +527,7 @@ def generate_exam():
     data = request.json
     name = data.get('name', f"Exam_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     config = data.get('config', {})
+    subject_filter = data.get('subject') or None
     now = datetime.now()
 
     # Create a new exam
@@ -501,10 +546,13 @@ def generate_exam():
         count = settings.get('count', 0)
 
         # Get unused questions of this type (strip whitespace for comparison)
-        available = QuestionModel.query.filter(
+        q_query = QuestionModel.query.filter(
             db.func.trim(QuestionModel.question_type) == question_type.strip(),
             QuestionModel.is_used == False
-        ).limit(count).all()
+        )
+        if subject_filter:
+            q_query = q_query.filter(QuestionModel.subject == subject_filter)
+        available = q_query.limit(count).all()
 
         for q in available:
             db.session.execute(exam_questions.insert().values(

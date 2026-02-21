@@ -43,6 +43,7 @@ class QuestionModel(db.Model):
     explanation = db.Column(db.Text)
     content_en = db.Column(db.Text, nullable=True)
     options_en = db.Column(db.Text, nullable=True)          # JSON string
+    subject = db.Column(db.String(128), nullable=True, index=True)   # 考试科目
     knowledge_point = db.Column(db.String(256), nullable=True)
     tags = db.Column(db.String(512), nullable=True)         # comma-separated
     difficulty = db.Column(db.String(32), nullable=True)    # easy/medium/hard
@@ -64,6 +65,7 @@ class QuestionModel(db.Model):
             'explanation': self.explanation,
             'content_en': self.content_en,
             'options_en': json.loads(self.options_en) if self.options_en else [],
+            'subject': self.subject,
             'knowledge_point': self.knowledge_point,
             'tags': self.tags,
             'difficulty': self.difficulty,

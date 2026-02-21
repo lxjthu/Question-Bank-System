@@ -243,10 +243,12 @@ def export_exam_to_word(exam, filepath: str, mode: str = 'zh', show_answer: bool
         count = len(type_questions)
         type_config = config.get(q_type, {})
         points = type_config.get('points', 0)
+        # Display only the sub-type for hierarchical types (e.g. '简答>材料分析' → '材料分析')
+        type_label = q_type.split('>')[-1] if '>' in q_type else q_type
         if points > 0:
-            section_title = f'{cn_num}、{q_type}（共{count}题，每题{points}分，共计{count * points}分）'
+            section_title = f'{cn_num}、{type_label}（共{count}题，每题{points}分，共计{count * points}分）'
         else:
-            section_title = f'{cn_num}、{q_type}（共{count}题）'
+            section_title = f'{cn_num}、{type_label}（共{count}题）'
 
         _add_styled_paragraph(doc, section_title, 12, bold=True,
                               space_before=12, space_after=6)
@@ -389,12 +391,9 @@ def parse_question_template(content: str) -> list:
             bracket_end = line.find(']')
             question_info = line[1:bracket_end]
             
-            if '>' in question_info:
-                q_type, specific_type = question_info.split('>', 1)
-            else:
-                q_type = question_info
-                specific_type = ''
-            
+            # Use the full identifier as the type (e.g. '简答>材料分析', not just '简答')
+            q_type = question_info
+
             # Determine if there's an answer in the bracket
             answer = None
             if len(line) > bracket_end + 1:
@@ -403,14 +402,14 @@ def parse_question_template(content: str) -> list:
                 if remaining.startswith('[') and ']' in remaining:
                     answer_end = remaining.find(']')
                     answer = remaining[1:answer_end]
-            
+
             current_question = {
                 'type': q_type,
-                'specific_type': specific_type,
                 'content': '',
                 'options': [],
                 'options_en': [],
                 'content_en': '',
+                'subject': '',
                 'knowledge_point': '',
                 'tags': '',
                 'difficulty': '',
@@ -461,7 +460,9 @@ def parse_question_template(content: str) -> list:
             current_question['reference_answer'] += '\n' + line
         
         elif current_section == 'explanation':
-            if re.match(r'^知识点[:：]', line):
+            if re.match(r'^科目[:：]', line):
+                current_question['subject'] = re.sub(r'^科目[:：]\s*', '', line)
+            elif re.match(r'^知识点[:：]', line):
                 current_question['knowledge_point'] = re.sub(r'^知识点[:：]\s*', '', line)
             elif re.match(r'^标签[:：]', line):
                 current_question['tags'] = re.sub(r'^标签[:：]\s*', '', line)

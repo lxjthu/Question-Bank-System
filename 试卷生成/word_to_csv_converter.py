@@ -37,11 +37,8 @@ def convert_word_to_csv(filepath):
                 if current_question is not None:
                     questions_data.append(current_question)
                 
-                # Determine question type and potential answer
-                if '>' in question_info:
-                    q_type = question_info.split('>', 1)[0]
-                else:
-                    q_type = question_info
+                # Use the full identifier as the type (e.g. '简答>材料分析', not just '简答')
+                q_type = question_info
                 
                 # Check if there's an answer in the same line after the bracket
                 remaining_after_bracket = para[bracket_end + 1:].strip()
@@ -148,9 +145,11 @@ def convert_word_to_csv(filepath):
 
         # If we have a current question and this is content for it (not a new question marker)
         elif current_question is not None and not para.startswith('[') and not para.startswith('<'):
-            # Add to content if it's not already set
+            # Accumulate all content paragraphs (needed for multi-paragraph questions like 材料分析)
             if not current_question['content']:
                 current_question['content'] = para
+            else:
+                current_question['content'] += '\n' + para
         
         i += 1
     

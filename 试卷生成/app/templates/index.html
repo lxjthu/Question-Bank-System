@@ -290,8 +290,7 @@
 
         tr:hover {
             background-color: #e3f2fd;
-            transform: translateX(5px);
-            transition: all 0.2s ease;
+            transition: background-color 0.2s ease;
         }
 
         /* Card Styles */
@@ -305,8 +304,8 @@
         }
 
         .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 16px rgba(0,0,0,0.15);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.12);
         }
 
         .card h3 {
@@ -489,6 +488,52 @@
             border-radius: var(--border-radius);
             margin: 20px 0;
         }
+
+        /* Fix #1: Remove double spacing inside form-row */
+        .form-row > .form-group {
+            margin-bottom: 0;
+        }
+
+        /* Fix #2: Button group */
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        /* Fix #3: Status badges */
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            line-height: 1.4;
+        }
+        .badge-used {
+            background: #fde8e8;
+            color: #c0392b;
+        }
+        .badge-unused {
+            background: #e8f8e8;
+            color: #27ae60;
+        }
+
+        /* Fix #4: Action buttons in table */
+        .action-btns {
+            display: flex;
+            gap: 6px;
+            flex-wrap: nowrap;
+        }
+
+        /* Fix #5: Search bar button alignment */
+        .form-group-btn {
+            display: flex;
+            align-items: flex-end;
+            min-width: auto;
+            flex: 0 0 auto;
+        }
     </style>
 </head>
 <body>
@@ -525,6 +570,11 @@
                 <div class="form-container">
                     <h2><i class="fas fa-plus-circle"></i> 添加题目</h2>
                     <div class="form-row">
+                        <div class="form-group">
+                            <label for="question-subject">科目</label>
+                            <input type="text" id="question-subject" list="subject-datalist-form" placeholder="如: 林业经济学">
+                            <datalist id="subject-datalist-form"></datalist>
+                        </div>
                         <div class="form-group">
                             <label for="question-type">题型</label>
                             <select id="question-type">
@@ -639,6 +689,12 @@
                     <h3><i class="fas fa-search"></i> 搜索题目</h3>
                     <div class="form-row">
                         <div class="form-group">
+                            <select id="search-subject">
+                                <option value="">所有科目</option>
+                                <!-- populated dynamically -->
+                            </select>
+                        </div>
+                        <div class="form-group">
                             <input type="text" id="search-keyword" placeholder="输入关键词搜索...">
                         </div>
                         <div class="form-group">
@@ -655,12 +711,13 @@
                                 <option value="both">中英对照</option>
                             </select>
                         </div>
-                        <div class="form-group">
+                        <div class="form-group form-group-btn">
                             <button id="search-btn" class="btn btn-outline">
                                 <i class="fas fa-search"></i> 搜索
                             </button>
                         </div>
                     </div>
+                    <div id="question-count-bar" style="margin-top:8px; font-size:0.9rem; color:var(--dark-gray);"></div>
                 </div>
 
                 <div class="batch-bar" id="batch-bar">
@@ -681,10 +738,10 @@
                             <tr>
                                 <th style="width:40px;"><input type="checkbox" id="select-all-cb"></th>
                                 <th>ID</th>
+                                <th>科目</th>
                                 <th>题型</th>
                                 <th>内容</th>
                                 <th>难度</th>
-                                <th>语言</th>
                                 <th>状态</th>
                                 <th>操作</th>
                             </tr>
@@ -701,6 +758,16 @@
                 <div class="auto-exam-generation">
                     <h3><i class="fas fa-bolt"></i> 一键自动组卷</h3>
                     <p>根据以下配置自动生成试卷：</p>
+
+                    <div style="margin-bottom:15px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                        <label style="font-weight:500; color:var(--primary-color);" for="exam-subject-filter">
+                            <i class="fas fa-book-open"></i> 组卷科目：
+                        </label>
+                        <select id="exam-subject-filter" style="padding:8px 14px; border:1px solid #ddd; border-radius:var(--border-radius); min-width:160px; font-size:0.95rem;">
+                            <option value="">不限科目（所有题目）</option>
+                            <!-- populated dynamically -->
+                        </select>
+                    </div>
 
                     <div id="exam-type-configs">
                         <!-- dynamic rows rendered by JS -->
@@ -738,15 +805,14 @@
                     <div class="final-confirmation" id="final-confirmation-section" style="display: none;">
                         <h3><i class="fas fa-check-circle"></i> 试卷最终决定</h3>
                         <p>确认后，试卷中的题目将被标记为已使用，避免在其他试卷中重复出现。</p>
-                        <div style="display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap; margin-bottom: 15px;">
+                        <div style="display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap;">
                             <button id="confirm-exam-btn" class="btn btn-success">
                                 <i class="fas fa-check"></i> 确认试卷
                             </button>
                             <button id="revert-exam-btn" class="btn btn-warning" style="display: none;">
                                 <i class="fas fa-undo"></i> 撤销确认
                             </button>
-                        </div>
-                        <div style="margin-top: 10px; display: flex; gap: 10px; justify-content: center; align-items: center; flex-wrap: wrap;">
+                            <span style="color:#ccc; margin: 0 4px;">|</span>
                             <label for="export-mode-select" style="font-weight:500;">语言：</label>
                             <select id="export-mode-select" style="padding:8px 12px; border:1px solid #ddd; border-radius:var(--border-radius);">
                                 <option value="zh">中文</option>
@@ -793,9 +859,16 @@
 
                 <div class="card">
                     <h3><i class="fas fa-file-upload"></i> 导入题库</h3>
-                    <div class="form-group">
-                        <label for="import-file">选择文件</label>
-                        <input type="file" id="import-file" accept=".docx,.txt,.csv">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="import-subject">导入科目 <span style="color:var(--danger-color);">*</span></label>
+                            <input type="text" id="import-subject" list="subject-datalist-import" placeholder="请输入或选择考试科目" required>
+                            <datalist id="subject-datalist-import"></datalist>
+                        </div>
+                        <div class="form-group">
+                            <label for="import-file">选择文件</label>
+                            <input type="file" id="import-file" accept=".docx,.txt,.csv">
+                        </div>
                     </div>
                     <button id="import-btn" class="btn btn-primary">
                         <i class="fas fa-upload"></i> 导入题库
@@ -804,12 +877,14 @@
 
                 <div class="card">
                     <h3><i class="fas fa-file-export"></i> 导出题库</h3>
-                    <button id="export-json-btn" class="btn btn-outline">
-                        <i class="fas fa-file-code"></i> 导出为JSON
-                    </button>
-                    <button id="export-csv-btn" class="btn btn-outline">
-                        <i class="fas fa-file-csv"></i> 导出为CSV
-                    </button>
+                    <div class="btn-group">
+                        <button id="export-json-btn" class="btn btn-outline">
+                            <i class="fas fa-file-code"></i> 导出为JSON
+                        </button>
+                        <button id="export-csv-btn" class="btn btn-outline">
+                            <i class="fas fa-file-csv"></i> 导出为CSV
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -892,7 +967,7 @@
                 <div id="usage-summary" style="margin-bottom:15px; padding:12px 18px; background:#f8f9fa; border-radius:var(--border-radius); display:none;">
                 </div>
 
-                <div class="batch-bar" id="usage-batch-bar" style="display:none; margin-bottom:10px; padding:10px 15px; background:#fff3e0; border-radius:var(--border-radius); display:none; align-items:center; gap:10px;">
+                <div class="batch-bar" id="usage-batch-bar" style="background:#fff3e0;">
                     <span style="font-weight:500;">已选择 <span id="usage-batch-count">0</span> 题</span>
                     <button class="btn btn-warning btn-sm" id="usage-release-btn">
                         <i class="fas fa-unlock"></i> 释放选中题目
@@ -948,9 +1023,9 @@
                             <label for="settings-exam-title">考试标题</label>
                             <input type="text" id="settings-exam-title" placeholder="如: 期末考试试卷">
                         </div>
-                        <div class="form-group">
+                        <div class="form-group" style="max-width: 160px; flex: 0 0 160px;">
                             <label for="settings-paper-label">试卷标签</label>
-                            <input type="text" id="settings-paper-label" placeholder="如: A" maxlength="4" style="max-width:80px;">
+                            <input type="text" id="settings-paper-label" placeholder="如: A" maxlength="4">
                         </div>
                     </div>
 
@@ -1124,6 +1199,7 @@
                 if (oc) optionsEn.push(oc);
                 if (od) optionsEn.push(od);
             }
+            const questionSubject = document.getElementById('question-subject').value;
             const knowledgePoint = document.getElementById('question-knowledge-point').value;
             const tags = document.getElementById('question-tags').value;
             const difficulty = document.getElementById('question-difficulty').value;
@@ -1138,6 +1214,7 @@
                 language: language,
                 content_en: contentEn || null,
                 options_en: optionsEn.length > 0 ? optionsEn : null,
+                subject: questionSubject || null,
                 knowledge_point: knowledgePoint || null,
                 tags: tags || null,
                 difficulty: difficulty || null,
@@ -1258,9 +1335,11 @@
             const keyword = document.getElementById('search-keyword').value;
             const type = document.getElementById('search-type').value;
             const language = document.getElementById('search-language').value;
+            const subject = document.getElementById('search-subject').value;
 
             let url = '/api/questions';
             const params = [];
+            if (subject) params.push(`subject=${encodeURIComponent(subject)}`);
             if (keyword) params.push(`keyword=${encodeURIComponent(keyword)}`);
             if (type) params.push(`type=${encodeURIComponent(type)}`);
             if (language) params.push(`language=${encodeURIComponent(language)}`);
@@ -1279,15 +1358,23 @@
                 document.getElementById('select-all-cb').checked = false;
                 updateBatchBar();
 
+                // Show question count
+                const countBar = document.getElementById('question-count-bar');
+                if (countBar) {
+                    const subjectLabel = subject ? `「${subject}」` : '全部科目';
+                    countBar.textContent = `共找到 ${questions.length} 道题目（${subjectLabel}）`;
+                }
+
                 questions.forEach(question => {
                     const row = document.createElement('tr');
                     const status = question.is_used ? '已使用' : '未使用';
-                    const statusClass = question.is_used ? 'status-used' : 'status-unused';
+                    const statusClass = question.is_used ? 'badge badge-used' : 'badge badge-unused';
 
                     const bilingualIcon = question.content_en ? ' <i class="fas fa-globe" title="双语" style="color:var(--secondary-color);"></i>' : '';
                     const difficultyMap = { easy: '简单', medium: '中等', hard: '困难' };
                     const difficultyText = question.difficulty ? (difficultyMap[question.difficulty] || question.difficulty) : '-';
                     const metaTitle = [
+                        question.subject ? '科目: ' + question.subject : '',
                         question.knowledge_point ? '知识点: ' + question.knowledge_point : '',
                         question.tags ? '标签: ' + question.tags : ''
                     ].filter(Boolean).join('\n');
@@ -1295,18 +1382,19 @@
                     row.innerHTML = `
                         <td><input type="checkbox" class="question-cb" data-id="${question.question_id}"></td>
                         <td>${question.question_id.substring(0, 8)}...</td>
+                        <td>${question.subject || '-'}</td>
                         <td>${question.question_type}</td>
                         <td title="${escapeHtml(metaTitle)}">${question.content.substring(0, 50)}${question.content.length > 50 ? '...' : ''}${bilingualIcon}</td>
                         <td>${difficultyText}</td>
-                        <td>${question.language}</td>
                         <td><span class="${statusClass}">${status}</span></td>
-                        <td>
+                        <td><div class="action-btns">
                             <button class="btn btn-outline btn-sm" onclick="editQuestion('${question.question_id}')">
                                 <i class="fas fa-edit"></i>
                             </button>
                             <button class="btn btn-danger btn-sm" onclick="deleteQuestion('${question.question_id}')">
                                 <i class="fas fa-trash"></i>
                             </button>
+                        </div>
                         </td>
                     `;
 
@@ -1348,6 +1436,7 @@
                 document.getElementById('question-bank').classList.add('active');
 
                 // Fill form with question data
+                document.getElementById('question-subject').value = question.subject || '';
                 document.getElementById('question-type').value = question.question_type;
                 document.getElementById('question-language').value = question.language || 'zh';
                 document.getElementById('question-content').value = question.content || '';
@@ -1382,7 +1471,7 @@
                 document.getElementById('question-knowledge-point').value = question.knowledge_point || '';
                 document.getElementById('question-tags').value = question.tags || '';
                 document.getElementById('question-difficulty').value = question.difficulty || '';
-                // Open the details if bilingual data exists
+                // Open the details if bilingual/metadata exists
                 if (question.content_en || question.knowledge_point || question.tags || question.difficulty) {
                     document.getElementById('bilingual-details').open = true;
                 }
@@ -1424,6 +1513,7 @@
 
             document.querySelector('.form-container h2').innerHTML = '<i class="fas fa-plus-circle"></i> 添加题目';
 
+            document.getElementById('question-subject').value = '';
             document.getElementById('question-type').value = questionTypesCache.length ? questionTypesCache[0].name : '';
             document.getElementById('question-language').value = 'zh';
             document.getElementById('question-content').value = '';
@@ -1494,6 +1584,13 @@
         document.getElementById('import-btn').addEventListener('click', async () => {
             const fileInput = document.getElementById('import-file');
             const file = fileInput.files[0];
+            const importSubject = document.getElementById('import-subject').value.trim();
+
+            if (!importSubject) {
+                alert('请填写考试科目！');
+                document.getElementById('import-subject').focus();
+                return;
+            }
 
             if (!file) {
                 alert('请选择一个文件！');
@@ -1502,6 +1599,7 @@
 
             const formData = new FormData();
             formData.append('file', file);
+            formData.append('subject', importSubject);
 
             try {
                 const response = await fetch('/api/questions/import', {
@@ -1510,9 +1608,12 @@
                 });
 
                 if (response.ok) {
-                    alert('题库导入成功！');
+                    const result = await response.json();
+                    const skipMsg = result.skipped > 0 ? `，跳过重复题目 ${result.skipped} 道` : '';
+                    alert(`题库导入成功！科目：${importSubject}\n导入 ${result.count} 道题目${skipMsg}`);
                     fileInput.value = '';
                     loadQuestions();
+                    loadSubjects();  // refresh subject dropdowns
                 } else {
                     const errorData = await response.json();
                     alert(`导入失败: ${errorData.error}`);
@@ -1660,9 +1761,12 @@
         // ========== Auto exam generation ==========
         document.getElementById('generate-exam-btn').addEventListener('click', async () => {
             const config = getExamConfig();
+            const examSubject = document.getElementById('exam-subject-filter').value;
+            const subjectSuffix = examSubject ? `_${examSubject}` : '';
             const examData = {
-                name: `自动组卷_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`,
-                config: config
+                name: `自动组卷${subjectSuffix}_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`,
+                config: config,
+                subject: examSubject || null,
             };
 
             try {
@@ -2519,9 +2623,57 @@
             }
         });
 
+        // ========== Subject management ==========
+        async function loadSubjects() {
+            try {
+                const response = await fetch('/api/questions/subjects');
+                if (!response.ok) return;
+                const subjects = await response.json();
+
+                // Populate search subject dropdown
+                const searchSubjectSel = document.getElementById('search-subject');
+                const currentSearchVal = searchSubjectSel.value;
+                searchSubjectSel.innerHTML = '<option value="">所有科目</option>';
+                subjects.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s;
+                    opt.textContent = s;
+                    searchSubjectSel.appendChild(opt);
+                });
+                if (currentSearchVal) searchSubjectSel.value = currentSearchVal;
+
+                // Populate exam subject filter dropdown
+                const examSubjectSel = document.getElementById('exam-subject-filter');
+                const currentExamVal = examSubjectSel.value;
+                examSubjectSel.innerHTML = '<option value="">不限科目（所有题目）</option>';
+                subjects.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s;
+                    opt.textContent = s;
+                    examSubjectSel.appendChild(opt);
+                });
+                if (currentExamVal) examSubjectSel.value = currentExamVal;
+
+                // Populate datalists (form and import)
+                ['subject-datalist-form', 'subject-datalist-import'].forEach(dlId => {
+                    const dl = document.getElementById(dlId);
+                    if (!dl) return;
+                    dl.innerHTML = '';
+                    subjects.forEach(s => {
+                        const opt = document.createElement('option');
+                        opt.value = s;
+                        dl.appendChild(opt);
+                    });
+                });
+            } catch (e) {
+                console.error('Error loading subjects:', e);
+            }
+        }
+
         // ========== Initialization ==========
         window.addEventListener('DOMContentLoaded', async () => {
             await loadQuestionTypes();
+            await loadSubjects();
             renderDefaultExamConfig();
             loadQuestions();
             loadCourseSettings();
