@@ -37,13 +37,13 @@ def generate_word_template():
     # Add instructions
     doc.add_paragraph('使用说明：')
     doc.add_paragraph('1. 每道题以 [题型] 开头，题型标识符用方括号包围')
-    doc.add_paragraph('2. 题型后可跟答案标识符（如 [A]、[ABD] 等）')
-    doc.add_paragraph('3. 选择题答案紧跟在题型标识后，用方括号包围')
-    doc.add_paragraph('4. 选择题选项格式：[选项字母] + 选项内容')
+    doc.add_paragraph('2. 选择题答案紧跟在题型标识后，用方括号包围，如 [单选][A]、[多选][ABD]')
+    doc.add_paragraph('3. 是非题答案只能是 [正确] 或 [错误]，无需列选项')
+    doc.add_paragraph('4. 选择题选项格式：[A]选项内容（字母大写，紧跟内容，无空格）')
     doc.add_paragraph('5. 解析可选，用 <解析>...</解析> 包围')
     doc.add_paragraph('6. 参考答案用 <参考答案>...</参考答案> 包围')
-    doc.add_paragraph('7. 中文内容用 （中文） 标注，英文内容用 （英文） 标注')
-    doc.add_paragraph('8. 英文选项格式：[A_en]English option（紧跟中文选项后）')
+    doc.add_paragraph('7. 双语出题：在 <解析> 区段内写 "英文题目:English question?" 提供英文题干')
+    doc.add_paragraph('8. 双语选项：先列全部中文选项 [A][B][C][D]，再在其后统一列英文选项 [A_en][B_en][C_en][D_en]')
     doc.add_paragraph('9. 解析区段内可包含元数据行：知识点:xxx / 标签:xxx / 英文题目:xxx / 难度:easy|medium|hard')
 
     # Query all question types from DB
@@ -51,25 +51,39 @@ def generate_word_template():
 
     for qt in question_types:
         doc.add_heading(f'{qt.label}示例：', level=1)
-        if qt.has_options:
-            example_text = (f"[{qt.name}][A]\n示例题目内容？\n"
-                          f"[A]选项A\n[B]选项B\n[C]选项C\n[D]选项D\n"
-                          f"[A_en]Option A\n[B_en]Option B\n[C_en]Option C\n[D_en]Option D\n"
-                          f"<解析>\n这是一段解析\n知识点:学科知识\n标签:基础,概念\n"
-                          f"英文题目:Example question content?\n难度:medium\n</解析>")
+
+        # 是非题 special case: no options, answer is [正确] or [错误]
+        if qt.name == '是非':
+            example_text = (
+                f"[{qt.name}][正确]\n"
+                f"示例陈述句，此句表述正确。\n"
+                f"<解析>\n这是一段解析\n知识点:学科知识\n标签:基础,概念\n"
+                f"英文题目:Example statement that is true.\n难度:medium\n</解析>"
+            )
+        elif qt.has_options:
+            # 多选题 shows multi-letter answer; 单选题 shows single letter
+            sample_answer = 'ABD' if qt.name == '多选' else 'A'
+            example_text = (
+                f"[{qt.name}][{sample_answer}]\n示例题目内容？\n"
+                f"[A]选项A\n[B]选项B\n[C]选项C\n[D]选项D\n"
+                f"[A_en]Option A\n[B_en]Option B\n[C_en]Option C\n[D_en]Option D\n"
+                f"<解析>\n这是一段解析\n知识点:学科知识\n标签:基础,概念\n"
+                f"英文题目:Example question content?\n难度:medium\n</解析>"
+            )
         else:
-            example_text = (f"[{qt.name}]\n示例题目内容？\n<参考答案>\n这是一段参考答案\n</参考答案>\n"
-                          f"<解析>\n这是一段解析\n知识点:学科知识\n标签:基础,概念\n"
-                          f"英文题目:Example question content?\n难度:medium\n</解析>")
+            example_text = (
+                f"[{qt.name}]\n示例题目内容？\n<参考答案>\n这是一段参考答案\n</参考答案>\n"
+                f"<解析>\n这是一段解析\n知识点:学科知识\n标签:基础,概念\n"
+                f"英文题目:Example question content?\n难度:medium\n</解析>"
+            )
         doc.add_paragraph(example_text)
 
-    # Create temp directory
-    template_dir = os.path.join(os.getcwd(), 'temp')
-    os.makedirs(template_dir, exist_ok=True)
-    template_path = os.path.join(template_dir, 'question_template.docx')
-
-    doc.save(template_path)
-    return template_path
+    # Save to in-memory stream to avoid file-lock conflicts on Windows
+    import io as _io
+    stream = _io.BytesIO()
+    doc.save(stream)
+    stream.seek(0)
+    return stream
 
 
 CHINESE_NUMBERS = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十',
@@ -418,9 +432,24 @@ def parse_question_template(content: str) -> list:
                 'explanation': ''
             }
             
-            # The next line should be the question content
-            if bracket_end + 1 < len(line):
-                current_question['content'] = line[bracket_end + 1:].strip()
+            # The next line should be the question content.
+            # After the type bracket, there may be an answer bracket like [B] or [ABD].
+            # We must skip that bracket and only capture actual text content.
+            rest_of_line = line[bracket_end + 1:].strip()
+            # If rest_of_line is solely an answer bracket (e.g. "[B]", "[ABD]", "[正确]", "[错误]"),
+            # the actual question content is on the next line.
+            _answer_only = re.match(r'^\[([A-Z]{1,4}|正确|错误)\]$', rest_of_line)
+            _answer_prefix = re.match(r'^\[([A-Z]{1,4}|正确|错误)\]', rest_of_line)
+            if rest_of_line and _answer_only:
+                # Only an answer bracket remains — read content from the next line
+                i += 1
+                if i < len(lines):
+                    current_question['content'] = lines[i].strip()
+            elif rest_of_line and _answer_prefix:
+                # Answer bracket followed by inline content — strip the bracket
+                current_question['content'] = re.sub(r'^\[([A-Z]{1,4}|正确|错误)\]\s*', '', rest_of_line)
+            elif rest_of_line:
+                current_question['content'] = rest_of_line
             else:
                 i += 1
                 if i < len(lines):

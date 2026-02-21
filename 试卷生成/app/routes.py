@@ -594,8 +594,13 @@ def export_exam(exam_id):
 def download_template():
     """Download the question bank template"""
     try:
-        template_path = generate_word_template()
-        return send_file(template_path, as_attachment=True)
+        stream = generate_word_template()
+        return send_file(
+            stream,
+            as_attachment=True,
+            download_name='question_template.docx',
+            mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        )
     except Exception as e:
         return jsonify({'error': f'Template generation failed: {str(e)}'}), 500
 
