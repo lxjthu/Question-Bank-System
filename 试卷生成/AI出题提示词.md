@@ -7,14 +7,14 @@
 
 ## 使用步骤
 
-1. 打开 AI 对话窗口（支持文件上传的版本，如 Claude、GPT-4o 等）
+1. 打开 AI 对话窗口（支持文件上传的版本，如DeepSeek，豆包，千问等）
 2. 上传 PPT 或 PDF 文件
 3. 根据需要选择以下三种模式之一，复制对应的【主提示词】发给 AI
    - **模式一：纯中文出题**（默认，适合普通中文课程）
    - **模式二：中英双语出题**（适合双语课程，每题同时包含中英两种语言）
    - **模式三：纯英文出题**（适合全英文授课课程）
 4. 如需调整题量、题型比例，使用【补充指令】按需追加
-5. 将 AI 输出的内容保存为 `.txt` 文件（UTF-8 编码）
+5. 将 AI 输出的内容保存为 `.txt` 文件（UTF-8 编码）或docx文件
 6. 在系统"题库管理"→"导入题库"中上传该文件
 
 ---
@@ -38,11 +38,14 @@
 
 **质量要求：**
 1. 题目内容必须忠实于文件中的知识点，不得编造文件中没有的内容
-2. 题目难度均衡分布：简单(easy)约30%、中等(medium)约50%、困难(hard)约20%
+2. 在每种题型中，题目难度分布约为：简单(easy) 30%、中等(medium) 50%、困难(hard) 20%，三个难度的出题标准如下：
+   - **简单(easy)**：答案可以直接在上传材料的原文中找到，考查对定义、概念、步骤等基础内容的识记与理解；是非题和单选题以简单题为主
+   - **中等(medium)**：需要结合具体实例或现实应用场景作答，不能仅靠背诵原文，要求学生能将概念迁移到新情境中；典型形式如"举例说明……""分析某案例""比较两种做法的异同"，或在选择、判断题中设计与现实结合的选项
+   - **困难(hard)**：需要综合运用多个知识点，跨章节融会贯通，要求学生对知识体系有整体把握；典型形式如"比较多种理论/方法的适用条件""论述某问题的完整解决路径""对给定材料进行批判性分析"；论述题和材料分析题以困难题为主
 3. 覆盖文件中的主要章节和核心概念
-4. 每道题必须标注对应的知识点（来自文件章节/标题）
+4. 每道题必须标注对应的知识点（知识点从文件中提取，放在解析里）
 5. 选择题的干扰项要合理，不能过于明显
-6. 简答题和论述题的参考答案要完整、准确
+6. 简答题和论述题的参考答案要完整、准确；困难题的参考答案需体现跨知识点的整合与推理过程
 
 **输出格式（必须严格遵守）：**
 
@@ -173,10 +176,14 @@
 
 **质量要求：**
 1. 题目内容必须忠实于文件中的知识点，不得编造
-2. 题目难度均衡分布：简单(easy)约30%、中等(medium)约50%、困难(hard)约20%
+2. 题目难度分布约为：简单(easy) 30%、中等(medium) 50%、困难(hard) 20%，三个难度的出题标准如下：
+   - **简单(easy)**：答案可以直接在上传材料的原文中找到，考查对定义、概念、步骤等基础内容的识记与理解；是非题和单选题以简单题为主
+   - **中等(medium)**：需要结合具体实例或现实应用场景作答，不能仅靠背诵原文，要求学生能将概念迁移到新情境中；典型形式如"举例说明……""分析某案例""比较两种做法的异同"
+   - **困难(hard)**：需要综合运用多个知识点，跨章节融会贯通，要求学生对知识体系有整体把握；典型形式如"比较多种理论/方法的适用条件""论述某问题的完整解决路径""对给定材料进行批判性分析"；论述题和材料分析题以困难题为主
 3. 覆盖文件中的主要章节和核心概念
 4. 每道题必须同时提供中文和英文版本，语义完全对应，英文表达符合学术规范
 5. 选择题的中英文选项必须一一对应，顺序和含义完全一致
+6. 简答题和论述题的参考答案要完整、准确；困难题的参考答案需体现跨知识点的整合与推理过程
 
 **双语输出格式（必须严格遵守）：**
 
@@ -320,11 +327,14 @@ Please carefully read the uploaded file (PPT/PDF), fully understand all knowledg
 
 **Quality requirements:**
 1. Content must be faithfully based on the knowledge points in the file; do not fabricate content
-2. Balanced difficulty: approximately 30% easy, 50% medium, 20% hard
+2. Difficulty distribution: approximately 30% easy, 50% medium, 20% hard. Apply the following criteria for each level:
+   - **Easy**: The answer can be found directly in the original text of the uploaded material. Tests recall and comprehension of definitions, concepts, and procedures. True/False and single-choice questions should be mostly easy.
+   - **Medium**: Requires combining course concepts with concrete examples or real-world application scenarios. Students cannot rely on rote memorization alone — they must transfer concepts to new contexts. Typical forms: "Give an example of…", "Analyze a given case", "Compare two approaches".
+   - **Hard**: Requires integrating multiple knowledge points across chapters and demonstrating a holistic understanding of the subject. Typical forms: "Compare the applicability of multiple theories/methods", "Describe a complete solution path for a problem", "Critically analyze a given scenario". Essay and case analysis questions should be mostly hard.
 3. Cover major chapters and core concepts from the file
 4. Each question must include the corresponding knowledge point (from chapter/section titles)
 5. Distractors for choice questions must be plausible, not obviously wrong
-6. Reference answers for short answer and essay questions must be complete and accurate
+6. Reference answers for short answer and essay questions must be complete and accurate; hard question answers should explicitly show cross-topic integration and reasoning
 
 **Output format (must follow strictly):**
 

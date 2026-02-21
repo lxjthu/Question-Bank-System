@@ -544,14 +544,14 @@
         </div>
 
         <div class="nav-tabs">
+            <button class="tab-button" data-tab="template-download">
+                <i class="fas fa-file-import"></i> 题库导入与模板下载
+            </button>
             <button class="tab-button active" data-tab="question-bank">
                 <i class="fas fa-book"></i> 题库管理
             </button>
             <button class="tab-button" data-tab="exam-generation">
                 <i class="fas fa-file-alt"></i> 试卷生成
-            </button>
-            <button class="tab-button" data-tab="template-download">
-                <i class="fas fa-download"></i> 模板下载
             </button>
             <button class="tab-button" data-tab="type-management">
                 <i class="fas fa-tags"></i> 题型管理
@@ -885,6 +885,30 @@
                             <i class="fas fa-file-csv"></i> 导出为CSV
                         </button>
                     </div>
+                </div>
+
+                <div class="card" style="margin-top:20px;">
+                    <h3><i class="fas fa-robot"></i> AI 出题提示词</h3>
+                    <p>将以下提示词发给支持文件上传的 AI（如 DeepSeek、豆包、千问等），配合上传 PPT/PDF 文件自动生成题库。生成结果可直接保存为 .txt 文件后通过上方"导入题库"功能导入。</p>
+
+                    <div class="form-row" style="align-items:center; margin-bottom:12px;">
+                        <div class="form-group" style="min-width:220px;">
+                            <label for="prompt-mode-select">选择出题模式</label>
+                            <select id="prompt-mode-select">
+                                <option value="zh">模式一：纯中文出题</option>
+                                <option value="bilingual">模式二：中英双语出题</option>
+                                <option value="en">模式三：纯英文出题</option>
+                            </select>
+                        </div>
+                        <button id="copy-prompt-btn" class="btn btn-outline" style="align-self:flex-end;">
+                            <i class="fas fa-copy"></i> 复制提示词
+                        </button>
+                    </div>
+
+                    <textarea id="prompt-display" readonly rows="18"
+                        style="width:100%; font-family:monospace; font-size:13px; resize:vertical;
+                               background:#f8f9fa; border:1px solid #ddd; padding:12px; border-radius:6px; box-sizing:border-box;">
+                    </textarea>
                 </div>
             </div>
 
@@ -1407,6 +1431,13 @@
                             selectedQuestionIds.delete(this.dataset.id);
                         }
                         updateBatchBar();
+                    });
+
+                    // Click row to enter edit mode (excluding checkbox and action buttons)
+                    row.style.cursor = 'pointer';
+                    row.addEventListener('click', function(e) {
+                        if (e.target.closest('.action-btns') || e.target.type === 'checkbox') return;
+                        editQuestion(question.question_id);
                     });
 
                     tbody.appendChild(row);
@@ -2072,31 +2103,37 @@
         }
 
         // ========== Replace question ==========
-        let _replaceCandidates = [];
+        let _replaceCandidates = [];      // subject-filtered candidates (drives the list)
+        let _replaceAllCandidates = [];   // all candidates regardless of subject
         let _replaceCtx = {};
 
         async function openReplaceModal(examId, oldQuestionId, questionType) {
             try {
+                // Fetch all same-type questions across all subjects
                 const response = await fetch(`/api/questions?type=${encodeURIComponent(questionType)}`);
                 if (!response.ok) { alert('获取候选题目失败！'); return; }
                 const allQuestions = await response.json();
 
                 const examQuestionIds = new Set(currentExam.questions.map(q => q.question_id));
-                _replaceCandidates = allQuestions.filter(q => !q.is_used && !examQuestionIds.has(q.question_id));
-                _replaceCtx = { examId, oldQuestionId, questionType };
+                _replaceAllCandidates = allQuestions.filter(q => !q.is_used && !examQuestionIds.has(q.question_id));
 
-                if (_replaceCandidates.length === 0) {
+                if (_replaceAllCandidates.length === 0) {
                     alert(`没有可用的 ${questionType} 替换题目（所有同类型题目已被使用或已在试卷中）`);
                     return;
                 }
 
-                // Collect unique knowledge points and difficulties for filter dropdowns
-                const kpSet = new Set();
-                const diffSet = new Set();
-                _replaceCandidates.forEach(q => {
-                    if (q.knowledge_point) kpSet.add(q.knowledge_point);
-                    if (q.difficulty) diffSet.add(q.difficulty);
-                });
+                // Infer default subject from current exam questions (first non-empty subject wins)
+                const examSubject = (currentExam.questions.map(q => q.subject).find(s => s)) || '';
+
+                // Collect all subjects available among candidates
+                const subjectSet = new Set(_replaceAllCandidates.map(q => q.subject).filter(Boolean));
+
+                _replaceCtx = { examId, oldQuestionId, questionType, examSubject };
+
+                // Apply default subject filter
+                _replaceCandidates = examSubject
+                    ? _replaceAllCandidates.filter(q => q.subject === examSubject)
+                    : _replaceAllCandidates;
 
                 const container = document.getElementById(`exam-q-${oldQuestionId}`);
                 if (!container) return;
@@ -2104,18 +2141,35 @@
                 const diffLabels = { easy: '简单', medium: '中等', hard: '困难' };
 
                 let html = `<div class="form-container" style="margin:0; padding:15px;">`;
-                html += `<h4 style="margin-bottom:10px;"><i class="fas fa-sync-alt"></i> 替换题目 — 选择一道 ${escapeHtml(questionType)} 题 <span style="font-weight:normal;font-size:0.85em;color:#888;">（共 ${_replaceCandidates.length} 道可用）</span></h4>`;
+                html += `<h4 style="margin-bottom:10px;"><i class="fas fa-sync-alt"></i> 替换题目 — 选择一道 ${escapeHtml(questionType)} 题</h4>`;
 
-                // Search bar
+                // Row 1: subject filter
+                html += `<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; align-items:center;">`;
+                html += `<label style="font-size:0.9rem;color:#555;white-space:nowrap;">科目：</label>`;
+                html += `<select id="replace-subject" style="padding:6px 10px; border:1px solid #ddd; border-radius:var(--border-radius); font-size:0.9rem;" onchange="updateReplaceSubject()">`;
+                if (examSubject) {
+                    html += `<option value="${escapeHtml(examSubject)}" selected>${escapeHtml(examSubject)}（当前组卷科目）</option>`;
+                }
+                html += `<option value=""${!examSubject ? ' selected' : ''}>全部科目</option>`;
+                subjectSet.forEach(s => {
+                    if (s !== examSubject) html += `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`;
+                });
+                html += `</select>`;
+                html += `<span id="replace-count-label" style="font-size:0.85em;color:#888;">共 ${_replaceCandidates.length} 道可用</span>`;
+                html += `</div>`;
+
+                // Row 2: keyword / difficulty / knowledge_point filters
                 html += `<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; align-items:center;">`;
                 html += `<input type="text" id="replace-keyword" placeholder="搜索题目内容..." style="flex:1; min-width:180px; padding:6px 10px; border:1px solid #ddd; border-radius:var(--border-radius); font-size:0.9rem;" oninput="filterReplaceCandidates()">`;
                 html += `<select id="replace-difficulty" style="padding:6px 10px; border:1px solid #ddd; border-radius:var(--border-radius); font-size:0.9rem;" onchange="filterReplaceCandidates()">`;
                 html += `<option value="">全部难度</option>`;
-                diffSet.forEach(d => { html += `<option value="${d}">${diffLabels[d] || d}</option>`; });
+                const initDiffSet = new Set(_replaceCandidates.map(q => q.difficulty).filter(Boolean));
+                initDiffSet.forEach(d => { html += `<option value="${d}">${diffLabels[d] || d}</option>`; });
                 html += `</select>`;
                 html += `<select id="replace-knowledge-point" style="padding:6px 10px; border:1px solid #ddd; border-radius:var(--border-radius); font-size:0.9rem; max-width:200px;" onchange="filterReplaceCandidates()">`;
                 html += `<option value="">全部知识点</option>`;
-                kpSet.forEach(kp => { html += `<option value="${escapeHtml(kp)}">${escapeHtml(kp)}</option>`; });
+                const initKpSet = new Set(_replaceCandidates.map(q => q.knowledge_point).filter(Boolean));
+                initKpSet.forEach(kp => { html += `<option value="${escapeHtml(kp)}">${escapeHtml(kp)}</option>`; });
                 html += `</select>`;
                 html += `</div>`;
 
@@ -2135,6 +2189,59 @@
             }
         }
 
+        // Called when subject dropdown changes — re-filters candidates and rebuilds diff/kp dropdowns
+        function updateReplaceSubject() {
+            const subject = document.getElementById('replace-subject').value;
+            _replaceCandidates = subject
+                ? _replaceAllCandidates.filter(q => q.subject === subject)
+                : _replaceAllCandidates;
+
+            // Reset keyword filter
+            const kwEl = document.getElementById('replace-keyword');
+            if (kwEl) kwEl.value = '';
+
+            // Rebuild difficulty dropdown
+            const diffLabels = { easy: '简单', medium: '中等', hard: '困难' };
+            const diffSet = new Set(_replaceCandidates.map(q => q.difficulty).filter(Boolean));
+            const diffSel = document.getElementById('replace-difficulty');
+            if (diffSel) {
+                diffSel.innerHTML = '<option value="">全部难度</option>';
+                diffSet.forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d;
+                    opt.textContent = diffLabels[d] || d;
+                    diffSel.appendChild(opt);
+                });
+            }
+
+            // Rebuild knowledge_point dropdown
+            const kpSet = new Set(_replaceCandidates.map(q => q.knowledge_point).filter(Boolean));
+            const kpSel = document.getElementById('replace-knowledge-point');
+            if (kpSel) {
+                kpSel.innerHTML = '<option value="">全部知识点</option>';
+                kpSet.forEach(kp => {
+                    const opt = document.createElement('option');
+                    opt.value = kp;
+                    opt.textContent = kp;
+                    kpSel.appendChild(opt);
+                });
+            }
+
+            // Update count label and render list
+            const countLabel = document.getElementById('replace-count-label');
+            if (countLabel) countLabel.textContent = `共 ${_replaceCandidates.length} 道可用`;
+
+            const listEl = document.getElementById('replace-candidates-list');
+            const noResult = document.getElementById('replace-no-result');
+            if (_replaceCandidates.length === 0) {
+                if (listEl) listEl.style.display = 'none';
+                if (noResult) { noResult.style.display = 'block'; noResult.textContent = '该科目暂无可用候选题目'; }
+            } else {
+                if (listEl) { listEl.style.display = 'block'; listEl.innerHTML = buildReplaceCandidatesHtml(_replaceCandidates); }
+                if (noResult) noResult.style.display = 'none';
+            }
+        }
+
         function buildReplaceCandidatesHtml(list) {
             const { examId, oldQuestionId } = _replaceCtx;
             const diffLabels = { easy: '简单', medium: '中等', hard: '困难' };
@@ -2147,6 +2254,7 @@
                     <strong>${escapeHtml(q.content.substring(0, 80))}${q.content.length > 80 ? '...' : ''}</strong>`;
                 // Meta tags row
                 const tags = [];
+                if (q.subject) tags.push(`<span style="background:#f3e5f5;padding:1px 6px;border-radius:3px;font-size:0.8em;">${escapeHtml(q.subject)}</span>`);
                 if (q.difficulty) tags.push(`<span style="background:${diffColors[q.difficulty]||'#f5f5f5'};padding:1px 6px;border-radius:3px;font-size:0.8em;">${diffLabels[q.difficulty]||q.difficulty}</span>`);
                 if (q.knowledge_point) tags.push(`<span style="background:#e3f2fd;padding:1px 6px;border-radius:3px;font-size:0.8em;">${escapeHtml(q.knowledge_point)}</span>`);
                 if (q.answer) tags.push(`<span style="color:#666;font-size:0.8em;">答案: ${escapeHtml(q.answer)}</span>`);
@@ -2173,6 +2281,7 @@
             if (filtered.length === 0) {
                 listEl.style.display = 'none';
                 noResult.style.display = 'block';
+                noResult.textContent = '没有匹配的候选题目';
             } else {
                 listEl.style.display = 'block';
                 noResult.style.display = 'none';
@@ -2669,6 +2778,445 @@
                 console.error('Error loading subjects:', e);
             }
         }
+
+        // ========== AI Prompts ==========
+        const AI_PROMPTS = {
+            zh: `你是一位专业的教学内容设计专家，擅长根据课程材料出题。
+
+请仔细阅读我上传的文件（PPT/PDF），全面理解其中的知识点、概念、原理和案例，然后按照以下要求生成一套完整题库。
+
+### 出题要求
+
+**题型与数量：**
+- 单选题：15题（每题4个选项A/B/C/D，只有1个正确答案）
+- 多选题：8题（每题4个选项A/B/C/D，有2～4个正确答案）
+- 是非题：10题（判断正误，答案为"正确"或"错误"）
+- 简答题：5题（需提供参考答案）
+- 论述题：3题（需提供较详细的参考答案）
+- 材料分析题：2题（结合实际案例或材料进行分析）
+
+**质量要求：**
+1. 题目内容必须忠实于文件中的知识点，不得编造文件中没有的内容
+2. 在每种题型中，题目难度分布约为：简单(easy) 30%、中等(medium) 50%、困难(hard) 20%，三个难度的出题标准如下：
+   - **简单(easy)**：答案可以直接在上传材料的原文中找到，考查对定义、概念、步骤等基础内容的识记与理解；是非题和单选题以简单题为主
+   - **中等(medium)**：需要结合具体实例或现实应用场景作答，不能仅靠背诵原文，要求学生能将概念迁移到新情境中；典型形式如"举例说明……""分析某案例""比较两种做法的异同"，或在选择、判断题中设计与现实结合的选项
+   - **困难(hard)**：需要综合运用多个知识点，跨章节融会贯通，要求学生对知识体系有整体把握；典型形式如"比较多种理论/方法的适用条件""论述某问题的完整解决路径""对给定材料进行批判性分析"；论述题和材料分析题以困难题为主
+3. 覆盖文件中的主要章节和核心概念
+4. 每道题必须标注对应的知识点（知识点从文件中提取，放在解析里）
+5. 选择题的干扰项要合理，不能过于明显
+6. 简答题和论述题的参考答案要完整、准确；困难题的参考答案需体现跨知识点的整合与推理过程
+
+**输出格式（必须严格遵守）：**
+
+---
+**单选题格式：**
+[单选][正确选项字母]
+题目内容？
+[A]选项A内容
+[B]选项B内容
+[C]选项C内容
+[D]选项D内容
+<解析>
+解析说明（为什么选这个答案）
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+难度:easy|medium|hard
+</解析>
+
+---
+**多选题格式：**
+[多选][正确选项字母组合，如ABD]
+题目内容？
+[A]选项A内容
+[B]选项B内容
+[C]选项C内容
+[D]选项D内容
+<解析>
+解析说明
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+难度:easy|medium|hard
+</解析>
+
+---
+**是非题格式：**
+[是非][正确|错误]
+题目陈述句。
+<解析>
+解析说明
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+难度:easy|medium|hard
+</解析>
+
+---
+**简答题格式：**
+[简答]
+题目内容？
+<参考答案>
+参考答案内容（要点1；要点2；要点3……）
+</参考答案>
+<解析>
+解析说明（可选）
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+难度:easy|medium|hard
+</解析>
+
+---
+**论述题格式：**
+[简答>论述]
+题目内容？
+<参考答案>
+详细的参考答案，分点论述，逻辑清晰。
+</参考答案>
+<解析>
+解析说明（可选）
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+难度:hard
+</解析>
+
+---
+**材料分析题格式：**
+[简答>材料分析]
+【材料】
+材料内容（一段与课程相关的实际案例、数据或文字材料）
+
+【问题】
+基于以上材料，请分析……？
+<参考答案>
+参考答案（结合材料和理论进行分析）
+</参考答案>
+<解析>
+解析说明（可选）
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+难度:hard
+</解析>
+
+---
+
+### 格式注意事项
+
+1. 题型标识符必须用方括号包围，如 [单选]、[多选]、[是非]、[简答]、[简答>论述]、[简答>材料分析]
+2. 选择题答案紧跟题型标识后，用方括号包围，如 [单选][A]、[多选][ABD]
+3. 是非题答案只能是 [正确] 或 [错误]，无需列选项
+4. 选项格式：[A]内容、[B]内容，字母大写
+5. <解析>...</解析> 中的元数据行格式固定，冒号后不加空格，字段名不可更改
+6. 难度值只能是：easy、medium、hard 三选一，必须用英文小写
+7. 每道题之间可以有空行，便于阅读
+8. 不要添加题号（系统会自动编号）
+9. 不要在题目外添加任何说明性文字、章节标题或分割线
+
+现在请开始出题，直接输出题目内容，不需要任何前言。`,
+
+            bilingual: `你是一位专业的双语教学内容设计专家，擅长设计中英双语课程题库。
+
+请仔细阅读我上传的文件（PPT/PDF），全面理解其中的知识点，然后按照以下要求生成一套完整的中英双语题库。
+
+### 出题要求
+
+**题型与数量：**
+- 单选题：15题（每题4个选项，只有1个正确答案）
+- 多选题：8题（每题4个选项，有2～4个正确答案）
+- 是非题：10题（判断正误）
+- 简答题：5题
+- 论述题：3题
+- 材料分析题：2题
+
+**质量要求：**
+1. 题目内容必须忠实于文件中的知识点，不得编造
+2. 题目难度分布约为：简单(easy) 30%、中等(medium) 50%、困难(hard) 20%，三个难度的出题标准如下：
+   - **简单(easy)**：答案可以直接在上传材料的原文中找到，考查对定义、概念、步骤等基础内容的识记与理解；是非题和单选题以简单题为主
+   - **中等(medium)**：需要结合具体实例或现实应用场景作答，不能仅靠背诵原文，要求学生能将概念迁移到新情境中；典型形式如"举例说明……""分析某案例""比较两种做法的异同"
+   - **困难(hard)**：需要综合运用多个知识点，跨章节融会贯通，要求学生对知识体系有整体把握；典型形式如"比较多种理论/方法的适用条件""论述某问题的完整解决路径""对给定材料进行批判性分析"；论述题和材料分析题以困难题为主
+3. 覆盖文件中的主要章节和核心概念
+4. 每道题必须同时提供中文和英文版本，语义完全对应，英文表达符合学术规范
+5. 选择题的中英文选项必须一一对应，顺序和含义完全一致
+6. 简答题和论述题的参考答案要完整、准确；困难题的参考答案需体现跨知识点的整合与推理过程
+
+**双语输出格式（必须严格遵守）：**
+
+---
+**双语单选题格式：**
+[单选][正确选项字母]
+中文题目内容？
+[A]中文选项A
+[B]中文选项B
+[C]中文选项C
+[D]中文选项D
+[A_en]English option A
+[B_en]English option B
+[C_en]English option C
+[D_en]English option D
+<解析>
+中文解析说明
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+英文题目:English version of the question?
+难度:easy|medium|hard
+</解析>
+
+---
+**双语多选题格式：**
+[多选][正确选项字母组合，如ABD]
+中文题目内容？
+[A]中文选项A
+[B]中文选项B
+[C]中文选项C
+[D]中文选项D
+[A_en]English option A
+[B_en]English option B
+[C_en]English option C
+[D_en]English option D
+<解析>
+中文解析说明
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+英文题目:English version of the question?
+难度:easy|medium|hard
+</解析>
+
+---
+**双语是非题格式：**
+[是非][正确|错误]
+中文题目陈述句。
+<解析>
+中文解析说明
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+英文题目:English version of the statement.
+难度:easy|medium|hard
+</解析>
+
+---
+**双语简答题格式：**
+[简答]
+中文题目内容？
+<参考答案>
+中文参考答案（要点1；要点2；要点3……）
+</参考答案>
+<解析>
+中文解析说明（可选）
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+英文题目:English version of the question?
+难度:easy|medium|hard
+</解析>
+
+---
+**双语论述题格式：**
+[简答>论述]
+中文题目内容？
+<参考答案>
+中文参考答案，分点论述，逻辑清晰。
+</参考答案>
+<解析>
+中文解析说明（可选）
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+英文题目:English version of the question?
+难度:hard
+</解析>
+
+---
+**双语材料分析题格式：**
+[简答>材料分析]
+【材料】
+材料内容（中文）
+
+【问题】
+中文问题？
+<参考答案>
+中文参考答案
+</参考答案>
+<解析>
+中文解析（可选）
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+英文题目:【Material】English material content. 【Question】English question?
+难度:hard
+</解析>
+
+---
+
+### 双语格式关键规则
+
+1. **选择题选项顺序**：先列全部4个中文选项 [A][B][C][D]，再列全部4个英文选项 [A_en][B_en][C_en][D_en]，英文选项必须与对应中文选项语义一致，字母编号对应
+2. **英文题目字段**：所有题型均在 <解析> 区段内写一行 \`英文题目:\` 提供英文题干，是非题、简答题等非选择题同样需要此字段
+3. **材料分析题英文**：在 \`英文题目:\` 字段内将材料和问题合并写出，用 【Material】/【Question】 分隔
+4. **题型标识符**：始终使用中文标识符 [单选]、[多选]、[是非]、[简答] 等，不要改为英文
+5. **答案格式**：选择题答案字母 [A]～[D]、是非题答案 [正确]/[错误] 均保持不变
+6. **冒号格式**：\`英文题目:\` 使用英文半角冒号，\`英文题目:\` 之后直接跟英文内容，不加空格
+7. **解析语言**：<解析> 内的中文解析文字可以用中文，但字段名（知识点、标签、英文题目、难度）格式不变
+8. 不要添加题号，不要在题目外添加任何说明文字
+
+现在请开始出题，直接输出题目内容，不需要任何前言。`,
+
+            en: `You are a professional academic content designer specializing in creating exam questions.
+
+Please carefully read the uploaded file (PPT/PDF), fully understand all knowledge points, concepts, principles and cases, then generate a complete question bank following the requirements below.
+
+### Question Requirements
+
+**Types and quantities:**
+- Single-choice questions: 15 (4 options A/B/C/D, only 1 correct answer)
+- Multiple-choice questions: 8 (4 options A/B/C/D, 2~4 correct answers)
+- True/False questions: 10 (answer: True or False)
+- Short answer questions: 5 (provide reference answers)
+- Essay questions: 3 (provide detailed reference answers)
+- Case analysis questions: 2 (analysis based on real cases or materials)
+
+**Quality requirements:**
+1. Content must be faithfully based on the knowledge points in the file; do not fabricate content
+2. Difficulty distribution: approximately 30% easy, 50% medium, 20% hard. Apply the following criteria for each level:
+   - **Easy**: The answer can be found directly in the original text of the uploaded material. Tests recall and comprehension of definitions, concepts, and procedures. True/False and single-choice questions should be mostly easy.
+   - **Medium**: Requires combining course concepts with concrete examples or real-world application scenarios. Students cannot rely on rote memorization alone — they must transfer concepts to new contexts. Typical forms: "Give an example of…", "Analyze a given case", "Compare two approaches".
+   - **Hard**: Requires integrating multiple knowledge points across chapters and demonstrating a holistic understanding of the subject. Typical forms: "Compare the applicability of multiple theories/methods", "Describe a complete solution path for a problem", "Critically analyze a given scenario". Essay and case analysis questions should be mostly hard.
+3. Cover major chapters and core concepts from the file
+4. Each question must include the corresponding knowledge point (from chapter/section titles)
+5. Distractors for choice questions must be plausible, not obviously wrong
+6. Reference answers for short answer and essay questions must be complete and accurate; hard question answers should explicitly show cross-topic integration and reasoning
+
+**Output format (must follow strictly):**
+
+---
+**Single-choice format:**
+[单选][Correct option letter]
+Question content in English?
+[A]Option A
+[B]Option B
+[C]Option C
+[D]Option D
+[A_en]Option A (same text repeated for bilingual storage)
+[B_en]Option B
+[C_en]Option C
+[D_en]Option D
+<解析>
+Explanation in English.
+知识点:Knowledge point name (can be in English)
+标签:tag1,tag2
+英文题目:Question content in English? (same as above)
+难度:easy|medium|hard
+</解析>
+
+---
+**Multiple-choice format:**
+[多选][Correct letters combined, e.g. ABD]
+Question content in English?
+[A]Option A
+[B]Option B
+[C]Option C
+[D]Option D
+[A_en]Option A
+[B_en]Option B
+[C_en]Option C
+[D_en]Option D
+<解析>
+Explanation in English.
+知识点:Knowledge point name
+标签:tag1,tag2
+英文题目:Question content in English?
+难度:easy|medium|hard
+</解析>
+
+---
+**True/False format:**
+[是非][正确|错误]
+Statement in English.
+<解析>
+Explanation in English.
+知识点:Knowledge point name
+标签:tag1,tag2
+英文题目:Statement in English. (same as above)
+难度:easy|medium|hard
+</解析>
+
+---
+**Short answer format:**
+[简答]
+Question in English?
+<参考答案>
+Reference answer in English (point 1; point 2; point 3...)
+</参考答案>
+<解析>
+Explanation (optional).
+知识点:Knowledge point name
+标签:tag1,tag2
+英文题目:Question in English?
+难度:easy|medium|hard
+</解析>
+
+---
+**Essay format:**
+[简答>论述]
+Question in English?
+<参考答案>
+Detailed reference answer in English, logically structured.
+</参考答案>
+<解析>
+知识点:Knowledge point name
+标签:tag1,tag2
+英文题目:Question in English?
+难度:hard
+</解析>
+
+---
+**Case analysis format:**
+[简答>材料分析]
+[Case]
+Case material content in English.
+
+[Question]
+Based on the above case, analyze...?
+<参考答案>
+Reference answer in English, integrating theory and case.
+</参考答案>
+<解析>
+知识点:Knowledge point name
+标签:tag1,tag2
+英文题目:[Case] Case material. [Question] Question in English?
+难度:hard
+</解析>
+
+---
+
+### Format rules
+
+1. **Question type markers**: Keep Chinese markers [单选], [多选], [是非], [简答], [简答>论述], [简答>材料分析] — these are system codes, do NOT translate them
+2. **Answer markers**: Keep [A]~[D] for choices; use [正确] for True, [错误] for False — do NOT change these
+3. **Metadata field names**: Keep Chinese field names 知识点, 标签, 英文题目, 难度 exactly as shown — do NOT translate them
+4. **For single-choice/multiple-choice**: List all Chinese-slot options [A]~[D] first (with English text), then repeat the same options as [A_en]~[D_en]. This stores the English text in both the options and bilingual options fields.
+5. **英文题目 field**: Fill in the same English question text — this enables bilingual export from the system
+6. **Difficulty**: Must be one of: easy, medium, hard (lowercase English)
+7. Do not add question numbers; do not add any explanatory text outside question blocks
+
+Now please start generating questions. Output question content directly without any preamble.`
+        };
+
+        function updatePromptDisplay() {
+            const mode = document.getElementById('prompt-mode-select').value;
+            document.getElementById('prompt-display').value = AI_PROMPTS[mode];
+        }
+
+        document.getElementById('prompt-mode-select').addEventListener('change', updatePromptDisplay);
+        updatePromptDisplay();
+
+        document.getElementById('copy-prompt-btn').addEventListener('click', () => {
+            const ta = document.getElementById('prompt-display');
+            navigator.clipboard.writeText(ta.value).then(() => {
+                const btn = document.getElementById('copy-prompt-btn');
+                btn.innerHTML = '<i class="fas fa-check"></i> 已复制';
+                setTimeout(() => { btn.innerHTML = '<i class="fas fa-copy"></i> 复制提示词'; }, 2000);
+            }).catch(() => {
+                ta.select();
+                document.execCommand('copy');
+                const btn = document.getElementById('copy-prompt-btn');
+                btn.innerHTML = '<i class="fas fa-check"></i> 已复制';
+                setTimeout(() => { btn.innerHTML = '<i class="fas fa-copy"></i> 复制提示词'; }, 2000);
+            });
+        });
 
         // ========== Initialization ==========
         window.addEventListener('DOMContentLoaded', async () => {
