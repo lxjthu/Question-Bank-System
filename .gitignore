@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Virtual environment
+venv/
+
+# Database & runtime data
+exam_system.db
+uploads/
+exports/
+temp/
+
+# Release build artifacts
+*.zip
+
+# Misc
+nul
+~$*
+*.backup
+
+# One-time scripts & dev tooling (not part of the project)
+word_to_csv_converter.py
+migrate_*.py
+CLAUDE.md
