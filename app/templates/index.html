@@ -2837,6 +2837,17 @@
 
 **输出格式（必须严格遵守）：**
 
+⚠️ **导入格式关键要素（写错会导致题目无法导入）：**
+- **所有括号和尖括号必须是半角字符**：\`[\` \`]\` \`<\` \`>\`，不能用全角 \`【】\`、\`（）\`、\`＜＞\`
+- **题型名称必须与系统题型完全一致**，层级题型用 \`>\` 分隔且两侧无空格，如 \`[简答>材料分析]\`
+- **选择题答案**：紧跟题型，必须大写字母，如 \`[单选][A]\`、\`[多选][ABD]\`；不能小写
+- **是非题答案**：只能写 \`[正确]\` 或 \`[错误]\`，不能用"是/对/T"等替代
+- **选项行必须顶格写**，行首不能有任何空格：\`[A]选项内容\`（正确）、\` [A]选项内容\`（错误）
+- **英文选项格式**：\`[A_en]Option text\`，下划线和 \`en\` 必须小写，只能单个大写字母
+- **\`<参考答案>\` 和 \`<解析>\` 标签必须成对出现**，并用 \`</参考答案>\` 和 \`</解析>\` 闭合
+- **知识点/标签/难度/英文题目字段必须写在 \`<解析>\` 块内**，写在块外会被当作题目内容
+- **难度只能写** \`easy\`、\`medium\` 或 \`hard\`（全小写英文），不能写中文
+
 ---
 **单选题格式：**
 [单选][正确选项字母]
@@ -2937,6 +2948,7 @@
 7. 每道题之间可以有空行，便于阅读
 8. 不要添加题号（系统会自动编号）
 9. 不要在题目外添加任何说明性文字、章节标题或分割线
+10. 不要使用 \`*\`、\`**\`、\`#\` 等 Markdown 格式符号，不要对文字加粗，不要添加标题标记
 
 现在请开始出题，直接输出题目内容，不需要任何前言。`,
 
@@ -2967,6 +2979,17 @@
 7. **题目必须独立成立**，严禁在题干中出现任何引用上传文件位置或呈现方式的表述，例如"如第X章所述""见PPT第X张幻灯片""根据上图""如材料图表所示""结合上文"等——考生在考试时只能看到题目本身，无法看到你所参考的PPT或PDF文件
 
 **双语输出格式（必须严格遵守）：**
+
+⚠️ **导入格式关键要素（写错会导致题目无法导入）：**
+- **所有括号和尖括号必须是半角字符**：\`[\` \`]\` \`<\` \`>\`，不能用全角 \`【】\`、\`（）\`、\`＜＞\`
+- **题型名称必须与系统题型完全一致**，层级题型用 \`>\` 分隔且两侧无空格，如 \`[简答>材料分析]\`
+- **选择题答案**：紧跟题型，必须大写字母，如 \`[单选][A]\`、\`[多选][ABD]\`；不能小写
+- **是非题答案**：只能写 \`[正确]\` 或 \`[错误]\`，不能用"是/对/T"等替代
+- **选项行必须顶格写**，行首不能有任何空格：\`[A]选项内容\`（正确）、\` [A]选项内容\`（错误）
+- **英文选项格式**：\`[A_en]Option text\`，下划线和 \`en\` 必须小写，只能单个大写字母
+- **\`<参考答案>\` 和 \`<解析>\` 标签必须成对出现**，并用 \`</参考答案>\` 和 \`</解析>\` 闭合
+- **知识点/标签/难度/英文题目字段必须写在 \`<解析>\` 块内**，写在块外会被当作题目内容
+- **难度只能写** \`easy\`、\`medium\` 或 \`hard\`（全小写英文），不能写中文
 
 ---
 **双语单选题格式：**
@@ -3081,6 +3104,7 @@
 6. **冒号格式**：\`英文题目:\` 使用英文半角冒号，\`英文题目:\` 之后直接跟英文内容，不加空格
 7. **解析语言**：<解析> 内的中文解析文字可以用中文，但字段名（知识点、标签、英文题目、难度）格式不变
 8. 不要添加题号，不要在题目外添加任何说明文字
+9. 不要使用 \`*\`、\`**\`、\`#\` 等 Markdown 格式符号，不要对文字加粗，不要添加标题标记
 
 现在请开始出题，直接输出题目内容，不需要任何前言。`,
 
@@ -3111,6 +3135,17 @@ Please carefully read the uploaded file (PPT/PDF), fully understand all knowledg
 7. **Every question must be self-contained.** Do not include any references to the source material's location or presentation, such as "as discussed in Chapter X", "refer to slide Y", "as shown in the figure above", "according to the passage", or "based on the chart" — students taking the exam can only see the questions themselves, not the PPT or PDF file you are reading
 
 **Output format (must follow strictly):**
+
+⚠️ **Critical format requirements (errors will cause import failure):**
+- **All brackets and angle brackets must be ASCII (half-width)**: \`[\` \`]\` \`<\` \`>\` — never use full-width variants \`【】\` \`（）\` \`＜＞\`
+- **Question type must exactly match a registered system type**; hierarchical types use \`>\` with no spaces, e.g. \`[简答>材料分析]\`
+- **Choice answer**: right after the type tag, uppercase letters only — \`[单选][A]\`, \`[多选][ABD]\`; never lowercase
+- **True/False answer**: only \`[正确]\` or \`[错误]\` — no substitutes like "True/False/T/F"
+- **Option lines must be flush-left** with no leading spaces: \`[A]Option text\` ✓ vs \` [A]Option text\` ✗
+- **English option format**: \`[A_en]Option text\` — underscore and \`en\` must be lowercase, single uppercase letter only
+- **\`<参考答案>\` and \`<解析>\` tags must appear in matching pairs**, closed with \`</参考答案>\` and \`</解析>\`
+- **Metadata fields** (知识点/标签/难度) **must be inside the \`<解析>\` block** — if placed outside, they will be treated as question content
+- **Difficulty must be** \`easy\`, \`medium\`, or \`hard\` (lowercase English only)
 
 ---
 **Single-choice format:**
@@ -3222,6 +3257,7 @@ Reference answer in English, integrating theory and case.
 5. **英文题目 field**: Fill in the same English question text — this enables bilingual export from the system
 6. **Difficulty**: Must be one of: easy, medium, hard (lowercase English)
 7. Do not add question numbers; do not add any explanatory text outside question blocks
+8. Do not use Markdown formatting characters such as \`*\`, \`**\`, or \`#\`; do not bold text or add heading markers
 
 Now please start generating questions. Output question content directly without any preamble.`
         };
