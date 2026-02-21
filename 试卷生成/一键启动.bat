@@ -43,14 +43,28 @@ if exist "%VENV_DIR%\Scripts\activate.bat" (
 echo [信息] 激活虚拟环境...
 call "%VENV_DIR%\Scripts\activate.bat"
 
-:: 安装/更新依赖
-echo [信息] 检查并安装依赖...
-pip install -r "%PROJECT_DIR%requirements.txt" -q
-if %errorlevel% neq 0 (
-    echo [错误] 依赖安装失败！
-    pause
-    exit /b 1
-)
+:: 安装/更新依赖（失败时自动尝试国内镜像）
+echo [信息] 检查并安装依赖（官方源）...
+pip install -r "%PROJECT_DIR%requirements.txt" -q --timeout 30
+if %errorlevel% equ 0 goto :deps_ok
+
+echo [警告] 官方源连接失败，尝试清华大学镜像...
+pip install -r "%PROJECT_DIR%requirements.txt" -q --timeout 60 ^
+    -i https://pypi.tuna.tsinghua.edu.cn/simple/ ^
+    --trusted-host pypi.tuna.tsinghua.edu.cn
+if %errorlevel% equ 0 goto :deps_ok
+
+echo [警告] 清华镜像失败，尝试阿里云镜像...
+pip install -r "%PROJECT_DIR%requirements.txt" -q --timeout 60 ^
+    -i https://mirrors.aliyun.com/pypi/simple/ ^
+    --trusted-host mirrors.aliyun.com
+if %errorlevel% equ 0 goto :deps_ok
+
+echo [错误] 所有镜像均连接失败，请检查网络后重试！
+pause
+exit /b 1
+
+:deps_ok
 echo [完成] 依赖已就绪。
 
 echo.

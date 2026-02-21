@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Virtual environment
+venv/
+
+# Database & runtime data
+exam_system.db
+uploads/
+exports/
+temp/
+
+# Release build artifacts
+*.zip
+
+# Misc
+nul
+~$*
+*.backup
