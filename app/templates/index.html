@@ -906,7 +906,11 @@
 
                 <div class="card" style="margin-top:20px;">
                     <h3><i class="fas fa-robot"></i> AI 出题提示词</h3>
-                    <p>将以下提示词发给支持文件上传的 AI（如 DeepSeek、豆包、千问等），配合上传 PPT/PDF 文件自动生成题库。生成结果可直接保存为 .txt 文件后通过上方"导入题库"功能导入。</p>
+                    <p>
+                        <strong>方式一（有 PPT/PDF）：</strong>直接复制下方提示词，连同 PPT/PDF 文件一起发给支持文件上传的 AI（如 DeepSeek、豆包、千问等），AI 将自动出题。<br>
+                        <strong>方式二（有复习要点）：</strong>上传复习要点文档，点击"生成含复习要点的提示词"，将要点直接嵌入提示词后复制给 AI，无需再上传文件。<br>
+                        AI 生成的结果保存为 .txt 文件后，可通过上方"导入题库"功能导入系统。
+                    </p>
 
                     <div class="form-row" style="align-items:center; margin-bottom:12px;">
                         <div class="form-group" style="min-width:220px;">
@@ -920,6 +924,27 @@
                         <button id="copy-prompt-btn" class="btn btn-outline" style="align-self:flex-end;">
                             <i class="fas fa-copy"></i> 复制提示词
                         </button>
+                    </div>
+
+                    <!-- Review Notes Upload Panel -->
+                    <div style="margin-bottom:14px; padding:12px 14px; background:#f0f4ff; border-radius:8px; border:1px solid #c5d0fa;">
+                        <div style="font-weight:600; margin-bottom:5px; color:#3b5bdb; font-size:14px;">
+                            <i class="fas fa-file-lines"></i> 上传复习要点（可选）
+                        </div>
+                        <p style="margin:0 0 10px; font-size:13px; color:#555;">
+                            上传复习要点文档（.docx 或 .txt），系统将把要点内容嵌入提示词——无需再向 AI 上传 PPT/PDF，直接将生成的提示词发给 AI 即可出题。
+                        </p>
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <input type="file" id="review-notes-file" accept=".docx,.txt"
+                                style="flex:1; min-width:180px; font-size:13px;">
+                            <button id="gen-prompt-with-notes-btn" class="btn btn-primary" style="white-space:nowrap;">
+                                <i class="fas fa-wand-magic-sparkles"></i> 生成含复习要点的提示词
+                            </button>
+                            <button id="clear-review-notes-btn" class="btn btn-outline" style="white-space:nowrap; display:none;">
+                                <i class="fas fa-times"></i> 清除要点
+                            </button>
+                        </div>
+                        <div id="review-notes-status" style="margin-top:7px; font-size:13px;"></div>
                     </div>
 
                     <textarea id="prompt-display" readonly rows="18"
@@ -3262,9 +3287,50 @@ Reference answer in English, integrating theory and case.
 Now please start generating questions. Output question content directly without any preamble.`
         };
 
+        // State: extracted text from uploaded review notes file
+        let _reviewNotesText = '';
+
+        /**
+         * Build the AI prompt for the given mode, optionally embedding review notes.
+         * When notesText is provided the "read the uploaded file" instruction is
+         * replaced with the actual notes content so users can skip uploading to the AI.
+         */
+        function buildPromptWithNotes(mode, notesText) {
+            if (!notesText) return AI_PROMPTS[mode];
+
+            if (mode === 'zh') {
+                const oldIntro = '请仔细阅读我上传的文件（PPT/PDF），全面理解其中的知识点、概念、原理和案例，然后按照以下要求生成一套完整题库。';
+                const newBlock =
+                    '以下是本课程的复习要点，请仔细阅读并以这些知识点为核心进行出题，确保每个重要知识点均有题目覆盖。\n\n' +
+                    '=== 复习要点 ===\n' + notesText + '\n=== 复习要点结束 ===\n\n' +
+                    '请根据以上复习要点，全面理解其中的知识点、概念、原理和案例，然后按照以下要求生成一套完整题库。';
+                return AI_PROMPTS[mode].replace(oldIntro, newBlock);
+            }
+
+            if (mode === 'bilingual') {
+                const oldIntro = '请仔细阅读我上传的文件（PPT/PDF），全面理解其中的知识点，然后按照以下要求生成一套完整的中英双语题库。';
+                const newBlock =
+                    '以下是本课程的复习要点，请仔细阅读并以这些知识点为核心进行出题，确保每个重要知识点均有题目覆盖。\n\n' +
+                    '=== 复习要点 ===\n' + notesText + '\n=== 复习要点结束 ===\n\n' +
+                    '请根据以上复习要点，全面理解其中的知识点，然后按照以下要求生成一套完整的中英双语题库。';
+                return AI_PROMPTS[mode].replace(oldIntro, newBlock);
+            }
+
+            if (mode === 'en') {
+                const oldIntro = 'Please carefully read the uploaded file (PPT/PDF), fully understand all knowledge points, concepts, principles and cases, then generate a complete question bank following the requirements below.';
+                const newBlock =
+                    'The following are the key review points for this course. Please carefully read them and base your questions on these knowledge points, ensuring all listed topics are covered.\n\n' +
+                    '=== Key Review Points ===\n' + notesText + '\n=== End of Review Points ===\n\n' +
+                    'Please carefully read the above review points, fully understand all knowledge points, concepts, principles and cases, then generate a complete question bank following the requirements below.';
+                return AI_PROMPTS[mode].replace(oldIntro, newBlock);
+            }
+
+            return AI_PROMPTS[mode];
+        }
+
         function updatePromptDisplay() {
             const mode = document.getElementById('prompt-mode-select').value;
-            document.getElementById('prompt-display').value = AI_PROMPTS[mode];
+            document.getElementById('prompt-display').value = buildPromptWithNotes(mode, _reviewNotesText);
         }
 
         document.getElementById('prompt-mode-select').addEventListener('change', updatePromptDisplay);
@@ -3283,6 +3349,57 @@ Now please start generating questions. Output question content directly without 
                 btn.innerHTML = '<i class="fas fa-check"></i> 已复制';
                 setTimeout(() => { btn.innerHTML = '<i class="fas fa-copy"></i> 复制提示词'; }, 2000);
             });
+        });
+
+        // ========== Review Notes Upload ==========
+        document.getElementById('gen-prompt-with-notes-btn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('review-notes-file');
+            const statusEl = document.getElementById('review-notes-status');
+            const clearBtn = document.getElementById('clear-review-notes-btn');
+
+            if (!fileInput.files || !fileInput.files[0]) {
+                statusEl.style.color = '#c92a2a';
+                statusEl.textContent = '请先选择复习要点文件（.docx 或 .txt）。';
+                return;
+            }
+
+            const btn = document.getElementById('gen-prompt-with-notes-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 解析中…';
+            statusEl.style.color = '#868e96';
+            statusEl.textContent = '正在解析文件内容…';
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                const resp = await fetch('/api/parse-review-notes', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    statusEl.style.color = '#c92a2a';
+                    statusEl.textContent = `解析失败：${data.error || '未知错误'}`;
+                    return;
+                }
+                _reviewNotesText = data.text;
+                updatePromptDisplay();
+                statusEl.style.color = '#2f9e44';
+                statusEl.textContent = `✓ 复习要点已嵌入提示词（${data.text.length} 字符）。切换出题模式时提示词自动更新。`;
+                clearBtn.style.display = '';
+            } catch (e) {
+                statusEl.style.color = '#c92a2a';
+                statusEl.textContent = `请求失败：${e.message}`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i> 生成含复习要点的提示词';
+            }
+        });
+
+        document.getElementById('clear-review-notes-btn').addEventListener('click', () => {
+            _reviewNotesText = '';
+            document.getElementById('review-notes-file').value = '';
+            document.getElementById('review-notes-status').textContent = '';
+            document.getElementById('clear-review-notes-btn').style.display = 'none';
+            updatePromptDisplay();
         });
 
         // ========== Quill Rich Text Editors ==========

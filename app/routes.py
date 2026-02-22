@@ -918,3 +918,52 @@ def update_course_settings():
 
     db.session.commit()
     return jsonify(settings.to_dict())
+
+
+# ─── Review Notes Parser ─────────────────────────────────────────────────────
+
+@bp.route('/api/parse-review-notes', methods=['POST'])
+def parse_review_notes():
+    """Parse a review notes document (.docx or .txt) and return its plain text content.
+
+    Used by the frontend to embed key review points directly into AI prompts,
+    so users can send the combined prompt to an AI without needing to upload a file.
+    """
+    if 'file' not in request.files:
+        return jsonify({'error': '请选择文件'}), 400
+    file = request.files['file']
+    if not file or not file.filename:
+        return jsonify({'error': '请选择文件'}), 400
+
+    filename = file.filename.lower()
+
+    if filename.endswith('.docx'):
+        os.makedirs('temp', exist_ok=True)
+        temp_path = os.path.join('temp', f"review_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.docx")
+        file.save(temp_path)
+        try:
+            from docx import Document
+            doc = Document(temp_path)
+            lines = []
+            for para in doc.paragraphs:
+                text = para.text.strip()
+                if text:
+                    lines.append(text)
+            text_content = '\n'.join(lines)
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    elif filename.endswith('.txt'):
+        try:
+            text_content = file.read().decode('utf-8', errors='replace').strip()
+        except Exception as e:
+            return jsonify({'error': f'文件读取失败: {str(e)}'}), 400
+
+    else:
+        return jsonify({'error': '仅支持 .docx 和 .txt 文件'}), 400
+
+    if not text_content.strip():
+        return jsonify({'error': '文件内容为空，请检查文件'}), 400
+
+    return jsonify({'text': text_content})
