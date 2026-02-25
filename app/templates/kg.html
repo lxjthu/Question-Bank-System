@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>知识图谱 — 试题管理系统</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+:root {
+  --bg: #f5f7fa;
+  --panel-bg: #ffffff;
+  --border: #e0e4e8;
+  --primary: #2c3e50;
+  --blue: #3498db;
+  --teal: #1abc9c;
+  --purple: #9b59b6;
+  --red: #e74c3c;
+  --orange: #f39c12;
+  --green: #27ae60;
+  --gray: #95a5a6;
+  --text: #2c3e50;
+  --text-muted: #7f8c8d;
+  --sidebar-w: 220px;
+  --detail-w: 300px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI','Microsoft YaHei',sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── 顶栏 ── */
+.topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px; background: var(--primary); color: #fff;
+  flex-shrink: 0; z-index: 10;
+}
+.topbar h1 { font-size: 1.1rem; font-weight: 600; }
+.topbar a { color: #aaccee; text-decoration: none; font-size: 0.85rem; }
+.topbar a:hover { color: #fff; }
+.topbar .sep { color: #557; }
+.search-box {
+  margin-left: auto; position: relative;
+}
+.search-box input {
+  padding: 5px 10px 5px 30px; border-radius: 20px;
+  border: 1px solid #446; background: #3a4f60; color: #fff;
+  font-size: 0.85rem; width: 200px; outline: none;
+}
+.search-box input::placeholder { color: #aaa; }
+.search-box .search-icon { position: absolute; left: 9px; top: 6px; color: #aaa; font-size: 0.85rem; }
+
+/* ── 主体三栏 ── */
+.main { display: flex; flex: 1; overflow: hidden; }
+
+/* ── 左侧边栏 ── */
+.sidebar {
+  width: var(--sidebar-w); flex-shrink: 0; background: var(--panel-bg);
+  border-right: 1px solid var(--border); display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.sidebar-section { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.sidebar-section h3 { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+.sidebar-scroll { flex: 1; overflow-y: auto; padding: 8px 0; }
+.doc-item { padding: 6px 14px; cursor: pointer; border-radius: 0; }
+.doc-item label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.84rem; }
+.doc-item .doc-badge { font-size: 0.7rem; padding: 1px 5px; border-radius: 3px; background: #eef; color: #669; }
+
+/* 可折叠节头 */
+.section-header { display:flex; align-items:center; justify-content:space-between; cursor:pointer; user-select:none; margin-bottom:6px; }
+.section-header .chevron { font-size:0.72rem; transition:transform 0.2s; flex-shrink:0; }
+.section-header.collapsed .chevron { transform:rotate(-90deg); }
+
+/* 筛选操作行 */
+.filter-actions { display:flex; gap:5px; margin-bottom:6px; }
+.filter-action-btn { font-size:0.7rem; padding:2px 8px; border:1px solid var(--border); border-radius:3px; background:#fff; cursor:pointer; color:var(--text-muted); }
+.filter-action-btn:hover { background:#f0f4f8; color:var(--text); }
+
+/* 知识点搜索框 */
+.concept-search { width:100%; padding:4px 8px; border:1px solid var(--border); border-radius:4px; font-size:0.78rem; margin-bottom:5px; outline:none; box-sizing:border-box; }
+.concept-search:focus { border-color:var(--blue); }
+
+/* 筛选计数徽章 */
+.filter-badge { font-size:0.65rem; background:var(--blue); color:#fff; padding:0 5px; border-radius:8px; margin-left:4px; vertical-align:middle; }
+
+/* 视图切换 */
+.view-btns { display: flex; flex-direction: column; gap: 5px; }
+.view-btn { padding: 6px 10px; font-size: 0.82rem; border: 1px solid var(--border); border-radius: 5px; background: #fff; cursor: pointer; text-align: left; transition: all 0.15s; }
+.view-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+.view-btn:hover:not(.active) { background: #f0f4f8; }
+
+/* 图例 */
+.legend-list { display: flex; flex-direction: column; gap: 5px; }
+.legend-item { display: flex; align-items: center; gap: 7px; font-size: 0.78rem; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.legend-line { width: 20px; height: 2px; flex-shrink: 0; }
+.legend-dashed { border-top: 2px dashed; width: 20px; }
+
+/* ── 图谱区 ── */
+.graph-area { flex: 1; position: relative; overflow: hidden; background: #f8fafc; }
+#kg-svg { width: 100%; height: 100%; }
+.graph-empty {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  text-align: center; color: var(--text-muted);
+}
+.graph-empty i { font-size: 3rem; margin-bottom: 12px; display: block; }
+
+/* 工具条 */
+.graph-toolbar {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  background: rgba(255,255,255,0.95); border: 1px solid var(--border);
+  border-radius: 20px; padding: 5px 14px; font-size: 0.75rem; color: var(--text-muted);
+  display: flex; gap: 14px; align-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.graph-toolbar span { display: flex; align-items: center; gap: 4px; }
+
+/* 加载提示 */
+.loading-overlay {
+  position: absolute; inset: 0; background: rgba(248,250,252,0.85);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  z-index: 5; gap: 12px; font-size: 0.9rem; color: var(--text-muted);
+}
+.spinner { width: 36px; height: 36px; border: 3px solid #ddd; border-top-color: var(--blue); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 右侧详情面板 ── */
+.detail-panel {
+  width: var(--detail-w); flex-shrink: 0; background: var(--panel-bg);
+  border-left: 1px solid var(--border); display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.detail-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; color: var(--text-muted); font-size: 0.85rem; gap: 8px;
+}
+.detail-header {
+  padding: 14px 16px 10px; border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.detail-header .node-label { font-size: 1rem; font-weight: 600; word-break: break-all; }
+.detail-header .node-type-badge {
+  display: inline-block; margin-top: 5px; font-size: 0.72rem; padding: 2px 8px;
+  border-radius: 10px; color: #fff;
+}
+.detail-body { flex: 1; overflow-y: auto; padding: 12px 16px; }
+.detail-section { margin-bottom: 14px; }
+.detail-section h4 { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 7px; }
+.detail-desc { font-size: 0.85rem; line-height: 1.5; color: #444; background: #f8f9fa; border-radius: 6px; padding: 8px 10px; }
+.tag-row { display: flex; gap: 5px; flex-wrap: wrap; }
+.tag { font-size: 0.72rem; padding: 2px 7px; border-radius: 10px; border: 1px solid; }
+.tag-key { background: #fef0f0; color: #c0392b; border-color: #f5b7b1; }
+.tag-diff { background: #fef9e7; color: #b7770d; border-color: #fad7a0; }
+.chunks-list { display: flex; flex-direction: column; gap: 8px; }
+.chunk-card {
+  background: #f8f9fa; border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px; font-size: 0.8rem; line-height: 1.6; cursor: default;
+}
+.chunk-card .chunk-meta { font-size: 0.7rem; color: var(--text-muted); margin-bottom: 5px; }
+.chunk-text { color: #333; white-space: pre-wrap; word-break: break-word; max-height: 120px; overflow-y: auto; }
+.load-more-btn {
+  width: 100%; padding: 7px; font-size: 0.8rem; border: 1px dashed var(--border);
+  border-radius: 6px; background: #fff; cursor: pointer; color: var(--blue); margin-top: 4px;
+}
+.load-more-btn:hover { background: #eef5fd; }
+
+/* ── D3 图谱样式 ── */
+.node circle { cursor: pointer; transition: filter 0.15s; }
+.node circle:hover { filter: brightness(1.15); }
+.node.selected circle { stroke: #fff; stroke-width: 3px; filter: drop-shadow(0 0 6px rgba(52,152,219,0.8)); }
+.node text { pointer-events: none; user-select: none; }
+.link { fill: none; stroke-opacity: 0.6; }
+.link.structural { stroke: #bdc3c7; stroke-dasharray: 4,3; stroke-width: 1.5; }
+.link.has_concept { stroke: #d2b4de; stroke-width: 1; }
+.link.is_a { stroke: var(--blue); stroke-width: 2; }
+.link.depends_on { stroke: var(--red); stroke-width: 2; }
+.link.leads_to { stroke: var(--green); stroke-width: 2; }
+.link.contrasts_with { stroke: var(--orange); stroke-width: 2; }
+.arrow-structural { fill: #bdc3c7; }
+.arrow-has_concept { fill: #d2b4de; }
+.arrow-is_a { fill: var(--blue); }
+.arrow-depends_on { fill: var(--red); }
+.arrow-leads_to { fill: var(--green); }
+.arrow-contrasts_with { fill: var(--orange); }
+
+/* tooltip */
+.d3-tooltip {
+  position: absolute; background: rgba(0,0,0,0.78); color: #fff;
+  padding: 6px 10px; border-radius: 6px; font-size: 0.78rem;
+  pointer-events: none; max-width: 200px; line-height: 1.4;
+  transition: opacity 0.1s;
+}
+</style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+
+<!-- 顶栏 -->
+<div class="topbar">
+  <a href="/"><i class="fas fa-arrow-left"></i> 返回主页</a>
+  <span class="sep">|</span>
+  <h1><i class="fas fa-project-diagram"></i> 知识图谱</h1>
+  <span id="graph-stats" style="font-size:0.78rem;color:#aaccee;margin-left:8px;"></span>
+  <div class="search-box">
+    <span class="search-icon"><i class="fas fa-search"></i></span>
+    <input type="text" id="search-input" placeholder="搜索节点..." oninput="onSearch(this.value)">
+  </div>
+</div>
+
+<!-- 主体 -->
+<div class="main">
+
+  <!-- 左侧边栏 -->
+  <div class="sidebar">
+    <!-- 文档筛选 -->
+    <div class="sidebar-section">
+      <h3 class="section-header" onclick="toggleSection('doc-filter-body', this)" style="margin-bottom:4px;">
+        <span><i class="fas fa-file-alt"></i> 文档筛选</span>
+        <i class="fas fa-chevron-down chevron"></i>
+      </h3>
+      <div id="doc-filter-body">
+        <div id="doc-filter-list" style="display:flex;flex-direction:column;gap:4px;max-height:120px;overflow-y:auto;">
+          <span style="color:#bbb;font-size:0.8rem;">加载中...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 章节筛选 -->
+    <div class="sidebar-section" id="chapter-section" style="display:none;">
+      <h3 class="section-header" onclick="toggleSection('chapter-filter-body', this)" style="margin-bottom:4px;">
+        <span><i class="fas fa-list-ol"></i> 章节筛选
+          <span id="chapter-filter-badge" class="filter-badge" style="display:none;"></span>
+        </span>
+        <i class="fas fa-chevron-down chevron"></i>
+      </h3>
+      <div id="chapter-filter-body">
+        <div class="filter-actions">
+          <button class="filter-action-btn" onclick="selectAllChapters()">全选</button>
+          <button class="filter-action-btn" onclick="deselectAllChapters()">全不选</button>
+        </div>
+        <div id="chapter-filter-list" style="display:flex;flex-direction:column;gap:3px;max-height:130px;overflow-y:auto;"></div>
+      </div>
+    </div>
+
+    <!-- 知识点筛选 -->
+    <div class="sidebar-section" id="concept-section" style="display:none;">
+      <h3 class="section-header" onclick="toggleSection('concept-filter-body', this)" style="margin-bottom:4px;">
+        <span><i class="fas fa-brain"></i> 知识点筛选
+          <span id="concept-filter-badge" class="filter-badge" style="display:none;"></span>
+        </span>
+        <i class="fas fa-chevron-down chevron"></i>
+      </h3>
+      <div id="concept-filter-body">
+        <input type="text" class="concept-search" id="concept-search-input" placeholder="搜索知识点..." oninput="onConceptSearch(this.value)">
+        <div class="filter-actions">
+          <button class="filter-action-btn" onclick="selectAllConcepts()">全选</button>
+          <button class="filter-action-btn" onclick="deselectAllConcepts()">全不选</button>
+        </div>
+        <div id="concept-filter-list" style="display:flex;flex-direction:column;gap:3px;max-height:110px;overflow-y:auto;"></div>
+      </div>
+    </div>
+
+    <!-- 视图模式 -->
+    <div class="sidebar-section">
+      <h3><i class="fas fa-eye"></i> 视图模式</h3>
+      <div class="view-btns">
+        <button class="view-btn active" id="view-all" onclick="setView('all')">
+          <i class="fas fa-sitemap"></i> 结构 + 概念
+        </button>
+        <button class="view-btn" id="view-struct" onclick="setView('struct')">
+          <i class="fas fa-folder-tree"></i> 仅文档结构
+        </button>
+        <button class="view-btn" id="view-concept" onclick="setView('concept')">
+          <i class="fas fa-brain"></i> 仅概念图谱
+        </button>
+      </div>
+    </div>
+
+    <!-- 图例 -->
+    <div class="sidebar-section" style="flex-shrink:0;">
+      <h3><i class="fas fa-circle-info"></i> 图例</h3>
+      <div class="legend-list">
+        <div class="legend-item"><div class="legend-dot" style="background:#2c3e50;width:13px;height:13px;"></div>文档</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#3498db;width:11px;height:11px;"></div>章节</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#1abc9c;width:8px;height:8px;"></div>节 / 页</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#9b59b6;"></div>概念</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#e74c3c;width:12px;height:12px;"></div>重点概念</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#f39c12;width:11px;height:11px;"></div>难点概念</div>
+        <div style="margin-top:8px;padding-top:8px;border-top:1px solid #eee;">
+          <div class="legend-item"><div class="legend-dashed" style="border-color:#bdc3c7;"></div>层级关系</div>
+          <div class="legend-item"><div class="legend-line" style="background:#3498db;"></div>is_a</div>
+          <div class="legend-item"><div class="legend-line" style="background:#e74c3c;"></div>depends_on</div>
+          <div class="legend-item"><div class="legend-line" style="background:#27ae60;"></div>leads_to</div>
+          <div class="legend-item"><div class="legend-line" style="background:#f39c12;"></div>contrasts_with</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 图谱区 -->
+  <div class="graph-area" id="graph-area">
+    <div class="loading-overlay" id="loading-overlay">
+      <div class="spinner"></div>
+      <span>加载图谱数据...</span>
+    </div>
+    <div class="graph-empty" id="graph-empty" style="display:none;">
+      <i class="fas fa-database"></i>
+      <div>暂无知识库数据</div>
+      <div style="font-size:0.8rem;margin-top:6px;">请先在主页上传文档并摄入知识库</div>
+    </div>
+    <svg id="kg-svg"></svg>
+    <div class="graph-toolbar">
+      <span><i class="fas fa-hand-paper"></i> 拖动平移</span>
+      <span><i class="fas fa-search-plus"></i> 滚轮缩放</span>
+      <span><i class="fas fa-mouse-pointer"></i> 单击选择</span>
+      <span><i class="fas fa-expand-arrows-alt"></i> 双击展开/折叠</span>
+    </div>
+  </div>
+
+  <!-- 右侧详情面板 -->
+  <div class="detail-panel">
+    <div class="detail-empty" id="detail-empty">
+      <i class="fas fa-mouse-pointer" style="font-size:2rem;color:#ddd;"></i>
+      <span>单击节点查看详情</span>
+    </div>
+    <div id="detail-content" style="display:none;flex:1;overflow:hidden;flex-direction:column;display:none;">
+      <div class="detail-header">
+        <div class="node-label" id="detail-label">—</div>
+        <span class="node-type-badge" id="detail-type-badge">—</span>
+      </div>
+      <div class="detail-body" id="detail-body"></div>
+    </div>
+  </div>
+</div>
+
+<div class="d3-tooltip" id="tooltip" style="opacity:0;"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// 状态
+// ═══════════════════════════════════════════════════════════
+let _allNodes = [], _allLinks = [], _allDocs = [], _hasKg = false;
+let _currentView = 'all';        // 'all' | 'struct' | 'concept'
+let _selectedDocs = new Set();   // 勾选的 doc_id
+let _selectedNode = null;
+let _simulation = null;
+let _svg = null, _g = null;      // D3 顶层元素
+let _nodeElements = null, _linkElements = null;
+let _collapsed = new Set();      // 折叠的节点 id
+let _chunksOffset = 0;           // 分页加载原文
+const PAGE_SIZE = 10;
+
+// ── 三级筛选状态 ──
+let _selectedChapters = new Set(); // key: `${doc_id}::${chapter_num}`，全选时包含所有章节
+let _selectedConcepts = new Set(); // key: concept node id，全选时包含所有概念
+let _conceptSearchQ   = '';        // 知识点搜索词
+
+// 节点配色
+const NODE_COLOR = {
+  doc:     '#2c3e50',
+  chapter: '#3498db',
+  section: '#1abc9c',
+  concept: '#9b59b6',
+  concept_key:  '#e74c3c',
+  concept_diff: '#f39c12',
+};
+const NODE_SIZE = {
+  doc: 28, chapter: 19, section: 11, concept: 14, concept_key: 18, concept_diff: 16,
+};
+const TYPE_LABEL = {
+  doc: '文档', chapter: '章节', section: '节/页', concept: '概念',
+};
+const TYPE_BADGE_COLOR = {
+  doc: '#2c3e50', chapter: '#3498db', section: '#1abc9c', concept: '#9b59b6',
+};
+
+// ═══════════════════════════════════════════════════════════
+// 初始化
+// ═══════════════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  initSvg();
+  loadGraph();
+});
+
+function initSvg() {
+  const area = document.getElementById('graph-area');
+  _svg = d3.select('#kg-svg');
+  const w = area.clientWidth, h = area.clientHeight;
+
+  // 缩放/平移
+  const zoom = d3.zoom()
+    .scaleExtent([0.1, 4])
+    .on('zoom', e => _g.attr('transform', e.transform));
+  _svg.call(zoom);
+
+  // 箭头 marker
+  const defs = _svg.append('defs');
+  const relTypes = ['structural', 'has_concept', 'is_a', 'depends_on', 'leads_to', 'contrasts_with'];
+  relTypes.forEach(rt => {
+    defs.append('marker')
+      .attr('id', `arrow-${rt}`)
+      .attr('viewBox', '0 -5 10 10')
+      .attr('refX', 22).attr('refY', 0)
+      .attr('markerWidth', 6).attr('markerHeight', 6)
+      .attr('orient', 'auto')
+      .append('path').attr('d', 'M0,-5L10,0L0,5').attr('class', `arrow-${rt}`);
+  });
+
+  _g = _svg.append('g');
+}
+
+async function loadGraph() {
+  showLoading(true);
+  try {
+    const resp = await fetch('/api/kg/graph');
+    if (!resp.ok) throw new Error(await resp.text());
+    const data = await resp.json();
+    _allNodes = data.nodes || [];
+    _allLinks = data.links || [];
+    _allDocs  = data.docs  || [];
+    _hasKg    = data.has_kg || false;
+
+    if (_allNodes.length === 0) {
+      showLoading(false);
+      document.getElementById('graph-empty').style.display = 'flex';
+      return;
+    }
+
+    // 初始选中所有文档
+    _allDocs.forEach(d => _selectedDocs.add(d.doc_id));
+    // 初始选中所有章节 + 知识点
+    _allNodes.filter(n => n.type === 'chapter').forEach(n => _selectedChapters.add(`${n.doc_id}::${n.chapter_num}`));
+    _allNodes.filter(n => n.type === 'concept').forEach(n => _selectedConcepts.add(n.id));
+    renderDocFilter();
+    renderChapterFilter();
+    renderConceptFilter();
+    renderGraph();
+    document.getElementById('graph-stats').textContent =
+      `${_allNodes.length} 个节点  ${_allLinks.length} 条关系`;
+  } catch(e) {
+    console.error(e);
+    document.getElementById('graph-empty').style.display = 'flex';
+    document.getElementById('graph-empty').innerHTML = `<i class="fas fa-exclamation-triangle"></i><div style="color:#e74c3c;">加载失败：${e.message}</div>`;
+  }
+  showLoading(false);
+}
+
+// ═══════════════════════════════════════════════════════════
+// 文档筛选
+// ═══════════════════════════════════════════════════════════
+function renderDocFilter() {
+  const el = document.getElementById('doc-filter-list');
+  if (!_allDocs.length) { el.innerHTML = '<span style="color:#bbb;font-size:0.8rem;">无文档</span>'; return; }
+  el.innerHTML = _allDocs.map(d => `
+    <label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:0.82rem;">
+      <input type="checkbox" ${_selectedDocs.has(d.doc_id) ? 'checked' : ''}
+        onchange="toggleDoc('${escHtml(d.doc_id)}', this.checked)">
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;" title="${escHtml(d.doc_id)}">${escHtml(d.doc_id)}</span>
+      <span class="doc-badge">${d.source_type === 'slides' ? '幻灯片' : '教材'}</span>
+    </label>
+  `).join('');
+}
+
+function toggleDoc(docId, checked) {
+  if (checked) _selectedDocs.add(docId);
+  else _selectedDocs.delete(docId);
+  // 重新初始化章节/知识点为"当前可见文档下全选"
+  _selectedChapters = new Set(_allNodes.filter(n => n.type === 'chapter' && _selectedDocs.has(n.doc_id)).map(n => `${n.doc_id}::${n.chapter_num}`));
+  _selectedConcepts = new Set(_allNodes.filter(n => n.type === 'concept' && (!n.doc_id || _selectedDocs.has(n.doc_id))).map(n => n.id));
+  renderChapterFilter();
+  renderConceptFilter();
+  renderGraph();
+}
+
+// ═══════════════════════════════════════════════════════════
+// 视图切换
+// ═══════════════════════════════════════════════════════════
+function setView(mode) {
+  _currentView = mode;
+  ['all','struct','concept'].forEach(m => {
+    document.getElementById(`view-${m}`).classList.toggle('active', m === mode);
+  });
+  renderGraph();
+}
+
+// ═══════════════════════════════════════════════════════════
+// 搜索
+// ═══════════════════════════════════════════════════════════
+function onSearch(q) {
+  if (!_nodeElements) return;
+  q = q.trim().toLowerCase();
+  _nodeElements.each(function(d) {
+    const match = !q || d.label.toLowerCase().includes(q) || (d.description||'').toLowerCase().includes(q);
+    d3.select(this).select('circle').style('opacity', match ? 1 : 0.15);
+    d3.select(this).select('text').style('opacity', match ? 1 : 0.15);
+  });
+  if (!q && _linkElements) _linkElements.style('opacity', null);
+}
+
+// ═══════════════════════════════════════════════════════════
+// 核心渲染
+// ═══════════════════════════════════════════════════════════
+function renderGraph() {
+  if (!_g) return;
+  _g.selectAll('*').remove();
+  if (_simulation) _simulation.stop();
+
+  // 预计算：当前选中章节对应的章节名（用于过滤 concept 节点）
+  const _selectedChapterNames = new Set(
+    _allNodes.filter(n => n.type === 'chapter' && _selectedChapters.has(`${n.doc_id}::${n.chapter_num}`))
+             .map(n => n.label)
+  );
+  // 章节筛选是否激活（只要不是"全部章节都选中"就激活）
+  const _totalChapters = _allNodes.filter(n => n.type === 'chapter' && _selectedDocs.has(n.doc_id)).length;
+  const _chapterFilterOn = _selectedChapters.size < _totalChapters;
+  // 知识点筛选是否激活（仅统计当前选中文档下的概念）
+  const _totalConcepts = _allNodes.filter(n => n.type === 'concept' && (!n.doc_id || _selectedDocs.has(n.doc_id))).length;
+  const _conceptFilterOn = _selectedConcepts.size < _totalConcepts;
+
+  // 过滤节点
+  let nodes = _allNodes.filter(n => {
+    // 按文档过滤（concept 节点现在也携带 doc_id）
+    if (n.doc_id && !_selectedDocs.has(n.doc_id)) return false;
+    // 按视图模式过滤
+    if (_currentView === 'struct' && n.type === 'concept') return false;
+    if (_currentView === 'concept' && (n.type === 'section' || n.type === 'doc')) return false;
+    // 按章节过滤
+    if (_chapterFilterOn) {
+      if (n.type === 'chapter' && !_selectedChapters.has(`${n.doc_id}::${n.chapter_num}`)) return false;
+      if (n.type === 'section' && !_selectedChapters.has(`${n.doc_id}::${n.chapter_num}`)) return false;
+      if (n.type === 'concept' && !_selectedChapterNames.has(n.chapter_name)) return false;
+    }
+    // 按知识点过滤（在章节过滤基础上进一步缩小）
+    if (_conceptFilterOn && n.type === 'concept' && !_selectedConcepts.has(n.id)) return false;
+    return true;
+  });
+
+  const nodeIds = new Set(nodes.map(n => n.id));
+
+  // 过滤边
+  let links = _allLinks.filter(l => {
+    if (!nodeIds.has(l.source.id || l.source) || !nodeIds.has(l.target.id || l.target)) return false;
+    if (_currentView === 'struct' && l.rel !== 'structural') return false;
+    if (_currentView === 'concept' && l.rel === 'structural') return false;
+    return true;
+  });
+
+  if (nodes.length === 0) return;
+
+  // 克隆避免 D3 污染原始对象
+  nodes = nodes.map(n => ({...n, x: n.x || Math.random()*600+100, y: n.y || Math.random()*400+100}));
+  links = links.map(l => ({...l}));
+
+  const area = document.getElementById('graph-area');
+  const W = area.clientWidth, H = area.clientHeight;
+
+  // 力仿真
+  _simulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(d => {
+      if (d.rel === 'structural') return 70;
+      return 120;
+    }).strength(0.5))
+    .force('charge', d3.forceManyBody().strength(d => {
+      if (d.type === 'doc') return -400;
+      if (d.type === 'chapter') return -250;
+      if (d.type === 'concept') return -150;
+      return -80;
+    }))
+    .force('center', d3.forceCenter(W / 2, H / 2))
+    .force('collision', d3.forceCollide(d => nodeRadius(d) + 8));
+
+  // 边
+  _linkElements = _g.append('g').attr('class','links')
+    .selectAll('line').data(links).join('line')
+    .attr('class', d => `link ${d.rel}`)
+    .attr('marker-end', d => d.rel !== 'structural' ? `url(#arrow-${d.rel})` : null);
+
+  // 节点
+  _nodeElements = _g.append('g').attr('class','nodes')
+    .selectAll('g').data(nodes).join('g')
+    .attr('class', 'node')
+    .call(d3.drag()
+      .on('start', (e, d) => { if (!e.active) _simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('drag',  (e, d) => { d.fx=e.x; d.fy=e.y; })
+      .on('end',   (e, d) => { if (!e.active) _simulation.alphaTarget(0); d.fx=null; d.fy=null; })
+    )
+    .on('click', (e, d) => { e.stopPropagation(); selectNode(d); })
+    .on('dblclick', (e, d) => { e.stopPropagation(); toggleCollapse(d); })
+    .on('mouseover', (e, d) => showTooltip(e, d))
+    .on('mouseout',  () => hideTooltip());
+
+  _nodeElements.append('circle')
+    .attr('r', d => nodeRadius(d))
+    .attr('fill', d => nodeColor(d))
+    .attr('stroke', '#fff')
+    .attr('stroke-width', 2);
+
+  _nodeElements.append('text')
+    .attr('text-anchor', 'middle')
+    .attr('dy', d => nodeRadius(d) + 12)
+    .attr('font-size', d => d.type === 'doc' ? '12px' : d.type === 'chapter' ? '11px' : '10px')
+    .attr('fill', '#333')
+    .text(d => d.label.length > 14 ? d.label.slice(0, 13) + '…' : d.label);
+
+  _simulation.on('tick', () => {
+    _linkElements
+      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    _nodeElements.attr('transform', d => `translate(${d.x},${d.y})`);
+  });
+
+  // 点击空白取消选中
+  _svg.on('click', () => clearSelection());
+}
+
+function nodeRadius(d) {
+  if (d.type === 'concept') {
+    if (d.is_key) return NODE_SIZE.concept_key;
+    if (d.is_difficult) return NODE_SIZE.concept_diff;
+    return NODE_SIZE.concept;
+  }
+  return NODE_SIZE[d.type] || 12;
+}
+
+function nodeColor(d) {
+  if (d.type === 'concept') {
+    if (d.is_key && d.is_difficult) return '#c0392b';
+    if (d.is_key) return NODE_COLOR.concept_key;
+    if (d.is_difficult) return NODE_COLOR.concept_diff;
+    return NODE_COLOR.concept;
+  }
+  return NODE_COLOR[d.type] || '#999';
+}
+
+// ═══════════════════════════════════════════════════════════
+// 折叠/展开
+// ═══════════════════════════════════════════════════════════
+function toggleCollapse(d) {
+  if (_collapsed.has(d.id)) _collapsed.delete(d.id);
+  else _collapsed.add(d.id);
+  // 简单实现：重新渲染（可优化为局部更新）
+  renderGraph();
+}
+
+// ═══════════════════════════════════════════════════════════
+// 节点选中 + 详情面板
+// ═══════════════════════════════════════════════════════════
+function selectNode(d) {
+  _selectedNode = d;
+  // 高亮
+  if (_nodeElements) {
+    _nodeElements.classed('selected', n => n.id === d.id);
+  }
+  showDetail(d);
+}
+
+function clearSelection() {
+  _selectedNode = null;
+  if (_nodeElements) _nodeElements.classed('selected', false);
+  document.getElementById('detail-empty').style.display = 'flex';
+  document.getElementById('detail-content').style.display = 'none';
+}
+
+async function showDetail(d) {
+  document.getElementById('detail-empty').style.display = 'none';
+  const content = document.getElementById('detail-content');
+  content.style.display = 'flex';
+  content.style.flexDirection = 'column';
+
+  document.getElementById('detail-label').textContent = d.label;
+  const badge = document.getElementById('detail-type-badge');
+  badge.textContent = TYPE_LABEL[d.type] || d.type;
+  badge.style.background = TYPE_BADGE_COLOR[d.type] || '#999';
+
+  _chunksOffset = 0;
+  const body = document.getElementById('detail-body');
+  body.innerHTML = buildDetailMeta(d);
+
+  // 加载原文
+  const chunksEl = document.createElement('div');
+  chunksEl.className = 'detail-section';
+  chunksEl.innerHTML = '<h4><i class="fas fa-file-lines"></i> 原文内容</h4><div class="chunks-loading" style="color:#aaa;font-size:0.8rem;">加载中...</div>';
+  body.appendChild(chunksEl);
+
+  const chunks = await fetchChunks(d, 0);
+  renderChunks(chunksEl, d, chunks);
+}
+
+function buildDetailMeta(d) {
+  let html = '';
+  if (d.type === 'doc') {
+    html += `<div class="detail-section"><h4>基本信息</h4><div class="detail-desc">类型：${d.source_type === 'slides' ? '幻灯片' : '教材'}</div></div>`;
+  } else if (d.type === 'chapter') {
+    html += `<div class="detail-section"><h4>基本信息</h4><div class="detail-desc">所属文档：${escHtml(d.doc_id)}<br>章节编号：${d.chapter_num}<br>文本块数：${d.chunk_count}</div></div>`;
+  } else if (d.type === 'section') {
+    html += `<div class="detail-section"><h4>基本信息</h4><div class="detail-desc">所属文档：${escHtml(d.doc_id)}<br>页/节编号：${d.section_num}<br>文本块数：${d.chunk_count}</div></div>`;
+  } else if (d.type === 'concept') {
+    if (d.description) {
+      html += `<div class="detail-section"><h4>定义</h4><div class="detail-desc">${escHtml(d.description)}</div></div>`;
+    }
+    const tags = [];
+    if (d.is_key) tags.push('<span class="tag tag-key">重点</span>');
+    if (d.is_difficult) tags.push('<span class="tag tag-diff">难点</span>');
+    if (tags.length) {
+      html += `<div class="detail-section"><h4>标注</h4><div class="tag-row">${tags.join('')}</div></div>`;
+    }
+    if (d.chapter_name) {
+      html += `<div class="detail-section"><h4>所属章节</h4><div class="detail-desc">${escHtml(d.chapter_name)}</div></div>`;
+    }
+  }
+  return html;
+}
+
+async function fetchChunks(d, offset) {
+  let url = `/api/kg/chunks?limit=${PAGE_SIZE}&offset=${offset}`;
+  if (d.type === 'doc') {
+    url += `&doc_id=${encodeURIComponent(d.doc_id)}`;
+  } else if (d.type === 'chapter') {
+    url += `&doc_id=${encodeURIComponent(d.doc_id)}&chapter_num=${d.chapter_num}`;
+  } else if (d.type === 'section') {
+    url += `&doc_id=${encodeURIComponent(d.doc_id)}&chapter_num=${d.chapter_num}&section_num=${d.section_num}`;
+  } else if (d.type === 'concept') {
+    // 使用 concept 自身的 doc_id（后端已填充），兜底取第一个选中文档
+    const docId = d.doc_id || ([..._selectedDocs][0] || '');
+    url += `&doc_id=${encodeURIComponent(docId)}&concept_name=${encodeURIComponent(d.label)}`;
+  } else {
+    return [];
+  }
+  try {
+    const resp = await fetch(url);
+    const data = await resp.json();
+    return data.chunks || [];
+  } catch { return []; }
+}
+
+function renderChunks(container, d, chunks) {
+  const listEl = container.querySelector('.chunks-loading') || container.querySelector('.chunks-list');
+  const parent = container;
+
+  // 移除旧内容（保留 h4）
+  Array.from(container.children).forEach(el => {
+    if (!el.matches('h4')) el.remove();
+  });
+
+  if (!chunks.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'font-size:0.8rem;color:#bbb;';
+    empty.textContent = '暂无原文内容';
+    container.appendChild(empty);
+    return;
+  }
+
+  const list = document.createElement('div');
+  list.className = 'chunks-list';
+  chunks.forEach(c => {
+    const card = document.createElement('div');
+    card.className = 'chunk-card';
+    card.innerHTML = `<div class="chunk-meta">${escHtml(c.context_header)}</div><div class="chunk-text">${escHtml(c.text)}</div>`;
+    list.appendChild(card);
+  });
+  container.appendChild(list);
+
+  // 加载更多
+  if (chunks.length === PAGE_SIZE) {
+    const btn = document.createElement('button');
+    btn.className = 'load-more-btn';
+    btn.innerHTML = '<i class="fas fa-chevron-down"></i> 加载更多';
+    btn.onclick = async () => {
+      _chunksOffset += PAGE_SIZE;
+      btn.textContent = '加载中...';
+      const more = await fetchChunks(d, _chunksOffset);
+      more.forEach(c => {
+        const card = document.createElement('div');
+        card.className = 'chunk-card';
+        card.innerHTML = `<div class="chunk-meta">${escHtml(c.context_header)}</div><div class="chunk-text">${escHtml(c.text)}</div>`;
+        list.appendChild(card);
+      });
+      if (more.length < PAGE_SIZE) btn.remove();
+      else btn.innerHTML = '<i class="fas fa-chevron-down"></i> 加载更多';
+    };
+    container.appendChild(btn);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 可折叠面板
+// ═══════════════════════════════════════════════════════════
+function toggleSection(bodyId, headerEl) {
+  const body = document.getElementById(bodyId);
+  const isHidden = body.style.display === 'none';
+  body.style.display = isHidden ? '' : 'none';
+  headerEl.classList.toggle('collapsed', !isHidden);
+}
+
+// ═══════════════════════════════════════════════════════════
+// 章节筛选
+// ═══════════════════════════════════════════════════════════
+function renderChapterFilter() {
+  const chapters = _allNodes
+    .filter(n => n.type === 'chapter' && _selectedDocs.has(n.doc_id))
+    .sort((a, b) => a.doc_id.localeCompare(b.doc_id) || a.chapter_num - b.chapter_num);
+
+  const section = document.getElementById('chapter-section');
+  section.style.display = chapters.length ? '' : 'none';
+  if (!chapters.length) return;
+
+  const total = chapters.length;
+  const el = document.getElementById('chapter-filter-list');
+  el.innerHTML = chapters.map(c => {
+    const key = `${c.doc_id}::${c.chapter_num}`;
+    const checked = _selectedChapters.has(key);
+    const lbl = c.label.length > 18 ? c.label.slice(0, 17) + '…' : c.label;
+    // 多文档时显示文档前缀
+    const prefix = _allDocs.length > 1 ? `<span style="color:#aaa;font-size:0.68rem;margin-right:2px;">[${escHtml(c.doc_id.split('_')[0].slice(-4))}]</span>` : '';
+    return `<label style="display:flex;align-items:center;gap:5px;padding:2px 0;cursor:pointer;font-size:0.8rem;">
+      <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleChapter('${escHtml(c.doc_id)}',${c.chapter_num},this.checked)">
+      ${prefix}<span title="${escHtml(c.label)}" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(lbl)}</span>
+    </label>`;
+  }).join('');
+
+  updateFilterBadge('chapter-filter-badge', _selectedChapters.size, total);
+}
+
+function toggleChapter(docId, chapterNum, checked) {
+  const key = `${docId}::${chapterNum}`;
+  if (checked) _selectedChapters.add(key);
+  else _selectedChapters.delete(key);
+  // 重置知识点为当前可见章节下全选
+  _selectedConcepts = new Set(getAvailableConcepts().map(c => c.id));
+  _conceptSearchQ = '';
+  const inp = document.getElementById('concept-search-input');
+  if (inp) inp.value = '';
+  const total = _allNodes.filter(n => n.type === 'chapter' && _selectedDocs.has(n.doc_id)).length;
+  updateFilterBadge('chapter-filter-badge', _selectedChapters.size, total);
+  renderConceptFilter();
+  renderGraph();
+}
+
+function selectAllChapters() {
+  _allNodes.filter(n => n.type === 'chapter' && _selectedDocs.has(n.doc_id))
+           .forEach(n => _selectedChapters.add(`${n.doc_id}::${n.chapter_num}`));
+  _selectedConcepts = new Set(_allNodes.filter(n => n.type === 'concept' && (!n.doc_id || _selectedDocs.has(n.doc_id))).map(n => n.id));
+  renderChapterFilter();
+  renderConceptFilter();
+  renderGraph();
+}
+
+function deselectAllChapters() {
+  _selectedChapters.clear();
+  _selectedConcepts.clear();
+  renderChapterFilter();
+  renderConceptFilter();
+  renderGraph();
+}
+
+// ═══════════════════════════════════════════════════════════
+// 知识点筛选
+// ═══════════════════════════════════════════════════════════
+
+/** 获取当前文档+章节筛选下可见的所有 concept 节点 */
+function getAvailableConcepts() {
+  // 第一步：只取属于当前选中文档的概念（依赖后端新增的 doc_id 字段）
+  const docConcepts = _allNodes.filter(n => n.type === 'concept' && (!n.doc_id || _selectedDocs.has(n.doc_id)));
+  if (!docConcepts.length) return [];
+
+  const totalCh = _allNodes.filter(n => n.type === 'chapter' && _selectedDocs.has(n.doc_id)).length;
+
+  // 若选中文档本身无章节结构（如幻灯片），不依赖章节做过滤
+  if (totalCh === 0) return docConcepts;
+
+  // 全不选章节 → 不展示任何概念
+  if (_selectedChapters.size === 0) return [];
+
+  // 全选章节 → 返回所有该文档下的概念
+  if (_selectedChapters.size >= totalCh) return docConcepts;
+
+  // 部分选中 → 按章节名过滤
+  const selNames = new Set(
+    _allNodes.filter(n => n.type === 'chapter' && _selectedChapters.has(`${n.doc_id}::${n.chapter_num}`))
+             .map(n => n.label)
+  );
+  return docConcepts.filter(n => selNames.has(n.chapter_name));
+}
+
+function renderConceptFilter() {
+  const section = document.getElementById('concept-section');
+  const available = getAvailableConcepts();
+  section.style.display = (_hasKg && available.length) ? '' : 'none';
+  if (!available.length) return;
+
+  // 应用搜索词
+  const q = _conceptSearchQ.toLowerCase();
+  const visible = q ? available.filter(c => c.label.toLowerCase().includes(q)) : available;
+
+  const el = document.getElementById('concept-filter-list');
+  el.innerHTML = visible.map(c => {
+    const checked = _selectedConcepts.has(c.id);
+    const lbl = c.label.length > 14 ? c.label.slice(0, 13) + '…' : c.label;
+    const keyTag = c.is_key ? '<span style="color:#e74c3c;font-size:0.62rem;flex-shrink:0;">重</span>' : '';
+    const diffTag = c.is_difficult ? '<span style="color:#f39c12;font-size:0.62rem;flex-shrink:0;">难</span>' : '';
+    return `<label style="display:flex;align-items:center;gap:4px;padding:2px 0;cursor:pointer;font-size:0.79rem;">
+      <input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleConcept('${escHtml(c.id)}',this.checked)">
+      <span title="${escHtml(c.label)}" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(lbl)}</span>
+      ${keyTag}${diffTag}
+    </label>`;
+  }).join('');
+
+  updateFilterBadge('concept-filter-badge', _selectedConcepts.size, available.length);
+}
+
+function toggleConcept(id, checked) {
+  if (checked) _selectedConcepts.add(id);
+  else _selectedConcepts.delete(id);
+  updateFilterBadge('concept-filter-badge', _selectedConcepts.size, getAvailableConcepts().length);
+  renderGraph();
+}
+
+function selectAllConcepts() {
+  getAvailableConcepts().forEach(c => _selectedConcepts.add(c.id));
+  renderConceptFilter();
+  renderGraph();
+}
+
+function deselectAllConcepts() {
+  _selectedConcepts.clear();
+  renderConceptFilter();
+  renderGraph();
+}
+
+function onConceptSearch(q) {
+  _conceptSearchQ = q.trim();
+  renderConceptFilter();
+}
+
+function updateFilterBadge(badgeId, selected, total) {
+  const el = document.getElementById(badgeId);
+  if (!el) return;
+  if (selected < total) {
+    el.textContent = selected + '/' + total;
+    el.style.display = '';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Tooltip
+// ═══════════════════════════════════════════════════════════
+function showTooltip(e, d) {
+  const tip = document.getElementById('tooltip');
+  let html = `<strong>${escHtml(d.label)}</strong>`;
+  if (d.description) html += `<br><span style="opacity:0.85">${escHtml(d.description)}</span>`;
+  if (d.chunk_count) html += `<br><span style="opacity:0.7">${d.chunk_count} 个文本块</span>`;
+  tip.innerHTML = html;
+  tip.style.opacity = 1;
+  tip.style.left = (e.pageX + 12) + 'px';
+  tip.style.top  = (e.pageY - 10) + 'px';
+}
+function hideTooltip() {
+  document.getElementById('tooltip').style.opacity = 0;
+}
+
+// ═══════════════════════════════════════════════════════════
+// 工具
+// ═══════════════════════════════════════════════════════════
+function showLoading(v) {
+  document.getElementById('loading-overlay').style.display = v ? 'flex' : 'none';
+}
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// chunks API 需要 offset 参数，后端补充
+</script>
+</body>
+</html>
