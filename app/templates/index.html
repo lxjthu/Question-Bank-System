@@ -4415,6 +4415,7 @@ Now please start generating questions. Output question content directly without 
             // ── 颜色映射（使用全局常量，章节色以全量列表为基准保证一致） ──────
             const colorOf = ch => _dsKgColorOf(ch);
             const relColor = t => _dsKgRelColors[t] || '#aaa';
+            const chNames  = chapters.map(c => c.name); // 供图例区使用（当前可见章节）
 
             // ── 图例 ──────────────────────────────────────────────────────────
             if (legend) {
