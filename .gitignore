@@ -29,6 +29,9 @@ rag_pipeline/kg.db
 rag_pipeline/progress.json
 rag_pipeline/output/
 
+# Large model weight files (downloaded at runtime, not for git)
+models/
+
 # One-time scripts & dev tooling (not part of the project)
 word_to_csv_converter.py
 migrate_*.py
