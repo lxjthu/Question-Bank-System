@@ -1,5 +1,20 @@
 # 更新日志
 
+## 1.6.0 - 2026-02-26
+
+### 新功能
+
+- **DS知识图谱左侧筛选面板** — 知识图谱模态框左侧新增章节/知识点/关系类型三维筛选面板，可按章节复选框筛选节点、关键词搜索知识点、勾选关系类型显隐边；筛选结果实时重渲染图谱，右上角节点/边数量同步更新
+- **幻灯片 KG 自动提取** — DS 模式新增 PPTX/PDF 上传后自动触发 KG 提取的流程，与文本格式文档统一处理入口
+
+### 修复
+
+- **DS 模式章节列表初始化** — 修复进入「知识图谱」Tab 时章节/知识点列表显示 RAG 向量检索数据的问题（根因：Tab 点击固定调用 `loadRagDocs()`）；改为根据当前模式（`_aiMode`）分别调用 `loadDsDocs()` / `loadRagDocs()`
+- **知识图谱 relColors 未定义** — 修复知识图谱渲染时 `ReferenceError: relColors is not defined` 导致图谱加载失败；将箭头 marker 判断中的 `relColors` 更正为 `_dsKgRelColors`
+- **chNames 未定义** — 修复 `_renderDsKg()` 中 `chNames is not defined` 错误
+
+---
+
 ## 1.5.0 - 2026-02-26
 
 ### 新功能
