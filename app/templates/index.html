@@ -1584,7 +1584,7 @@
 
                 if (tabId === 'type-management') renderQuestionTypesTable();
                 if (tabId === 'usage-management') loadUsedQuestions();
-                if (tabId === 'ai-generation') { loadRagDocs(); loadRagConfig(); }
+                if (tabId === 'ai-generation') { (_aiMode === 'deepseek' ? loadDsDocs() : loadRagDocs()); loadRagConfig(); }
             });
         });
 
@@ -4482,7 +4482,7 @@ Now please start generating questions. Output question content directly without 
             const edgeLine = edgeG.selectAll('line').data(linksD).enter().append('line')
                 .attr('stroke', d => relColor(d.type))
                 .attr('stroke-width', 1.5).attr('stroke-opacity', 0.65)
-                .attr('marker-end', d => `url(#dskg-arrow-${d.type in relColors ? d.type : '_default'})`);
+                .attr('marker-end', d => `url(#dskg-arrow-${d.type in _dsKgRelColors ? d.type : '_default'})`);
 
             const edgeLabel = edgeG.selectAll('text').data(linksD).enter().append('text')
                 .attr('font-size', 8.5).attr('fill', d => relColor(d.type))
