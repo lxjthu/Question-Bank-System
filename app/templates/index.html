@@ -579,6 +579,9 @@
             <button class="tab-button" data-tab="system-settings">
                 <i class="fas fa-cog"></i> 系统设置
             </button>
+            <button class="tab-button" data-tab="ai-generation">
+                <i class="fas fa-robot"></i> AI智能出题
+            </button>
         </div>
 
         <div class="main-content">
@@ -1136,6 +1139,326 @@
                     </button>
                 </div>
             </div>
+
+            <!-- AI Generation Tab -->
+            <div id="ai-generation" class="tab-content">
+
+                <!-- ── 出题模式切换 ── -->
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
+                    <span style="font-size:0.9rem; color:#555; font-weight:500;">出题模式：</span>
+                    <div style="display:inline-flex; border:1px solid #ddd; border-radius:8px; overflow:hidden; background:#f5f5f5;">
+                        <button id="ai-mode-btn-deepseek" onclick="setAiMode('deepseek')"
+                            style="padding:8px 18px; font-size:0.88rem; border:none; cursor:pointer;
+                                   background:var(--secondary-color); color:white; font-weight:500;
+                                   display:flex; align-items:center; gap:6px;">
+                            <i class="fas fa-brain"></i> DeepSeek 直出
+                        </button>
+                        <button id="ai-mode-btn-rag" onclick="setAiMode('rag')"
+                            style="padding:8px 18px; font-size:0.88rem; border:none; cursor:pointer;
+                                   background:transparent; color:#666;
+                                   display:flex; align-items:center; gap:6px;">
+                            <i class="fas fa-search"></i> RAG 向量检索
+                        </button>
+                    </div>
+                    <span id="ai-mode-desc" style="font-size:0.78rem; color:#888;">
+                        无需向量数据库，DeepSeek 直接分析文档知识结构并出题
+                    </span>
+                </div>
+
+                <!-- ── RAG 模式切换警告弹窗 ── -->
+                <div id="rag-warning-modal" style="display:none; position:fixed; inset:0;
+                    background:rgba(0,0,0,0.55); z-index:9999; justify-content:center; align-items:center;">
+                    <div style="background:white; border-radius:10px; padding:28px 32px; max-width:500px;
+                        width:90%; box-shadow:0 20px 40px rgba(0,0,0,0.3);">
+                        <h3 style="margin-bottom:14px; color:var(--warning-color);">
+                            <i class="fas fa-exclamation-triangle"></i> 切换到 RAG 向量检索模式
+                        </h3>
+                        <p style="margin-bottom:12px; color:#444; line-height:1.7; font-size:0.92rem;">
+                            RAG 模式需要在本地运行 <strong>向量嵌入模型</strong>，对硬件有较高要求：
+                        </p>
+                        <ul style="margin:0 0 14px 18px; color:#555; font-size:0.88rem; line-height:2.1;">
+                            <li>推荐 <strong>GPU 显存 ≥ 4 GB</strong>（RTX 3060 及以上）</li>
+                            <li>CPU 模式可用，但每次检索约需 10～30 秒</li>
+                            <li>首次使用需下载嵌入模型权重：<strong>BGE-large-zh（约 1.3 GB）</strong></li>
+                            <li>需额外安装依赖：<code style="background:#f0f0f0; padding:1px 6px; border-radius:3px;">qdrant-client sentence-transformers</code></li>
+                        </ul>
+                        <p style="margin-bottom:18px; color:#888; font-size:0.82rem;">
+                            安装命令：
+                            <code style="background:#f0f0f0; padding:3px 10px; border-radius:4px; display:inline-block; margin-top:4px;">
+                                pip install qdrant-client sentence-transformers
+                            </code>
+                        </p>
+                        <div style="display:flex; gap:10px; justify-content:flex-end;">
+                            <button onclick="closeRagWarning(false)" class="btn btn-outline" style="padding:7px 18px;">
+                                取消
+                            </button>
+                            <button onclick="closeRagWarning(true)" class="btn btn-warning"
+                                style="padding:7px 18px;">
+                                我已了解，继续切换
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top: Two columns -->
+                <div style="display:flex; gap:16px; margin-bottom:16px; align-items:flex-start;">
+
+                    <!-- Left column: Knowledge base management (25%) + API config -->
+                    <div style="width:260px; flex-shrink:0; display:flex; flex-direction:column; gap:12px;">
+
+                        <!-- DS 知识点提取面板（DeepSeek 直出模式，默认显示） -->
+                        <div id="ds-kb-panel" class="form-container" style="padding:16px;">
+                            <h3 style="margin-bottom:12px; font-size:0.95rem;">
+                                <i class="fas fa-brain"></i> 文档知识提取
+                            </h3>
+
+                            <!-- 提取进度条 -->
+                            <div id="ds-extract-progress" style="display:none; padding:7px 10px;
+                                background:#fff3cd; border-radius:5px; margin-bottom:8px;
+                                font-size:0.8rem; color:#856404;">
+                                <i class="fas fa-spinner fa-spin"></i>
+                                <span id="ds-extract-progress-text">提取中...</span>
+                            </div>
+
+                            <!-- 上传区域 -->
+                            <div id="ds-upload-area"
+                                style="border:2px dashed #aaa; border-radius:8px; padding:16px;
+                                       text-align:center; cursor:pointer; background:#fafafa;
+                                       margin-bottom:10px; transition:border-color 0.2s;"
+                                ondragover="event.preventDefault(); this.style.borderColor='#3498db';"
+                                ondragleave="this.style.borderColor='#aaa';"
+                                ondrop="event.preventDefault(); this.style.borderColor='#aaa'; dsUploadFiles(event.dataTransfer.files);"
+                                onclick="document.getElementById('ds-file-input').click()">
+                                <i class="fas fa-cloud-upload-alt" style="font-size:1.6rem; color:#aaa; margin-bottom:5px; display:block;"></i>
+                                <div style="font-size:0.83rem; color:#888;">拖拽或点击上传</div>
+                                <div style="font-size:0.75rem; color:#bbb; margin-top:3px;">.md &nbsp;.txt &nbsp;.docx &nbsp;.pptx &nbsp;.pdf</div>
+                            </div>
+                            <input type="file" id="ds-file-input" style="display:none;" multiple
+                                accept=".md,.txt,.docx,.pptx,.ppt,.pdf"
+                                onchange="dsUploadFiles(this.files)">
+
+                            <!-- DS 文档列表 -->
+                            <div id="ds-doc-list" style="max-height:360px; overflow-y:auto;">
+                                <div style="text-align:center; color:#bbb; padding:20px; font-size:0.85rem;">
+                                    <i class="fas fa-folder-open"></i><br>暂无文档，请上传教材
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- RAG 知识库管理面板（RAG 向量检索模式，默认隐藏） -->
+                        <div id="rag-kb-panel" class="form-container" style="padding:16px; display:none;">
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+                                <h3 style="margin:0;"><i class="fas fa-database"></i> 知识库管理</h3>
+                                <a href="/kg" target="_blank"
+                                    style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;font-size:0.78rem;background:linear-gradient(135deg,#9b59b6,#3498db);color:#fff;border-radius:14px;text-decoration:none;white-space:nowrap;box-shadow:0 2px 5px rgba(0,0,0,0.15);"
+                                    title="在新标签页打开知识图谱">
+                                    <i class="fas fa-project-diagram"></i> 知识图谱
+                                </a>
+                            </div>
+
+                            <!-- Upload area -->
+                            <div id="rag-upload-area"
+                                style="border:2px dashed #aaa; border-radius:8px; padding:20px; text-align:center; cursor:pointer; background:#fafafa; margin-bottom:10px; transition:border-color 0.2s;"
+                                ondragover="event.preventDefault(); this.style.borderColor='#3498db';"
+                                ondragleave="this.style.borderColor='#aaa';"
+                                ondrop="event.preventDefault(); this.style.borderColor='#aaa'; ragUploadFiles(event.dataTransfer.files);"
+                                onclick="document.getElementById('rag-file-input').click()">
+                                <i class="fas fa-cloud-upload-alt" style="font-size:1.8rem; color:#aaa; margin-bottom:6px; display:block;"></i>
+                                <div style="font-size:0.85rem; color:#888;">拖拽或点击上传</div>
+                                <div style="font-size:0.78rem; color:#bbb; margin-top:4px;">.md .txt .docx .pptx .pdf</div>
+                            </div>
+                            <input type="file" id="rag-file-input" style="display:none;" multiple
+                                accept=".md,.txt,.docx,.pptx,.ppt,.pdf"
+                                onchange="ragUploadFiles(this.files)">
+
+                            <!-- Doc type selector -->
+                            <div style="margin-bottom:10px; font-size:0.85rem; color:#555;">
+                                文档类型：
+                                <label style="margin-left:4px;"><input type="radio" name="rag-doc-type" value="auto" checked> 自动</label>
+                                <label style="margin-left:8px;"><input type="radio" name="rag-doc-type" value="textbook"> 教材</label>
+                                <label style="margin-left:8px;"><input type="radio" name="rag-doc-type" value="slides"> 幻灯片</label>
+                            </div>
+
+                            <!-- Document list -->
+                            <div id="rag-doc-list" style="max-height:420px; overflow-y:auto;">
+                                <div style="text-align:center; color:#bbb; padding:20px; font-size:0.85rem;">
+                                    <i class="fas fa-folder-open"></i><br>暂无文档
+                                </div>
+                            </div>
+                        </div>
+                        <!-- /rag-kb-panel -->
+
+                        <!-- API 配置卡片 -->
+                        <div class="form-container" style="padding:14px;">
+                            <h3 style="margin-bottom:10px; font-size:0.92rem; color:var(--primary-color);">
+                                <i class="fas fa-key"></i> API 配置
+                            </h3>
+                            <div style="display:flex; flex-direction:column; gap:9px; font-size:0.83rem;">
+                                <div>
+                                    <label style="display:block; margin-bottom:3px; color:#666;">PaddleOCR 服务地址</label>
+                                    <input type="text" id="cfg-paddle-url"
+                                        placeholder="https://your-paddleocr/layout-parsing"
+                                        style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:5px; font-size:0.78rem; font-family:monospace; box-sizing:border-box;">
+                                </div>
+                                <div>
+                                    <label style="display:block; margin-bottom:3px; color:#666;">PaddleOCR API Key</label>
+                                    <input type="password" id="cfg-paddle-token"
+                                        placeholder="token / api key"
+                                        style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:5px; font-size:0.78rem; font-family:monospace; box-sizing:border-box;">
+                                </div>
+                                <div>
+                                    <label style="display:block; margin-bottom:3px; color:#666;">DeepSeek API Key</label>
+                                    <input type="password" id="cfg-deepseek-key"
+                                        placeholder="sk-..."
+                                        style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:5px; font-size:0.78rem; font-family:monospace; box-sizing:border-box;">
+                                </div>
+                                <div style="display:flex; align-items:center; gap:8px; margin-top:2px;">
+                                    <button class="btn btn-primary" onclick="saveRagConfig()"
+                                        style="padding:5px 14px; font-size:0.8rem;">
+                                        <i class="fas fa-save"></i> 保存
+                                    </button>
+                                    <span id="cfg-save-status" style="font-size:0.78rem; color:#888;"></span>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- Right column: Generation config (remaining width) -->
+                    <div style="flex:1; min-width:0;">
+                        <div class="form-container" style="padding:16px;">
+                            <h3 style="margin-bottom:14px;"><i class="fas fa-sliders-h"></i> 出题配置</h3>
+
+                            <!-- 出题科目 -->
+                            <div style="margin-bottom:14px;">
+                                <label style="display:block; margin-bottom:5px; font-weight:500; color:var(--primary-color);">出题科目</label>
+                                <input type="text" id="rag-subject" placeholder="如：林业经济学"
+                                    style="width:100%; padding:10px 15px; border:1px solid #ddd; border-radius:var(--border-radius); font-size:1rem;">
+                            </div>
+
+                            <!-- 参考文档 -->
+                            <div style="margin-bottom:14px;">
+                                <label style="display:block; margin-bottom:5px; font-weight:500; color:var(--primary-color);">
+                                    参考文档 <span style="font-weight:normal; font-size:0.8rem; color:#888;">（可多选）</span>
+                                </label>
+                                <div id="rag-doc-checkboxes"
+                                    style="border:1px solid #ddd; border-radius:6px; padding:8px; max-height:100px; overflow-y:auto; background:#fff; font-size:0.9rem; text-align:left;">
+                                    <span style="color:#bbb;">上传文档后在此选择</span>
+                                </div>
+                            </div>
+
+                            <!-- 章节筛选 + 知识点：左右两列 -->
+                            <div style="display:flex; gap:16px; margin-bottom:14px;">
+                                <!-- 章节筛选 -->
+                                <div style="flex:1; min-width:0;">
+                                    <label style="display:block; margin-bottom:5px; font-weight:500; color:var(--primary-color);">
+                                        章节筛选 <span style="font-weight:normal; font-size:0.78rem; color:#888;">（留空则全部）</span>
+                                    </label>
+                                    <input type="text" id="rag-chapter-search" placeholder="搜索章节..."
+                                        style="width:100%; padding:7px 10px; border:1px solid #ddd; border-radius:6px; font-size:0.88rem; margin-bottom:4px;"
+                                        oninput="filterRagChapters()">
+                                    <div id="rag-chapter-list"
+                                        style="border:1px solid #ddd; border-radius:6px; padding:6px; max-height:130px; overflow-y:auto; background:#fff; font-size:0.85rem; text-align:left;">
+                                        <span style="color:#bbb;">选择文档后加载章节</span>
+                                    </div>
+                                </div>
+                                <!-- 知识点/节名 -->
+                                <div style="flex:1; min-width:0;">
+                                    <label style="display:block; margin-bottom:5px; font-weight:500; color:var(--primary-color);">
+                                        知识点/节名 <span style="font-weight:normal; font-size:0.78rem; color:#888;">（留空则全部）</span>
+                                    </label>
+                                    <input type="text" id="rag-section-search" placeholder="搜索知识点..."
+                                        style="width:100%; padding:7px 10px; border:1px solid #ddd; border-radius:6px; font-size:0.88rem; margin-bottom:4px;"
+                                        oninput="filterRagSections()">
+                                    <div id="rag-section-list"
+                                        style="border:1px solid #ddd; border-radius:6px; padding:6px; max-height:130px; overflow-y:auto; background:#fff; font-size:0.85rem; text-align:left;">
+                                        <span style="color:#bbb;">选择文档后加载</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 出题语言 + 题型与数量：左右两列，不使用 form-group 避免 min-width 干扰 -->
+                            <div style="display:flex; gap:24px; align-items:flex-start;">
+                                <!-- 出题语言 -->
+                                <div style="flex-shrink:0; width:90px;">
+                                    <label style="display:block; margin-bottom:5px; font-weight:500; color:var(--primary-color);">出题语言</label>
+                                    <div style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">
+                                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.9rem; white-space:nowrap;">
+                                            <input type="radio" name="rag-lang" value="zh" checked onchange="setRagPromptMode('zh')"> 中文
+                                        </label>
+                                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.9rem; white-space:nowrap;">
+                                            <input type="radio" name="rag-lang" value="bilingual" onchange="setRagPromptMode('bilingual')"> 双语
+                                        </label>
+                                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:0.9rem; white-space:nowrap;">
+                                            <input type="radio" name="rag-lang" value="en" onchange="setRagPromptMode('en')"> 英文
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <!-- 题型与数量表 -->
+                                <div style="flex:1; min-width:0;">
+                                    <label style="display:block; margin-bottom:5px; font-weight:500; color:var(--primary-color);">题型与数量</label>
+                                    <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+                                        <thead>
+                                            <tr style="background:#f5f5f5;">
+                                                <th style="text-align:left; padding:5px 10px; border:1px solid #ddd; font-weight:500;">题型</th>
+                                                <th style="text-align:center; padding:5px 10px; border:1px solid #ddd; width:90px; font-weight:500;">数量（题）</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr><td style="padding:5px 10px; border:1px solid #ddd;">单选题</td><td style="border:1px solid #ddd; text-align:center;"><input type="number" id="rag-q-单选" value="10" min="0" max="50" style="width:60px; text-align:center; padding:3px 4px; border:1px solid #ccc; border-radius:4px;"></td></tr>
+                                            <tr><td style="padding:5px 10px; border:1px solid #ddd;">多选题</td><td style="border:1px solid #ddd; text-align:center;"><input type="number" id="rag-q-多选" value="5" min="0" max="30" style="width:60px; text-align:center; padding:3px 4px; border:1px solid #ccc; border-radius:4px;"></td></tr>
+                                            <tr><td style="padding:5px 10px; border:1px solid #ddd;">是非题</td><td style="border:1px solid #ddd; text-align:center;"><input type="number" id="rag-q-是非" value="8" min="0" max="30" style="width:60px; text-align:center; padding:3px 4px; border:1px solid #ccc; border-radius:4px;"></td></tr>
+                                            <tr><td style="padding:5px 10px; border:1px solid #ddd;">简答题</td><td style="border:1px solid #ddd; text-align:center;"><input type="number" id="rag-q-简答" value="3" min="0" max="20" style="width:60px; text-align:center; padding:3px 4px; border:1px solid #ccc; border-radius:4px;"></td></tr>
+                                            <tr><td style="padding:5px 10px; border:1px solid #ddd;">论述题</td><td style="border:1px solid #ddd; text-align:center;"><input type="number" id="rag-q-论述" value="2" min="0" max="10" style="width:60px; text-align:center; padding:3px 4px; border:1px solid #ccc; border-radius:4px;"></td></tr>
+                                            <tr><td style="padding:5px 10px; border:1px solid #ddd;">材料分析题</td><td style="border:1px solid #ddd; text-align:center;"><input type="number" id="rag-q-材料分析" value="1" min="0" max="10" style="width:60px; text-align:center; padding:3px 4px; border:1px solid #ccc; border-radius:4px;"></td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Prompt editor -->
+                <div class="form-container" style="padding:16px; margin-bottom:16px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
+                        <h3 style="margin:0;"><i class="fas fa-edit"></i> 提示词模板（可编辑）</h3>
+                        <div style="display:flex; gap:6px;">
+                            <button class="btn btn-outline" id="rag-lang-btn-zh" onclick="setRagPromptMode('zh')" style="padding:5px 12px; font-size:0.85rem;">中文</button>
+                            <button class="btn btn-outline" id="rag-lang-btn-bilingual" onclick="setRagPromptMode('bilingual')" style="padding:5px 12px; font-size:0.85rem;">双语</button>
+                            <button class="btn btn-outline" id="rag-lang-btn-en" onclick="setRagPromptMode('en')" style="padding:5px 12px; font-size:0.85rem;">English</button>
+                        </div>
+                    </div>
+                    <textarea id="rag-prompt-editor"
+                        style="width:100%; height:280px; font-family:monospace; font-size:0.82rem; padding:10px; border:1px solid #ddd; border-radius:6px; resize:vertical; line-height:1.5;"></textarea>
+                </div>
+
+                <!-- Generate button -->
+                <div style="text-align:center; margin-bottom:16px;">
+                    <button id="rag-generate-btn" class="btn btn-success" onclick="ragGenerate()" style="padding:12px 40px; font-size:1.1rem;">
+                        <i class="fas fa-magic"></i> 一键出题
+                    </button>
+                    <div id="rag-generate-info" style="font-size:0.8rem; color:#888; margin-top:6px;"></div>
+                </div>
+
+                <!-- Results area -->
+                <div class="form-container" style="padding:16px;">
+                    <h3 style="margin-bottom:10px;"><i class="fas fa-list-alt"></i> 生成结果</h3>
+                    <textarea id="rag-result" readonly
+                        style="width:100%; height:400px; font-family:monospace; font-size:0.82rem; padding:10px; border:1px solid #ddd; border-radius:6px; resize:vertical; line-height:1.5; background:#f9f9f9;"
+                        placeholder="点击「一键出题」后，生成的题目将显示在这里..."></textarea>
+                    <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
+                        <button class="btn btn-outline" onclick="ragCopyResult()">
+                            <i class="fas fa-copy"></i> 复制结果
+                        </button>
+                        <button class="btn btn-primary" onclick="ragImportToBank()">
+                            <i class="fas fa-file-import"></i> 导入题库
+                        </button>
+                        <span id="rag-import-status" style="align-self:center; font-size:0.85rem; color:#888;"></span>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1224,6 +1547,7 @@
 
                 if (tabId === 'type-management') renderQuestionTypesTable();
                 if (tabId === 'usage-management') loadUsedQuestions();
+                if (tabId === 'ai-generation') { loadRagDocs(); loadRagConfig(); }
             });
         });
 
@@ -3457,7 +3781,1290 @@ Now please start generating questions. Output question content directly without 
             renderDefaultExamConfig();
             loadQuestions();
             loadCourseSettings();
+            // Pre-fill AI tab prompt template (DS mode by default)
+            setRagPromptMode('zh');
+            // Load DS docs for default DeepSeek mode
+            loadDsDocs();
         });
+
+        // ========== AI 智能出题 ==========
+
+        // ── 提示词模板常量 ─────────────────────────────────────────────────────
+
+        const RAG_PROMPT_ZH = `你是一位专业的教学内容设计专家，擅长根据课程材料出题。
+
+以下是从知识库检索到的参考内容：
+
+{context}
+
+请根据以上参考内容，按照以下要求生成题目。
+
+**题型与数量：**
+{question_list}
+
+**质量要求：**
+1. 内容必须忠实于参考内容中的知识点，不得编造
+2. 难度分布约为：简单(easy) 30%、中等(medium) 50%、困难(hard) 20%
+   - 简单(easy)：答案可在参考内容原文中直接找到，考查识记理解
+   - 中等(medium)：需结合具体实例或场景，不能仅靠背诵，要求迁移应用
+   - 困难(hard)：需综合运用多个知识点，要求整体把握和批判性分析
+3. 覆盖参考内容的主要知识点和核心概念
+4. 每道题必须标注对应知识点（写在解析里）
+5. 题目必须独立成立，严禁出现引用文件位置的表述，如"如第X章所述""见图""根据上文"等
+
+**输出格式（必须严格遵守）：**
+
+⚠️ 导入格式关键要素（写错会导致导入失败）：
+- 所有括号必须是半角字符：[ ] < > 不能用全角【】（）＜＞
+- 题型名称必须完全一致，层级题型用 > 分隔且两侧无空格，如 [简答>材料分析]
+- 选择题答案：紧跟题型，大写字母，如 [单选][A]、[多选][ABD]；不能小写
+- 是非题答案：只能写 [正确] 或 [错误]，不能用"是/对/T"替代
+- 选项行必须顶格写，行首不能有任何空格：[A]选项内容
+- <参考答案> 和 <解析> 标签必须成对出现，用 </参考答案> 和 </解析> 闭合
+- 难度只能写 easy、medium 或 hard（全小写英文）
+- 知识点/标签/难度字段必须写在 <解析> 块内
+
+---
+单选题格式：
+[单选][正确选项字母]
+题目内容？
+[A]选项A内容
+[B]选项B内容
+[C]选项C内容
+[D]选项D内容
+<解析>
+解析说明
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+难度:easy|medium|hard
+</解析>
+
+---
+多选题格式：
+[多选][正确选项字母组合]
+题目内容？
+[A]选项A内容
+[B]选项B内容
+[C]选项C内容
+[D]选项D内容
+<解析>
+解析说明
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+难度:easy|medium|hard
+</解析>
+
+---
+是非题格式：
+[是非][正确|错误]
+题目陈述句。
+<解析>
+解析说明
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+难度:easy|medium|hard
+</解析>
+
+---
+简答题格式：
+[简答]
+题目内容？
+<参考答案>
+参考答案内容（要点1；要点2；要点3……）
+</参考答案>
+<解析>
+解析说明（可选）
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+难度:easy|medium|hard
+</解析>
+
+---
+论述题格式：
+[简答>论述]
+题目内容？
+<参考答案>
+详细参考答案，分点论述，逻辑清晰。
+</参考答案>
+<解析>
+解析说明（可选）
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+难度:hard
+</解析>
+
+---
+材料分析题格式：
+[简答>材料分析]
+【材料】
+材料内容（一段与课程相关的实际案例、数据或文字材料）
+
+【问题】
+基于以上材料，请分析……？
+<参考答案>
+参考答案（结合材料和理论进行分析）
+</参考答案>
+<解析>
+解析说明（可选）
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+难度:hard
+</解析>
+
+---
+
+注意事项：
+1. 不要添加题号（系统会自动编号）
+2. 不要在题目外添加任何说明文字、章节标题或分割线
+3. 不要使用 *、**、# 等 Markdown 格式符号，不要对文字加粗
+
+现在请开始出题，直接输出题目内容，不需要任何前言。`;
+
+        const RAG_PROMPT_BILINGUAL = `你是一位专业的双语教学内容设计专家，擅长设计中英双语课程题库。
+
+以下是从知识库检索到的参考内容：
+
+{context}
+
+请根据以上参考内容，按照以下要求生成中英双语题目。
+
+**题型与数量：**
+{question_list}
+
+**质量要求：**
+1. 内容必须忠实于参考内容中的知识点，不得编造
+2. 难度分布约为：简单(easy) 30%、中等(medium) 50%、困难(hard) 20%
+3. 每道题必须同时提供中文和英文版本，语义完全对应，英文表达符合学术规范
+4. 覆盖参考内容的主要知识点和核心概念
+5. 题目必须独立成立，严禁出现引用文件位置的表述
+
+**双语输出格式（必须严格遵守）：**
+
+⚠️ 导入格式关键要素：
+- 所有括号必须是半角字符：[ ] < > 不能用全角【】（）＜＞
+- 题型名称必须完全一致，层级题型用 > 分隔且两侧无空格，如 [简答>材料分析]
+- 选择题答案：紧跟题型，大写字母，如 [单选][A]、[多选][ABD]
+- 是非题答案：只能写 [正确] 或 [错误]
+- 选项行必须顶格写，无前导空格：[A]选项内容
+- 英文选项格式：[A_en]Option text，下划线和 en 必须小写
+- <参考答案> 和 <解析> 标签必须成对出现并正确闭合
+- 英文题目字段必须写在 <解析> 块内：英文题目:English question text
+- 难度只能写 easy、medium 或 hard（全小写英文）
+
+---
+双语单选题格式：
+[单选][正确选项字母]
+中文题目内容？
+[A]中文选项A
+[B]中文选项B
+[C]中文选项C
+[D]中文选项D
+[A_en]English option A
+[B_en]English option B
+[C_en]English option C
+[D_en]English option D
+<解析>
+中文解析说明
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+英文题目:English version of the question?
+难度:easy|medium|hard
+</解析>
+
+---
+双语是非题格式：
+[是非][正确|错误]
+中文题目陈述句。
+<解析>
+中文解析说明
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+英文题目:English version of the statement.
+难度:easy|medium|hard
+</解析>
+
+---
+双语简答题格式：
+[简答]
+中文题目内容？
+<参考答案>
+中文参考答案（要点1；要点2；要点3……）
+</参考答案>
+<解析>
+中文解析说明（可选）
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+英文题目:English version of the question?
+难度:easy|medium|hard
+</解析>
+
+---
+双语论述题格式：
+[简答>论述]
+中文题目内容？
+<参考答案>
+中文参考答案，分点论述，逻辑清晰。
+</参考答案>
+<解析>
+中文解析说明（可选）
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+英文题目:English version of the question?
+难度:hard
+</解析>
+
+---
+双语材料分析题格式：
+[简答>材料分析]
+【材料】
+材料内容（中文）
+
+【问题】
+中文问题？
+<参考答案>
+中文参考答案
+</参考答案>
+<解析>
+中文解析（可选）
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+英文题目:【Material】English material content. 【Question】English question?
+难度:hard
+</解析>
+
+---
+
+双语格式规则：
+1. 选择题选项顺序：先列全部中文选项 [A][B][C][D]，再列全部英文选项 [A_en][B_en][C_en][D_en]
+2. 所有题型均在 <解析> 内写一行 英文题目: 提供英文题干
+3. 题型标识符始终使用中文 [单选]、[多选]、[是非]、[简答] 等
+4. 不要添加题号，不要在题目外添加任何说明文字
+5. 不要使用 *、**、# 等 Markdown 格式符号
+
+现在请开始出题，直接输出题目内容，不需要任何前言。`;
+
+        const RAG_PROMPT_EN = `You are a professional academic content designer specializing in creating exam questions.
+
+The following content has been retrieved from the knowledge base as reference:
+
+{context}
+
+Based on the above reference content, generate exam questions according to the requirements below.
+
+**Types and quantities:**
+{question_list}
+
+**Quality requirements:**
+1. Content must be faithfully based on the reference material; do not fabricate content
+2. Difficulty distribution: approximately 30% easy, 50% medium, 20% hard
+   - Easy: answer found directly in reference text; tests recall and comprehension
+   - Medium: requires combining concepts with real-world examples; tests application
+   - Hard: requires integrating multiple knowledge points; tests critical analysis
+3. Cover major knowledge points and core concepts from the reference content
+4. Every question must be self-contained; do not reference the source material's location
+
+**Output format (must follow strictly):**
+
+⚠️ Critical format requirements (errors will cause import failure):
+- All brackets must be ASCII (half-width): [ ] < > — never use full-width variants
+- Question type must exactly match: hierarchical types use > with no spaces, e.g. [简答>材料分析]
+- Choice answer: right after the type tag, uppercase letters — [单选][A], [多选][ABD]
+- True/False answer: only [正确] for True, [错误] for False — do NOT change these
+- Option lines must be flush-left with no leading spaces: [A]Option text
+- English option format: [A_en]Option text — underscore and en must be lowercase
+- Tags must appear in matching pairs: </参考答案> and </解析>
+- Difficulty must be: easy, medium, or hard (lowercase English only)
+- Metadata fields must be inside the <解析> block
+
+---
+Single-choice format:
+[单选][Correct letter]
+Question content in English?
+[A]Option A
+[B]Option B
+[C]Option C
+[D]Option D
+[A_en]Option A
+[B_en]Option B
+[C_en]Option C
+[D_en]Option D
+<解析>
+Explanation in English.
+知识点:Knowledge point name
+标签:tag1,tag2
+英文题目:Question content in English?
+难度:easy|medium|hard
+</解析>
+
+---
+True/False format:
+[是非][正确|错误]
+Statement in English.
+<解析>
+Explanation in English.
+知识点:Knowledge point name
+标签:tag1,tag2
+英文题目:Statement in English.
+难度:easy|medium|hard
+</解析>
+
+---
+Short answer format:
+[简答]
+Question in English?
+<参考答案>
+Reference answer in English (point 1; point 2; point 3...)
+</参考答案>
+<解析>
+Explanation (optional).
+知识点:Knowledge point name
+标签:tag1,tag2
+英文题目:Question in English?
+难度:easy|medium|hard
+</解析>
+
+---
+Essay format:
+[简答>论述]
+Question in English?
+<参考答案>
+Detailed reference answer in English, logically structured.
+</参考答案>
+<解析>
+知识点:Knowledge point name
+标签:tag1,tag2
+英文题目:Question in English?
+难度:hard
+</解析>
+
+---
+Case analysis format:
+[简答>材料分析]
+[Case]
+Case material content in English.
+
+[Question]
+Based on the above case, analyze...?
+<参考答案>
+Reference answer integrating theory and case.
+</参考答案>
+<解析>
+知识点:Knowledge point name
+标签:tag1,tag2
+英文题目:[Case] Case material. [Question] Question in English?
+难度:hard
+</解析>
+
+---
+
+Important notes:
+1. Keep Chinese type markers [单选], [多选], [是非], [简答], [简答>论述], [简答>材料分析] — these are system codes
+2. Keep [正确] for True and [错误] for False — do NOT change
+3. Keep Chinese field names 知识点, 标签, 英文题目, 难度 exactly as shown
+4. Do not add question numbers; do not add explanatory text outside question blocks
+5. Do not use Markdown formatting: *, **, #
+
+Now please start generating questions. Output question content directly without any preamble.`;
+
+        // ── 状态变量 ────────────────────────────────────────────────────────────
+        let _aiMode = 'deepseek';   // 'deepseek' | 'rag' — 出题模式
+        let _ragAllChapters = [];   // [{num, name}, ...]
+        let _ragAllSections = [];   // [{num, name}, ...]
+        let _ragAllKps = [];        // DS 模式知识点列表
+        let _ragCurrentMode = 'zh'; // zh / bilingual / en
+
+        // ── AI 出题模式切换 ───────────────────────────────────────────────────────
+
+        function setAiMode(mode) {
+            if (mode === 'rag' && _aiMode !== 'rag') {
+                showRagWarning();  // 先弹警告，确认后再切换
+                return;
+            }
+            _aiMode = mode;
+            _applyAiMode();
+        }
+
+        function _applyAiMode() {
+            const isDS = _aiMode === 'deepseek';
+
+            // 切换左侧面板
+            const dsPanel  = document.getElementById('ds-kb-panel');
+            const ragPanel = document.getElementById('rag-kb-panel');
+            if (dsPanel)  dsPanel.style.display  = isDS ? '' : 'none';
+            if (ragPanel) ragPanel.style.display = isDS ? 'none' : '';
+
+            // 切换按钮样式
+            const dsBtn  = document.getElementById('ai-mode-btn-deepseek');
+            const ragBtn = document.getElementById('ai-mode-btn-rag');
+            if (dsBtn && ragBtn) {
+                dsBtn.style.background  = isDS ? 'var(--secondary-color)' : 'transparent';
+                dsBtn.style.color       = isDS ? 'white' : '#666';
+                ragBtn.style.background = isDS ? 'transparent' : 'var(--secondary-color)';
+                ragBtn.style.color      = isDS ? '#666' : 'white';
+            }
+
+            // 更新模式说明
+            const desc = document.getElementById('ai-mode-desc');
+            if (desc) {
+                desc.textContent = isDS
+                    ? '无需向量数据库，DeepSeek 直接分析文档知识结构并出题'
+                    : 'BGE 嵌入模型 + Qdrant 向量库混合检索，语义匹配精度更高';
+            }
+
+            // 刷新提示词（不同模式用不同前言）
+            setRagPromptMode(_ragCurrentMode);
+
+            // 刷新文档列表和章节/知识点列表
+            if (isDS) {
+                loadDsDocs();
+            } else {
+                loadRagDocs();
+            }
+        }
+
+        function showRagWarning() {
+            const modal = document.getElementById('rag-warning-modal');
+            if (modal) modal.style.display = 'flex';
+        }
+
+        function closeRagWarning(confirmed) {
+            const modal = document.getElementById('rag-warning-modal');
+            if (modal) modal.style.display = 'none';
+            if (confirmed) {
+                _aiMode = 'rag';
+                _applyAiMode();
+            }
+        }
+
+        // ── DS 文档管理 ───────────────────────────────────────────────────────────
+
+        async function loadDsDocs() {
+            try {
+                const resp = await fetch('/api/rag/ds-docs');
+                if (!resp.ok) return;
+                const docs = await resp.json();
+                renderDsDocList(docs);
+                renderDsDocCheckboxes(docs);
+            } catch (e) {
+                console.error('loadDsDocs error:', e);
+            }
+        }
+
+        function renderDsDocList(docs) {
+            const el = document.getElementById('ds-doc-list');
+            if (!el) return;
+            if (!docs || docs.length === 0) {
+                el.innerHTML = '<div style="text-align:center;color:#bbb;padding:20px;font-size:0.85rem;"><i class="fas fa-folder-open"></i><br>暂无文档，请上传教材</div>';
+                return;
+            }
+            el.innerHTML = docs.map(d => {
+                const statusIcon =
+                    d.status === 'done'       ? '<i class="fas fa-check-circle" style="color:#27ae60;"></i>'
+                    : d.status === 'extracting' ? '<i class="fas fa-spinner fa-spin" style="color:#f39c12;"></i>'
+                    : d.status === 'error'      ? `<i class="fas fa-times-circle" style="color:#e74c3c;" title="${escapeHtml(d.error_msg)}"></i>`
+                    : '<i class="fas fa-upload" style="color:#3498db;"></i>';
+                const kpInfo = d.status === 'done'
+                    ? `${d.kp_count || 0} 个知识点`
+                    : `${d.chapter_count || 0} 章，待提取`;
+                return `
+                <div style="padding:7px 4px;border-bottom:1px solid #f0f0f0;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;">
+                        <div style="flex:1;min-width:0;overflow:hidden;">
+                            <div style="display:flex;align-items:center;gap:5px;font-size:0.82rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                                ${statusIcon}
+                                <span title="${escapeHtml(d.doc_id)}">${escapeHtml(d.doc_id)}</span>
+                            </div>
+                            <div style="color:#888;font-size:0.75rem;margin-top:2px;">${kpInfo}</div>
+                        </div>
+                        <div style="display:flex;gap:3px;flex-shrink:0;">
+                            ${d.status !== 'extracting' ? `
+                            <button onclick="dsExtract('${escapeHtml(d.doc_id)}')" title="提取/重新提取知识点"
+                                style="background:none;border:1px solid #3498db;color:#3498db;cursor:pointer;
+                                       padding:2px 7px;font-size:0.75rem;border-radius:4px;white-space:nowrap;"
+                                onmouseover="this.style.background='#ebf5fb'" onmouseout="this.style.background='none'">
+                                <i class="fas fa-magic"></i> 提取
+                            </button>` : '<span style="font-size:0.75rem;color:#f39c12;padding:2px 4px;">提取中...</span>'}
+                            <button onclick="dsDeleteDoc('${escapeHtml(d.doc_id)}')" title="删除文档"
+                                style="background:none;border:none;color:#e74c3c;cursor:pointer;padding:2px 5px;font-size:0.9rem;"
+                                onmouseover="this.style.background='#ffeaea'" onmouseout="this.style.background='none'">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function renderDsDocCheckboxes(docs) {
+            if (_aiMode !== 'deepseek') return;
+            const el = document.getElementById('rag-doc-checkboxes');
+            if (!el) return;
+            const doneDocs = (docs || []).filter(d => d.status === 'done');
+            if (doneDocs.length === 0) {
+                el.innerHTML = '<span style="color:#bbb;">请先上传文档并点击「提取」按钮</span>';
+                _ragAllChapters = [];
+                _ragAllSections = [];
+                renderRagChapterList([]);
+                renderRagSectionList([]);
+                return;
+            }
+            el.innerHTML = doneDocs.map(d => `
+                <label style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;font-size:0.85rem;">
+                    <input type="checkbox" class="rag-doc-cb" value="${escapeHtml(d.doc_id)}" checked
+                        onchange="updateRagMeta()">
+                    ${escapeHtml(d.doc_id)}
+                    <span style="color:#aaa;font-size:0.75rem;">(${d.kp_count || 0}个KP)</span>
+                </label>
+            `).join('');
+            updateRagMeta();
+        }
+
+        async function dsDeleteDoc(docId) {
+            if (!confirm(`确认删除文档「${docId}」及其知识点数据？此操作不可撤销。`)) return;
+            try {
+                const resp = await fetch(`/api/rag/ds-docs/${encodeURIComponent(docId)}`, { method: 'DELETE' });
+                const data = await resp.json();
+                if (data.success) {
+                    await loadDsDocs();
+                } else {
+                    alert('删除失败：' + (data.error || '未知错误'));
+                }
+            } catch (e) {
+                alert('删除出错：' + e.message);
+            }
+        }
+
+        // ── DS 文件上传 ────────────────────────────────────────────────────────────
+
+        async function dsUploadFiles(files) {
+            if (!files || files.length === 0) return;
+            const subject = document.getElementById('rag-subject')?.value || '';
+
+            for (const file of files) {
+                const statusEl = addDsUploadStatus(file.name);
+                const fd = new FormData();
+                fd.append('file', file);
+                fd.append('subject', subject);
+                try {
+                    const resp = await fetch('/api/rag/ds-upload', { method: 'POST', body: fd });
+                    const data = await resp.json();
+                    if (!resp.ok || data.error) {
+                        updateDsUploadStatus(statusEl, 'error', data.error || '上传失败');
+                    } else if (data.async) {
+                        // PDF / PPTX 走 OCR 异步流程
+                        updateDsUploadStatus(statusEl, 'processing', 'OCR 处理中...');
+                        pollDsUploadTask(data.task_id, statusEl);
+                    } else {
+                        updateDsUploadStatus(statusEl, 'done',
+                            `已解析 ${data.chapter_count} 个章节，点击「提取」按钮提取知识点`);
+                        await loadDsDocs();
+                    }
+                } catch (e) {
+                    updateDsUploadStatus(statusEl, 'error', e.message);
+                }
+            }
+            document.getElementById('ds-file-input').value = '';
+        }
+
+        function addDsUploadStatus(filename) {
+            const container = document.getElementById('ds-doc-list');
+            const div = document.createElement('div');
+            div.style.cssText = 'padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:0.82rem;';
+            div.innerHTML = `<div style="display:flex;align-items:center;gap:6px;">
+                <i class="fas fa-spinner fa-spin" style="color:#3498db;"></i>
+                <span>${escapeHtml(filename)}</span>
+                <span class="ds-upload-msg" style="color:#888;font-size:0.75rem;">上传中...</span>
+            </div>`;
+            container.insertBefore(div, container.firstChild);
+            return div;
+        }
+
+        function updateDsUploadStatus(el, status, msg) {
+            const icons  = { done: 'fa-check-circle', error: 'fa-times-circle', processing: 'fa-spinner fa-spin' };
+            const colors = { done: '#27ae60', error: '#e74c3c', processing: '#f39c12' };
+            const icon  = el.querySelector('i');
+            const msgEl = el.querySelector('.ds-upload-msg');
+            if (icon) {
+                icon.className = `fas ${icons[status] || 'fa-spinner fa-spin'} `;
+                icon.style.color = colors[status] || '#3498db';
+            }
+            if (msgEl) msgEl.textContent = msg;
+        }
+
+        async function pollDsUploadTask(taskId, statusEl) {
+            const poll = async () => {
+                try {
+                    const resp = await fetch(`/api/rag/ds-tasks/${taskId}`);
+                    const task = await resp.json();
+                    if (task.status === 'done') {
+                        updateDsUploadStatus(statusEl, 'done', task.message);
+                        await loadDsDocs();
+                    } else if (task.status === 'error') {
+                        updateDsUploadStatus(statusEl, 'error', task.message);
+                    } else {
+                        updateDsUploadStatus(statusEl, 'processing', task.message || 'OCR 处理中...');
+                        setTimeout(poll, 3000);
+                    }
+                } catch (e) {
+                    setTimeout(poll, 5000);
+                }
+            };
+            setTimeout(poll, 2000);
+        }
+
+        // ── DS 知识点提取 ──────────────────────────────────────────────────────────
+
+        async function dsExtract(docId) {
+            const subject = document.getElementById('rag-subject')?.value || '';
+            const progressEl  = document.getElementById('ds-extract-progress');
+            const progressTxt = document.getElementById('ds-extract-progress-text');
+            if (progressEl) progressEl.style.display = '';
+
+            try {
+                const resp = await fetch(`/api/rag/ds-extract/${encodeURIComponent(docId)}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subject }),
+                });
+                const data = await resp.json();
+                if (!resp.ok || data.error) {
+                    if (progressEl) progressEl.style.display = 'none';
+                    alert('启动提取失败：' + (data.error || ''));
+                    return;
+                }
+                await loadDsDocs();
+                pollDsTask(data.task_id, docId);
+            } catch (e) {
+                if (progressEl) progressEl.style.display = 'none';
+                alert('提取请求出错：' + e.message);
+            }
+        }
+
+        async function pollDsTask(taskId, docId) {
+            const progressEl  = document.getElementById('ds-extract-progress');
+            const progressTxt = document.getElementById('ds-extract-progress-text');
+            const poll = async () => {
+                try {
+                    const resp = await fetch(`/api/rag/ds-tasks/${taskId}`);
+                    const task = await resp.json();
+                    if (progressTxt) progressTxt.textContent = task.message || '';
+
+                    if (task.status === 'done') {
+                        if (progressEl) progressEl.style.display = 'none';
+                        await loadDsDocs();
+                        // 提取完成后自动加载章节/知识点
+                        await updateRagMeta();
+                    } else if (task.status === 'error') {
+                        if (progressEl) {
+                            progressEl.style.background = '#fdecea';
+                            progressEl.style.color = '#c0392b';
+                        }
+                        if (progressTxt) progressTxt.textContent = '提取失败：' + task.message;
+                        await loadDsDocs();
+                        setTimeout(() => { if (progressEl) progressEl.style.display = 'none'; }, 5000);
+                    } else {
+                        setTimeout(poll, 2500);
+                    }
+                } catch (e) {
+                    setTimeout(poll, 5000);
+                }
+            };
+            setTimeout(poll, 1500);
+        }
+
+        // ── DS 章节/知识点元数据加载 ──────────────────────────────────────────────
+
+        async function dsUpdateMeta() {
+            const checked = [...document.querySelectorAll('.rag-doc-cb:checked')].map(cb => cb.value);
+            if (checked.length === 0) {
+                _ragAllChapters = [];
+                _ragAllSections = [];
+                _ragAllKps = [];
+                renderRagChapterList([]);
+                renderRagSectionList([]);
+                return;
+            }
+            const allChapters = new Map();
+            const allKps = [];
+            for (const docId of checked) {
+                try {
+                    const resp = await fetch(`/api/rag/ds-docs/${encodeURIComponent(docId)}/kps`);
+                    if (!resp.ok) continue;
+                    const meta = await resp.json();
+                    for (const ch of (meta.chapters || [])) {
+                        allChapters.set(ch.name, ch);
+                    }
+                    for (const kp of (meta.kps || [])) {
+                        allKps.push(kp);
+                    }
+                } catch (e) { /* ignore */ }
+            }
+            _ragAllChapters = [...allChapters.values()];
+            _ragAllKps = allKps;
+            // 将 KP 映射为 sections 供现有筛选 UI 复用
+            _ragAllSections = allKps.map(kp => ({
+                num: kp.id,
+                name: kp.name,
+                chapter_name: kp.chapter_name,
+                chapter_num: kp.chapter_num,
+                display_name: kp.name,
+            }));
+            filterRagChapters();
+            filterRagSections();
+        }
+
+        // ── DS 出题 ────────────────────────────────────────────────────────────────
+
+        async function dsGenerate() {
+            const btn      = document.getElementById('rag-generate-btn');
+            const infoEl   = document.getElementById('rag-generate-info');
+            const resultEl = document.getElementById('rag-result');
+
+            const promptTemplate = document.getElementById('rag-prompt-editor')?.value || '';
+            if (!promptTemplate.trim()) {
+                alert('提示词模板为空，请先选择语言模式或手动填写提示词。');
+                return;
+            }
+            const questionList = buildQuestionList();
+            if (!questionList) {
+                alert('请至少为一种题型设置数量（大于0）。');
+                return;
+            }
+
+            const docIds   = [...document.querySelectorAll('.rag-doc-cb:checked')].map(cb => cb.value);
+            const chapters = [...document.querySelectorAll('.rag-chapter-cb:checked')].map(cb => cb.value);
+            const kpNames  = [...document.querySelectorAll('.rag-section-cb:checked')].map(cb => cb.value);
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 出题中...';
+            if (infoEl) infoEl.textContent = 'DeepSeek 正在根据知识图谱生成题目，可能需要 30～120 秒...';
+            if (resultEl) resultEl.value = '';
+
+            try {
+                const resp = await fetch('/api/rag/ds-generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        doc_ids: docIds,
+                        chapters,
+                        kp_names: kpNames,
+                        prompt: promptTemplate,
+                        question_list: questionList,
+                    }),
+                });
+                const data = await resp.json();
+                if (!resp.ok || data.error) {
+                    alert('出题失败：' + (data.error || '未知错误'));
+                    if (infoEl) infoEl.textContent = '';
+                } else {
+                    if (resultEl) resultEl.value = data.content || '';
+                    if (infoEl) {
+                        const stats = data.stats || {};
+                        infoEl.textContent = `生成完成！使用了 ${stats.kps_used || 0} 个知识点（${stats.context_chars || 0} 字知识图谱上下文）。`;
+                    }
+                }
+            } catch (e) {
+                alert('请求出错：' + e.message);
+                if (infoEl) infoEl.textContent = '';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-magic"></i> 一键出题';
+            }
+        }
+
+        // ── 提示词适配（DS 模式修改前言描述）────────────────────────────────────────
+
+        function _adaptPromptForDs(prompt) {
+            return prompt
+                .replace(
+                    '你是一位专业的教学内容设计专家，擅长根据课程材料出题。',
+                    '你是一位专业的教学内容设计专家，擅长根据知识图谱设计题库。'
+                )
+                .replace(
+                    '以下是从知识库检索到的参考内容：',
+                    '以下是从文档中提取的知识图谱信息（包含知识点定义、特征、分类、示例及知识点间关联关系）：'
+                )
+                .replace(
+                    '请根据以上参考内容，按照以下要求生成题目。',
+                    '请根据以上知识图谱信息，按照以下要求生成题目。'
+                )
+                // 双语版本适配
+                .replace(
+                    '以下是从知识库检索到的双语参考内容：',
+                    '以下是从文档中提取的双语知识图谱信息：'
+                )
+                // 英文版本适配
+                .replace(
+                    'You are a professional academic content designer specializing in creating exam questions.',
+                    'You are a professional academic content designer specializing in creating exam questions based on knowledge graphs.'
+                )
+                .replace(
+                    'Here is the retrieved reference content from the knowledge base:',
+                    'Here is the knowledge graph information extracted from the document (knowledge points, definitions, features, classifications, examples, and relationships):'
+                )
+                .replace(
+                    'Please generate questions based on the above reference content according to the following requirements.',
+                    'Please generate questions based on the above knowledge graph information according to the following requirements.'
+                );
+        }
+
+        // ── 文档列表 ─────────────────────────────────────────────────────────────
+
+        async function loadRagDocs() {
+            try {
+                const resp = await fetch('/api/rag/docs');
+                if (!resp.ok) return;
+                const docs = await resp.json();
+                renderRagDocList(docs);
+                renderRagDocCheckboxes(docs);
+            } catch (e) {
+                console.error('loadRagDocs error:', e);
+            }
+        }
+
+        // ── API 配置 读/写 ────────────────────────────────────────────────────
+
+        async function loadRagConfig() {
+            try {
+                const resp = await fetch('/api/rag/config');
+                if (!resp.ok) return;
+                const cfg = await resp.json();
+                const urlEl   = document.getElementById('cfg-paddle-url');
+                const tokenEl = document.getElementById('cfg-paddle-token');
+                const dsEl    = document.getElementById('cfg-deepseek-key');
+                if (urlEl)   urlEl.value   = cfg.paddleocr_url   || '';
+                if (tokenEl) tokenEl.value = cfg.paddleocr_token || '';
+                if (dsEl)    dsEl.value    = cfg.deepseek_api_key || '';
+            } catch (e) { /* 忽略，不影响主流程 */ }
+        }
+
+        async function saveRagConfig() {
+            const statusEl = document.getElementById('cfg-save-status');
+            const body = {
+                paddleocr_url:   (document.getElementById('cfg-paddle-url')?.value  || '').trim(),
+                paddleocr_token: (document.getElementById('cfg-paddle-token')?.value || '').trim(),
+                deepseek_api_key:(document.getElementById('cfg-deepseek-key')?.value || '').trim(),
+            };
+            try {
+                if (statusEl) { statusEl.textContent = '保存中...'; statusEl.style.color = '#888'; }
+                const resp = await fetch('/api/rag/config', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    if (statusEl) {
+                        statusEl.textContent = '已保存';
+                        statusEl.style.color = 'var(--success-color)';
+                        setTimeout(() => { statusEl.textContent = ''; }, 3000);
+                    }
+                } else {
+                    if (statusEl) { statusEl.textContent = '保存失败：' + (data.error || ''); statusEl.style.color = 'var(--danger-color)'; }
+                }
+            } catch (e) {
+                if (statusEl) { statusEl.textContent = '出错：' + e.message; statusEl.style.color = 'var(--danger-color)'; }
+            }
+        }
+
+        function renderRagDocList(docs) {
+            const el = document.getElementById('rag-doc-list');
+            if (!docs || docs.length === 0) {
+                el.innerHTML = '<div style="text-align:center;color:#bbb;padding:20px;font-size:0.85rem;"><i class="fas fa-folder-open"></i><br>暂无文档</div>';
+                return;
+            }
+            el.innerHTML = docs.map(d => `
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:0.82rem;">
+                    <div style="flex:1;min-width:0;overflow:hidden;">
+                        <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(d.doc_id)}">${escapeHtml(d.doc_id)}</div>
+                        <div style="color:#888;font-size:0.75rem;">${d.source_type || ''} · ${d.chunk_count} 块</div>
+                    </div>
+                    <button onclick="ragDeleteDoc('${escapeHtml(d.doc_id)}')" title="删除文档"
+                        style="background:none;border:none;color:#e74c3c;cursor:pointer;padding:2px 6px;font-size:0.9rem;flex-shrink:0;"
+                        onmouseover="this.style.background='#ffeaea'" onmouseout="this.style.background='none'">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function renderRagDocCheckboxes(docs) {
+            const el = document.getElementById('rag-doc-checkboxes');
+            if (!docs || docs.length === 0) {
+                el.innerHTML = '<span style="color:#bbb;">上传文档后在此选择</span>';
+                return;
+            }
+            el.innerHTML = docs.map(d => `
+                <label style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;font-size:0.85rem;">
+                    <input type="checkbox" class="rag-doc-cb" value="${escapeHtml(d.doc_id)}" checked
+                        onchange="updateRagMeta()">
+                    ${escapeHtml(d.doc_id)} <span style="color:#aaa;font-size:0.75rem;">(${d.chunk_count}块)</span>
+                </label>
+            `).join('');
+            updateRagMeta();
+        }
+
+        async function ragDeleteDoc(docId) {
+            if (!confirm(`确认删除文档「${docId}」？此操作不可撤销。`)) return;
+            try {
+                const resp = await fetch(`/api/rag/docs/${encodeURIComponent(docId)}`, { method: 'DELETE' });
+                const data = await resp.json();
+                if (data.success) {
+                    await loadRagDocs();
+                } else {
+                    alert('删除失败：' + (data.error || '未知错误'));
+                }
+            } catch (e) {
+                alert('删除出错：' + e.message);
+            }
+        }
+
+        // ── 文件上传 ──────────────────────────────────────────────────────────────
+
+        async function ragUploadFiles(files) {
+            if (!files || files.length === 0) return;
+            const docType = document.querySelector('input[name="rag-doc-type"]:checked')?.value || 'auto';
+
+            for (const file of files) {
+                const statusEl = addRagUploadStatus(file.name, 'uploading');
+                const fd = new FormData();
+                fd.append('file', file);
+                fd.append('doc_type', docType);
+                try {
+                    const resp = await fetch('/api/rag/ingest', { method: 'POST', body: fd });
+                    const data = await resp.json();
+                    if (!resp.ok || data.error) {
+                        updateRagUploadStatus(statusEl, 'error', data.error || '上传失败');
+                    } else if (data.async) {
+                        updateRagUploadStatus(statusEl, 'processing', 'OCR 处理中...');
+                        pollRagTask(data.task_id, statusEl, file.name);
+                    } else {
+                        updateRagUploadStatus(statusEl, 'done', `完成，${data.chunk_count} 块`);
+                        await loadRagDocs();
+                    }
+                } catch (e) {
+                    updateRagUploadStatus(statusEl, 'error', e.message);
+                }
+            }
+            // Reset file input
+            document.getElementById('rag-file-input').value = '';
+        }
+
+        function addRagUploadStatus(filename, status) {
+            const container = document.getElementById('rag-doc-list');
+            const div = document.createElement('div');
+            div.style.cssText = 'padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:0.82rem;';
+            div.innerHTML = `<div style="display:flex;align-items:center;gap:6px;">
+                <i class="fas fa-spinner fa-spin" style="color:#3498db;"></i>
+                <span>${escapeHtml(filename)}</span>
+                <span class="rag-upload-msg" style="color:#888;font-size:0.75rem;">上传中...</span>
+            </div>`;
+            container.insertBefore(div, container.firstChild);
+            return div;
+        }
+
+        function updateRagUploadStatus(el, status, msg) {
+            const icons = { done: 'fa-check-circle', error: 'fa-times-circle', processing: 'fa-spinner fa-spin' };
+            const colors = { done: '#27ae60', error: '#e74c3c', processing: '#f39c12' };
+            const icon = el.querySelector('i');
+            const msgEl = el.querySelector('.rag-upload-msg');
+            if (icon) {
+                icon.className = `fas ${icons[status] || 'fa-spinner'} `;
+                icon.style.color = colors[status] || '#888';
+            }
+            if (msgEl) msgEl.textContent = msg;
+        }
+
+        async function pollRagTask(taskId, statusEl, filename) {
+            const poll = async () => {
+                try {
+                    const resp = await fetch(`/api/rag/tasks/${taskId}`);
+                    const task = await resp.json();
+                    if (task.status === 'done') {
+                        updateRagUploadStatus(statusEl, 'done', task.message);
+                        await loadRagDocs();
+                    } else if (task.status === 'error') {
+                        updateRagUploadStatus(statusEl, 'error', task.message);
+                    } else {
+                        updateRagUploadStatus(statusEl, 'processing', task.message);
+                        setTimeout(poll, 3000);
+                    }
+                } catch (e) {
+                    setTimeout(poll, 5000);
+                }
+            };
+            setTimeout(poll, 2000);
+        }
+
+        // ── 章节/知识点筛选 ───────────────────────────────────────────────────────
+
+        async function updateRagMeta() {
+            // DS 模式：从知识图谱数据库加载，而非向量库
+            if (_aiMode === 'deepseek') {
+                return await dsUpdateMeta();
+            }
+
+            const checked = [...document.querySelectorAll('.rag-doc-cb:checked')].map(cb => cb.value);
+            if (checked.length === 0) {
+                _ragAllChapters = [];
+                _ragAllSections = [];
+                renderRagChapterList([]);
+                renderRagSectionList([]);
+                return;
+            }
+
+            const allChapters = new Map();
+            const allSections = new Map();
+
+            for (const docId of checked) {
+                try {
+                    const resp = await fetch(`/api/rag/docs/${encodeURIComponent(docId)}/meta`);
+                    if (!resp.ok) continue;
+                    const meta = await resp.json();
+                    for (const ch of (meta.chapters || [])) {
+                        allChapters.set(ch.name, ch);
+                    }
+                    for (const sec of (meta.sections || [])) {
+                        allSections.set(sec.name, sec);
+                    }
+                } catch (e) { /* ignore */ }
+            }
+
+            _ragAllChapters = [...allChapters.values()];
+            _ragAllSections = [...allSections.values()];
+            filterRagChapters();
+            filterRagSections();
+        }
+
+        function filterRagChapters() {
+            const q = (document.getElementById('rag-chapter-search')?.value || '').toLowerCase();
+            const filtered = q ? _ragAllChapters.filter(c => c.name.toLowerCase().includes(q)) : _ragAllChapters;
+            renderRagChapterList(filtered);
+        }
+
+        function filterRagSections() {
+            const q = (document.getElementById('rag-section-search')?.value || '').toLowerCase();
+            // 已勾选的章节列表（有勾选则联动过滤）
+            const checkedChapters = [...document.querySelectorAll('.rag-chapter-cb:checked')].map(cb => cb.value);
+            let filtered = _ragAllSections;
+            // 若有章节被勾选，且章节总数 > 0，则只展示属于已勾选章节的知识点
+            if (checkedChapters.length > 0 && _ragAllChapters.length > 0) {
+                filtered = filtered.filter(s => checkedChapters.includes(s.chapter_name));
+            }
+            if (q) {
+                filtered = filtered.filter(s => (s.display_name || s.name).toLowerCase().includes(q));
+            }
+            renderRagSectionList(filtered);
+        }
+
+        function renderRagChapterList(items) {
+            const el = document.getElementById('rag-chapter-list');
+            if (!items || items.length === 0) {
+                el.innerHTML = '<span style="color:#bbb;">' + (_ragAllChapters.length === 0 ? '选择文档后加载章节' : '无匹配结果') + '</span>';
+                return;
+            }
+            el.innerHTML = items.map(c => `
+                <label style="display:flex;align-items:flex-start;gap:6px;padding:2px 0;cursor:pointer;">
+                    <input type="checkbox" class="rag-chapter-cb" value="${escapeHtml(c.name)}" style="margin-top:2px;"
+                        onchange="filterRagSections()">
+                    <span style="font-size:0.82rem;">${escapeHtml(c.name)}</span>
+                </label>
+            `).join('');
+        }
+
+        function renderRagSectionList(items) {
+            const el = document.getElementById('rag-section-list');
+            if (!items || items.length === 0) {
+                el.innerHTML = '<span style="color:#bbb;">' + (_ragAllSections.length === 0 ? '选择文档后加载' : '无匹配结果') + '</span>';
+                return;
+            }
+            el.innerHTML = items.map(s => `
+                <label style="display:flex;align-items:flex-start;gap:6px;padding:2px 0;cursor:pointer;">
+                    <input type="checkbox" class="rag-section-cb" value="${escapeHtml(s.name)}" style="margin-top:2px;">
+                    <span style="font-size:0.82rem;" title="${escapeHtml(s.display_name || s.name)}">${escapeHtml(s.display_name || s.name)}</span>
+                </label>
+            `).join('');
+        }
+
+        // ── 提示词模式切换 ────────────────────────────────────────────────────────
+
+        function setRagPromptMode(mode) {
+            _ragCurrentMode = mode;
+            const rawPrompts = { zh: RAG_PROMPT_ZH, bilingual: RAG_PROMPT_BILINGUAL, en: RAG_PROMPT_EN };
+            let prompt = rawPrompts[mode] || RAG_PROMPT_ZH;
+            // DS 模式使用适配后的提示词（修改前言描述，出题格式不变）
+            if (_aiMode === 'deepseek') {
+                prompt = _adaptPromptForDs(prompt);
+            }
+            const editor = document.getElementById('rag-prompt-editor');
+            if (editor) editor.value = prompt;
+
+            // Sync language radio buttons
+            const radio = document.querySelector(`input[name="rag-lang"][value="${mode}"]`);
+            if (radio) radio.checked = true;
+
+            // Highlight active button
+            ['zh', 'bilingual', 'en'].forEach(m => {
+                const btn = document.getElementById(`rag-lang-btn-${m}`);
+                if (btn) {
+                    btn.style.background = (m === mode) ? 'var(--secondary-color)' : '';
+                    btn.style.color = (m === mode) ? 'white' : '';
+                }
+            });
+        }
+
+        // ── 构建题型列表文本 ──────────────────────────────────────────────────────
+
+        function buildQuestionList() {
+            const types = [
+                { id: '单选', label: '单选题（每题4个选项，只有1个正确答案）' },
+                { id: '多选', label: '多选题（每题4个选项，有2～4个正确答案）' },
+                { id: '是非', label: '是非题（判断正误，答案为"正确"或"错误"）' },
+                { id: '简答', label: '简答题（需提供参考答案）' },
+                { id: '论述', label: '论述题（格式：[简答>论述]，需提供较详细参考答案）' },
+                { id: '材料分析', label: '材料分析题（格式：[简答>材料分析]，结合实际案例或材料分析）' },
+            ];
+            return types
+                .map(t => {
+                    const n = parseInt(document.getElementById(`rag-q-${t.id}`)?.value || '0', 10);
+                    return n > 0 ? `- ${t.label.split('（')[0]}：${n}题（${t.label.split('（')[1]?.replace('）', '') || ''}）` : null;
+                })
+                .filter(Boolean)
+                .join('\n');
+        }
+
+        // ── 一键出题 ─────────────────────────────────────────────────────────────
+
+        async function ragGenerate() {
+            // DS 直出模式：使用知识图谱出题
+            if (_aiMode === 'deepseek') {
+                return await dsGenerate();
+            }
+
+            const btn = document.getElementById('rag-generate-btn');
+            const infoEl = document.getElementById('rag-generate-info');
+            const resultEl = document.getElementById('rag-result');
+
+            const promptTemplate = document.getElementById('rag-prompt-editor')?.value || '';
+            if (!promptTemplate.trim()) {
+                alert('提示词模板为空，请先选择语言模式或手动填写提示词。');
+                return;
+            }
+
+            const questionList = buildQuestionList();
+            if (!questionList) {
+                alert('请至少为一种题型设置数量（大于0）。');
+                return;
+            }
+
+            // Collect params
+            const docIds = [...document.querySelectorAll('.rag-doc-cb:checked')].map(cb => cb.value);
+            const chapters = [...document.querySelectorAll('.rag-chapter-cb:checked')].map(cb => cb.value);
+            const knowledgePoints = [...document.querySelectorAll('.rag-section-cb:checked')].map(cb => cb.value);
+
+            // UI: loading state
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 出题中...';
+            if (infoEl) infoEl.textContent = 'AI 正在检索知识库并生成题目，可能需要 30～120 秒...';
+            if (resultEl) resultEl.value = '';
+
+            try {
+                const resp = await fetch('/api/rag/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        doc_ids: docIds,
+                        chapters,
+                        knowledge_points: knowledgePoints,
+                        prompt: promptTemplate,
+                        question_list: questionList,
+                    }),
+                });
+                const data = await resp.json();
+
+                if (!resp.ok || data.error) {
+                    alert('出题失败：' + (data.error || '未知错误'));
+                    if (infoEl) infoEl.textContent = '';
+                } else {
+                    if (resultEl) resultEl.value = data.content || '';
+                    if (infoEl) {
+                        const stats = data.stats || {};
+                        infoEl.textContent = `生成完成！检索到 ${stats.chunks_used || 0} 个文本块（${stats.context_chars || 0} 字）作为参考上下文。`;
+                    }
+                }
+            } catch (e) {
+                alert('请求出错：' + e.message);
+                if (infoEl) infoEl.textContent = '';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-magic"></i> 一键出题';
+            }
+        }
+
+        // ── 复制结果 ──────────────────────────────────────────────────────────────
+
+        function ragCopyResult() {
+            const el = document.getElementById('rag-result');
+            if (!el || !el.value) { alert('结果区为空，请先生成题目。'); return; }
+            navigator.clipboard.writeText(el.value).then(() => {
+                const statusEl = document.getElementById('rag-import-status');
+                if (statusEl) { statusEl.textContent = '已复制到剪贴板！'; setTimeout(() => { statusEl.textContent = ''; }, 3000); }
+            }).catch(() => {
+                el.select();
+                document.execCommand('copy');
+            });
+        }
+
+        // ── 导入题库 ──────────────────────────────────────────────────────────────
+
+        async function ragImportToBank() {
+            const el = document.getElementById('rag-result');
+            const statusEl = document.getElementById('rag-import-status');
+            if (!el || !el.value.trim()) { alert('结果区为空，请先生成题目。'); return; }
+
+            // 获取当前课程设置作为默认科目名
+            let defaultSubject = '';
+            try {
+                const csResp = await fetch('/api/course-settings');
+                if (csResp.ok) {
+                    const cs = await csResp.json();
+                    defaultSubject = cs.course_name || '';
+                }
+            } catch (_) {}
+
+            // 弹窗让用户确认或修改科目
+            const subject = prompt(
+                '请确认导入到哪个科目的题库：\n（科目名称将存入每道题的"科目"字段，便于分类管理）',
+                defaultSubject
+            );
+            if (subject === null) return; // 用户点击了取消
+
+            const blob = new Blob([el.value], { type: 'text/plain;charset=utf-8' });
+            const file = new File([blob], 'ai_generated_questions.txt', { type: 'text/plain' });
+            const fd = new FormData();
+            fd.append('file', file);
+            if (subject.trim()) {
+                fd.append('subject', subject.trim());
+            }
+
+            if (statusEl) statusEl.textContent = '导入中...';
+            try {
+                const resp = await fetch('/api/questions/import', { method: 'POST', body: fd });
+                const data = await resp.json();
+                if (!resp.ok || data.error) {
+                    if (statusEl) statusEl.textContent = '导入失败：' + (data.error || '');
+                    alert('导入失败：' + (data.error || '未知错误'));
+                } else {
+                    const subjectLabel = subject.trim() ? `「${subject.trim()}」` : '（未指定科目）';
+                    const msg = `已导入到 ${subjectLabel} 题库！\n新增 ${data.imported || 0} 题，跳过 ${data.skipped || 0} 题，失败 ${data.failed || 0} 题。`;
+                    if (statusEl) statusEl.textContent = msg.replace('\n', ' ');
+                    alert(msg + '\n\n切换到「题库管理」标签页查看导入结果。');
+                }
+            } catch (e) {
+                if (statusEl) statusEl.textContent = '导入出错：' + e.message;
+                alert('导入出错：' + e.message);
+            }
+        }
     </script>
 </body>
 </html>

@@ -1,5 +1,31 @@
 # 更新日志
 
+## 1.4.0 - 2026-02-26
+
+### 新功能
+
+- **DeepSeek 直出模式（DS Mode）** — AI 智能出题新增第二种出题模式，无需向量数据库和嵌入模型，纯靠 DeepSeek API 分两阶段完成：① 上传文档后逐章调用 DeepSeek 提取知识点（含定义/特征/分类/示例及知识点间关联关系），构建轻量级知识图谱；② 出题时将筛选后的知识图谱作为上下文调用 DeepSeek 生成题目
+- **模式切换按钮** — AI 标签页顶部新增「DeepSeek 直出 / RAG 向量检索」切换，默认使用 DeepSeek 直出；切换到 RAG 模式时弹出说明弹窗，提示 GPU 显存要求（≥4GB）和所需安装的大型依赖（qdrant-client、sentence-transformers、BGE-large-zh 约1.3GB）
+- **DS 文档知识提取面板** — 左侧新增独立面板，支持上传 `.md`/`.txt`/`.docx`/`.pptx`/`.ppt`/`.pdf`，文档解析章节后点击「提取」按钮异步调用 DeepSeek 逐章提取知识点，进度实时展示；提取完成后章节/知识点自动加载到右侧筛选区供三级联动
+- **PDF / PPTX 支持** — DS 模式上传 `.pdf`/`.pptx` 时复用现有 PaddleOCR 异步 OCR 流程（每次发送 ≤10页切片），OCR 完成后自动解析章节结构并存入数据库，前端轮询进度；文本格式（`.md`/`.txt`/`.docx`）仍同步解析
+- **提示词自适应** — `setRagPromptMode()` 感知当前模式：DS 模式下自动将 RAG 提示词的"检索到的参考内容"替换为"知识图谱信息"，无需维护两套完整模板
+
+### 架构变更
+
+- 新增独立数据库 `ds_knowledge.db`（项目根目录，运行时自动创建），含三张表：`ds_docs`（文档元信息）、`ds_chapters`（章节原文）、`ds_kps`（知识点及关联关系 JSON）
+- `app/rag_routes.py` 新增 7 个 DS 模式端点：`POST /api/rag/ds-upload`、`POST /api/rag/ds-extract/<doc_id>`、`GET /api/rag/ds-tasks/<task_id>`、`GET /api/rag/ds-docs`、`GET /api/rag/ds-docs/<doc_id>/kps`、`DELETE /api/rag/ds-docs/<doc_id>`、`POST /api/rag/ds-generate`
+- `app/rag_routes.py` 新增辅助函数：`_ds_db_path/conn/init`、`_parse_md_to_chapters`、`_parse_file_to_chapters`（支持 `.md`/`.txt`/`.docx`，PPTX/PDF 走 OCR 后再解析）
+- 前端新增 JS 函数：`setAiMode`、`_applyAiMode`、`showRagWarning`、`closeRagWarning`、`loadDsDocs`、`renderDsDocList`、`renderDsDocCheckboxes`、`dsDeleteDoc`、`dsUploadFiles`、`pollDsUploadTask`、`dsExtract`、`pollDsTask`、`dsUpdateMeta`、`dsGenerate`、`_adaptPromptForDs`
+- `ragGenerate()` 和 `updateRagMeta()` 新增模式分支，DS 模式分别调用 `dsGenerate()` / `dsUpdateMeta()`
+
+### 文档
+
+- `CHANGELOG.zh.md` 新增 1.4.0 条目
+- `README.md` 更新功能特性、API 一览、项目结构、使用指南
+- `技术文档.md` 新增 12.11 DeepSeek 直出模式章节
+
+---
+
 ## 1.3.0 - 2026-02-25
 
 ### 新功能

@@ -23,15 +23,30 @@
 - **元数据管理** — 每道题可设置知识点、标签（逗号分隔）、难度（easy/medium/hard）
 - **课程设置** — 自定义课程名称、课程代号、考试形式等，导出试卷自动使用配置信息
 
-### AI 智能出题（RAG）
+### AI 智能出题
 
-- **本地向量知识库** — 上传 `.md`/`.txt`/`.docx`/`.pptx`/`.pdf` 文件，自动分块向量化，建立本地知识库
+AI 标签页提供两种出题模式，可在顶部切换：
+
+#### DeepSeek 直出模式（默认，无 GPU 要求）
+
+- **两阶段知识图谱** — ① 上传文档后点击「提取」逐章调用 DeepSeek，提取知识点（含定义/特征/分类/示例）及知识点间关联关系，写入本地 `ds_knowledge.db`；② 出题时将筛选后的知识图谱作为上下文再次调用 DeepSeek 生成题目
+- **轻量部署** — 无需向量数据库和嵌入模型，仅依赖 DeepSeek API Key
+- **格式全兼容** — 上传 `.md`/`.txt`/`.docx` 同步解析；`.pptx`/`.ppt`/`.pdf` 异步调用 PaddleOCR（每次发送 ≤10 页切片），OCR 完成后自动解析章节
+
+#### RAG 向量检索模式（高精度，需 GPU）
+
+- **本地向量知识库** — 上传文档后自动分块向量化，建立本地 Qdrant 知识库
 - **混合检索** — BGE-large-zh-v1.5 稠密向量 + BM25 稀疏检索，RRF 融合排序
 - **OCR 支持** — `.pptx`/`.pdf` 异步后台调用 PaddleOCR Layout Parsing API 转换为 Markdown 后摄入
-- **章节/知识点联动筛选** — 选定章节后，知识点列表自动过滤为仅展示该章节的节名；PPTX 分块展示每页首行内容而非 "Slide N"
-- **DeepSeek 出题** — 检索上下文后调用 DeepSeek API 生成格式化题目
+- **章节/知识点联动筛选** — 选定章节后，知识点列表自动过滤；PPTX 展示每页首行内容
+- **硬件要求** — 推荐 GPU 显存 ≥4 GB；首次使用需下载 BGE-large-zh 模型（约 1.3 GB）；需额外安装 `qdrant-client sentence-transformers`
+
+#### 共同功能
+
+- **DeepSeek 出题** — 两种模式均调用 DeepSeek API 生成格式化题目
+- **三级联动筛选** — 文档 → 章节 → 知识点逐级过滤出题范围
 - **一键导入** — 生成结果直接导入题库，支持指定目标科目
-- **API 配置界面** — 在页面内配置 PaddleOCR 服务地址、API Key 及 DeepSeek API Key，保存至 `.env` 文件，无需手动编辑
+- **API 配置界面** — 页面内配置 PaddleOCR 和 DeepSeek API Key，保存至 `.env` 文件
 
 ### 知识图谱可视化
 
@@ -57,6 +72,7 @@
 | 可视化 | D3.js v7（CDN，力导向图） |
 | 测试框架 | pytest（115 个用例） |
 | 前端 | 原生 HTML/CSS/JS 单页应用 |
+| AI 出题（DS 直出） | DeepSeek API + SQLite（ds_knowledge.db，无嵌入模型）|
 | AI 出题（RAG） | DeepSeek API + BGE-large-zh-v1.5 + Qdrant（本地）+ BM25（rank_bm25 + jieba）|
 | OCR | PaddleOCR Layout Parsing API（PPTX/PDF → Markdown）|
 | 配置管理 | python-dotenv（`.env` 文件读写）|
@@ -110,6 +126,7 @@ python -m pytest tests/ -v
 ├── .env                            # API 密钥配置（不纳入 git）
 ├── 一键启动.bat                     # Windows 一键启动脚本
 ├── exam_system.db                  # SQLite 主数据库（运行后自动生成）
+├── ds_knowledge.db                 # DS 直出模式知识图谱库（首次使用后自动生成）
 ├── uploads/images/                 # 题目图片存储目录
 ├── exports/                        # 导出文件目录
 ├── rag_uploads/                    # 用户上传的知识库文档
@@ -117,7 +134,7 @@ python -m pytest tests/ -v
 │   ├── factory.py                  # Flask 应用工厂（注册 3 个 Blueprint）
 │   ├── db_models.py                # SQLAlchemy ORM 模型定义
 │   ├── routes.py                   # 题库/试卷/题型等 API 路由
-│   ├── rag_routes.py               # RAG 知识库 & 出题 API（8 个端点）
+│   ├── rag_routes.py               # RAG 知识库 & 出题 API（RAG 8 端点 + DS 直出 7 端点）
 │   ├── kg_routes.py                # 知识图谱可视化 API（3 个端点）
 │   ├── utils.py                    # Word 模板生成、试卷导出、HTML↔Word 转换
 │   ├── docx_importer.py            # .docx 富内容解析器（图片+表格+软换行）
@@ -199,18 +216,30 @@ python -m pytest tests/ -v
 | `POST` | `/api/parse-review-notes` | 解析复习要点文档，返回纯文本 |
 | `POST/GET` | `/api/images/upload` / `/api/images/<id>` | 图片上传 / 获取 |
 
-### AI 智能出题（RAG）
+### AI 智能出题 — RAG 向量检索模式
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `GET` | `/api/rag/docs` | 列出知识库中所有文档 |
 | `GET` | `/api/rag/docs/<doc_id>/meta` | 获取文档章节/节名（含 `display_name`、`chapter_name`） |
-| `DELETE` | `/api/rag/docs/<doc_id>` | 删除文档 |
-| `POST` | `/api/rag/ingest` | 上传并摄入文档（`.md`/`.txt`/`.docx` 同步；`.pptx`/`.pdf` 异步 OCR） |
-| `GET` | `/api/rag/tasks/<task_id>` | 轮询 OCR 任务状态 |
-| `POST` | `/api/rag/generate` | RAG 检索 → DeepSeek 出题 |
+| `DELETE` | `/api/rag/docs/<doc_id>` | 删除文档（同步清理向量库和 KG 数据） |
+| `POST` | `/api/rag/ingest` | 上传并摄入文档（`.md`/`.txt`/`.docx` 同步；`.pptx`/`.pdf` 异步 OCR）|
+| `GET` | `/api/rag/tasks/<task_id>` | 轮询 OCR / KG 提取任务状态 |
+| `POST` | `/api/rag/generate` | RAG 混合检索 → DeepSeek 出题 |
 | `GET` | `/api/rag/config` | 读取 API 配置（PaddleOCR URL/Token、DeepSeek Key） |
 | `PUT` | `/api/rag/config` | 保存 API 配置到 `.env` 文件 |
+
+### AI 智能出题 — DeepSeek 直出模式
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/api/rag/ds-upload` | 上传文档并解析章节结构（`.md`/`.txt`/`.docx` 同步；`.pptx`/`.pdf` 异步 OCR 后解析） |
+| `POST` | `/api/rag/ds-extract/<doc_id>` | 启动异步任务，逐章调用 DeepSeek 提取知识点及关联关系 |
+| `GET` | `/api/rag/ds-tasks/<task_id>` | 轮询 OCR 或知识点提取任务状态 |
+| `GET` | `/api/rag/ds-docs` | 列出所有 DS 文档（含状态、章节数、知识点数） |
+| `GET` | `/api/rag/ds-docs/<doc_id>/kps` | 获取文档的章节列表和知识点列表 |
+| `DELETE` | `/api/rag/ds-docs/<doc_id>` | 删除 DS 文档及其章节和知识点数据 |
+| `POST` | `/api/rag/ds-generate` | 基于 DS 知识图谱 → DeepSeek 出题 |
 
 ### 知识图谱
 
@@ -299,25 +328,39 @@ python -m pytest tests/ -v
 
 AI 返回结果保存为 `.txt`（UTF-8）后通过导入功能上传。
 
-### 方式二：AI 智能出题（内置 RAG）
+### 方式二：AI 智能出题（内置，推荐 DeepSeek 直出模式）
 
 **配置步骤：**
 
 1. 打开"AI 智能出题"标签页，在左下角 **API 配置** 卡片中填入：
-   - PaddleOCR 服务地址（如需处理 PPTX/PDF）
-   - PaddleOCR API Key
-   - DeepSeek API Key
+   - DeepSeek API Key（两种模式均需要）
+   - PaddleOCR 服务地址 + API Key（仅上传 PPTX/PDF 时需要）
 2. 点击"保存"，配置写入项目根目录 `.env` 文件
 
-**出题流程：**
+#### DeepSeek 直出模式（默认）
 
-1. **上传文档** — 拖拽上传课件或教材，`.pptx`/`.pdf` 后台 OCR 异步处理
-2. **筛选范围** — 选择参考文档，勾选章节（知识点列表自动联动过滤）
-3. **配置参数** — 设置题型数量、出题语言（中文/双语/英文）
-4. **一键出题** — 系统自动检索知识库 → 构建上下文 → 调用 DeepSeek
-5. **导入题库** — 点击"导入题库"，弹窗确认目标科目后自动导入
+无需 GPU，无需安装向量库依赖。
 
-**知识图谱：** 点击"知识库管理"右上角 **"知识图谱"** 按钮，在新标签页打开交互式知识图谱可视化页面。
+1. **上传文档** — 在左侧「文档知识提取」面板拖拽上传教材（支持 `.md`/`.txt`/`.docx`/`.pptx`/`.pdf`），PPTX/PDF 自动异步 OCR（每批 ≤10 页）
+2. **提取知识点** — 上传完成后点击文档旁的「提取」按钮，DeepSeek 逐章提取知识点及关联关系，进度实时展示
+3. **筛选范围** — 右侧「出题配置」中勾选参考文档，章节和知识点列表自动联动加载，可进一步筛选
+4. **配置参数** — 设置题型数量、出题语言（中文/双语/英文）
+5. **一键出题** — 点击「一键出题」，系统将筛选后的知识图谱作为上下文调用 DeepSeek 生成题目
+6. **导入题库** — 点击"导入题库"，确认目标科目后自动导入
+
+#### RAG 向量检索模式
+
+需要 GPU（推荐显存 ≥4 GB）。切换时页面会提示所需安装：
+
+```bash
+pip install qdrant-client sentence-transformers
+```
+
+1. **上传文档** — 切换到 RAG 模式后，在「知识库管理」面板上传文档，PPTX/PDF 后台 OCR 后自动摄入向量库
+2. **筛选范围** — 选择文档和章节，知识点列表自动联动
+3. **一键出题** — 系统混合检索知识库（稠密+BM25）→ 构建上下文 → 调用 DeepSeek
+
+**知识图谱：** 点击「知识库管理」右上角 **"知识图谱"** 按钮，在新标签页打开交互式知识图谱可视化页面（RAG 模式专属）。
 
 ## .env 配置说明
 

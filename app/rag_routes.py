@@ -583,3 +583,653 @@ def rag_set_config():
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DeepSeek 直出模式 (DS Mode)
+# 不依赖向量库和嵌入模型，纯 DeepSeek 知识提取 + 出题
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _ds_db_path() -> Path:
+    """DS 模式独立 SQLite 数据库，不影响 RAG 的 kg.db。"""
+    return _project_root() / "ds_knowledge.db"
+
+
+def _ds_db_conn():
+    conn = sqlite3.connect(str(_ds_db_path()))
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _init_ds_db():
+    with _ds_db_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ds_docs (
+                doc_id     TEXT PRIMARY KEY,
+                filename   TEXT,
+                subject    TEXT,
+                status     TEXT DEFAULT 'uploaded',
+                error_msg  TEXT,
+                created_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ds_chapters (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                doc_id       TEXT,
+                chapter_num  INTEGER,
+                chapter_name TEXT,
+                raw_text     TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ds_kps (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                doc_id         TEXT,
+                chapter_name   TEXT,
+                chapter_num    INTEGER,
+                kp_name        TEXT,
+                kp_content     TEXT,
+                relations_json TEXT DEFAULT '[]'
+            )
+        """)
+        conn.commit()
+
+
+# DS 异步任务状态表  {task_id: {status, message, doc_id, progress, total}}
+_ds_tasks: dict = {}
+
+
+def _parse_md_to_chapters(text: str) -> list:
+    """将 Markdown/TXT 文本按一级/二级标题切分为章节列表。"""
+    import re
+    chapters: list = []
+    current_title = '（前言/概述）'
+    current_num = 0
+    current_lines: list = []
+    for line in text.splitlines():
+        m = re.match(r'^#{1,2}\s+(.+)', line)
+        if m:
+            if current_lines:
+                chapters.append({
+                    'num': current_num,
+                    'name': current_title,
+                    'text': '\n'.join(current_lines).strip(),
+                })
+            current_num += 1
+            current_title = m.group(1).strip()
+            current_lines = []
+        else:
+            current_lines.append(line)
+    if current_lines:
+        chapters.append({
+            'num': current_num,
+            'name': current_title,
+            'text': '\n'.join(current_lines).strip(),
+        })
+    return [c for c in chapters if c['text'].strip()]
+
+
+def _parse_file_to_chapters(filepath: Path, suffix: str) -> list:
+    """从文件解析章节列表 [{num, name, text}]。"""
+    if suffix in ('.md', '.txt'):
+        text = filepath.read_text(encoding='utf-8', errors='replace')
+        return _parse_md_to_chapters(text)
+    if suffix == '.docx':
+        try:
+            from docx import Document as DocxDocument
+            doc = DocxDocument(str(filepath))
+            md_lines: list = []
+            for para in doc.paragraphs:
+                t = para.text.strip()
+                if not t:
+                    continue
+                style = para.style.name if para.style else ''
+                if 'Heading 1' in style or 'heading 1' in style.lower():
+                    md_lines.append(f'# {t}')
+                elif 'Heading 2' in style or 'heading 2' in style.lower():
+                    md_lines.append(f'## {t}')
+                else:
+                    md_lines.append(t)
+            return _parse_md_to_chapters('\n'.join(md_lines))
+        except Exception:
+            return []
+    return []
+
+
+_DS_EXTRACT_SYSTEM = '你是一位专业的教材分析专家，擅长从教材中提取结构化知识图谱。'
+
+_DS_EXTRACT_PROMPT = """请分析以下教材章节内容，提取该章节的核心知识点及其关系，构建知识图谱。
+
+【学科/科目】：{subject}
+【章节名称】：{chapter_name}
+
+【章节原文】：
+{chapter_text}
+
+---
+**任务要求：**
+1. 提取 3-8 个核心知识点
+2. 每个知识点的 content 字段应尽量引用原文关键表述，包含：定义/概念、特征/特点、分类/类型、示例/案例等
+3. 仅标注同一章节内知识点之间的关系
+4. 直接输出纯 JSON，不要添加代码块标记（```）或任何其他文字
+
+**输出格式（严格遵守，直接输出 JSON）：**
+{{
+  "chapter": "章节名称",
+  "knowledge_points": [
+    {{
+      "name": "知识点名称（5-20 字）",
+      "content": "详细说明（引用原文，200-500 字，包含定义、特征、分类、示例）",
+      "relations": [
+        {{"type": "从属", "target": "上位知识点名称"}},
+        {{"type": "比较", "target": "对比知识点名称"}},
+        {{"type": "并列", "target": "同级知识点名称"}}
+      ]
+    }}
+  ]
+}}
+
+关系类型（可组合使用，无关系则填 []）：从属、比较、并列、交叉、前提"""
+
+
+# ── DS 端点 ───────────────────────────────────────────────────────────────────
+
+@rag_bp.route('/api/rag/ds-upload', methods=['POST'])
+def ds_upload():
+    """上传文件并解析章节结构（DS 直出模式，不摄入向量库）。"""
+    _ensure_upload_dir()
+    _init_ds_db()
+
+    if 'file' not in request.files:
+        return jsonify({'error': '未提供文件'}), 400
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({'error': '文件名为空'}), 400
+
+    subject = request.form.get('subject', '')
+    filename = file.filename
+    suffix = Path(filename).suffix.lower()
+    stem = Path(filename).stem
+    doc_id = stem[:40]
+
+    if suffix not in ('.md', '.txt', '.docx', '.pptx', '.ppt', '.pdf'):
+        return jsonify({'error': f'不支持的文件格式：{suffix}'}), 400
+
+    save_path = _UPLOAD_DIR / filename
+    file.save(str(save_path))
+
+    # ── PDF / PPTX：先走 PaddleOCR 异步流程，OCR 完成后再解析章节 ──────────────
+    if suffix in ('.pptx', '.ppt', '.pdf'):
+        task_id = str(uuid.uuid4())[:8]
+        _ds_tasks[task_id] = {
+            'status': 'running',
+            'message': 'OCR 处理中，请稍候...',
+            'doc_id': doc_id,
+            'type': 'ocr',
+        }
+
+        def _ocr_then_parse(task_id, suffix, save_path, doc_id, filename, subject, stem):
+            import datetime
+            try:
+                _add_to_path()
+                ocr_cfg = _read_env_vars('PADDLEOCR_API_URL', 'PADDLEOCR_TOKEN', 'PADDLEOCR_TIMEOUT')
+                ocr_url     = ocr_cfg.get('PADDLEOCR_API_URL', '')
+                ocr_token   = ocr_cfg.get('PADDLEOCR_TOKEN', '')
+                ocr_timeout = int(ocr_cfg.get('PADDLEOCR_TIMEOUT') or 120)
+
+                ocr_output = _UPLOAD_DIR / (stem + '_ocr')
+                if suffix == '.pdf':
+                    from pptx_ocr.pipeline import process_pdf
+                    result_md = process_pdf(
+                        save_path, output_dir=ocr_output,
+                        api_url=ocr_url, api_token=ocr_token, api_timeout=ocr_timeout,
+                    )
+                else:
+                    from pptx_ocr.pipeline import process_pptx
+                    result_md = process_pptx(
+                        save_path, output_dir=ocr_output,
+                        api_url=ocr_url, api_token=ocr_token, api_timeout=ocr_timeout,
+                    )
+
+                _ds_tasks[task_id]['message'] = 'OCR 完成，正在解析章节结构...'
+                chapters = _parse_file_to_chapters(result_md, '.md')
+                if not chapters:
+                    _ds_tasks[task_id] = {
+                        'status': 'error',
+                        'message': '未能从 OCR 结果中解析出章节内容，请确认文档含有标题结构',
+                        'doc_id': doc_id, 'type': 'ocr',
+                    }
+                    return
+
+                with _ds_db_conn() as conn:
+                    conn.execute(
+                        "INSERT OR REPLACE INTO ds_docs "
+                        "(doc_id, filename, subject, status, error_msg, created_at) "
+                        "VALUES (?,?,?,'uploaded','',?)",
+                        (doc_id, filename, subject, datetime.datetime.now().isoformat()),
+                    )
+                    conn.execute("DELETE FROM ds_chapters WHERE doc_id=?", (doc_id,))
+                    conn.execute("DELETE FROM ds_kps WHERE doc_id=?", (doc_id,))
+                    for ch in chapters:
+                        conn.execute(
+                            "INSERT INTO ds_chapters "
+                            "(doc_id, chapter_num, chapter_name, raw_text) VALUES (?,?,?,?)",
+                            (doc_id, ch['num'], ch['name'], ch['text']),
+                        )
+                    conn.commit()
+
+                _ds_tasks[task_id] = {
+                    'status': 'done',
+                    'message': f'完成！已解析 {len(chapters)} 个章节，可点击「提取」按钮提取知识点',
+                    'doc_id': doc_id,
+                    'chapter_count': len(chapters),
+                    'type': 'ocr',
+                }
+            except Exception as e:
+                _ds_tasks[task_id] = {
+                    'status': 'error',
+                    'message': str(e),
+                    'doc_id': doc_id, 'type': 'ocr',
+                }
+
+        t = threading.Thread(
+            target=_ocr_then_parse,
+            args=(task_id, suffix, save_path, doc_id, filename, subject, stem),
+            daemon=True,
+        )
+        t.start()
+        return jsonify({'success': True, 'task_id': task_id, 'doc_id': doc_id, 'async': True})
+
+    # ── 文本格式：同步解析章节 ───────────────────────────────────────────────────
+    try:
+        chapters = _parse_file_to_chapters(save_path, suffix)
+        if not chapters:
+            return jsonify({'error': '未能从文件中解析出章节内容，请确认文件含有标题结构'}), 400
+
+        import datetime
+        with _ds_db_conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO ds_docs "
+                "(doc_id, filename, subject, status, error_msg, created_at) "
+                "VALUES (?,?,?,'uploaded','',?)",
+                (doc_id, filename, subject, datetime.datetime.now().isoformat()),
+            )
+            conn.execute("DELETE FROM ds_chapters WHERE doc_id=?", (doc_id,))
+            conn.execute("DELETE FROM ds_kps WHERE doc_id=?", (doc_id,))
+            for ch in chapters:
+                conn.execute(
+                    "INSERT INTO ds_chapters (doc_id, chapter_num, chapter_name, raw_text) VALUES (?,?,?,?)",
+                    (doc_id, ch['num'], ch['name'], ch['text']),
+                )
+            conn.commit()
+
+        return jsonify({
+            'success': True,
+            'doc_id': doc_id,
+            'chapter_count': len(chapters),
+            'chapters': [{'num': c['num'], 'name': c['name']} for c in chapters],
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@rag_bp.route('/api/rag/ds-extract/<path:doc_id>', methods=['POST'])
+def ds_extract(doc_id):
+    """异步：逐章调用 DeepSeek 提取知识点，构建知识图谱。"""
+    _init_ds_db()
+    data = request.json or {}
+    subject = data.get('subject', '')
+
+    with _ds_db_conn() as conn:
+        conn.execute("UPDATE ds_docs SET subject=? WHERE doc_id=?", (subject, doc_id))
+        conn.execute(
+            "UPDATE ds_docs SET status='extracting', error_msg='' WHERE doc_id=?",
+            (doc_id,),
+        )
+        conn.execute("DELETE FROM ds_kps WHERE doc_id=?", (doc_id,))
+        conn.commit()
+        chapters = conn.execute(
+            "SELECT chapter_num, chapter_name, raw_text FROM ds_chapters "
+            "WHERE doc_id=? ORDER BY chapter_num",
+            (doc_id,),
+        ).fetchall()
+
+    if not chapters:
+        return jsonify({'error': '文档未上传或章节解析失败，请先上传文档'}), 404
+
+    task_id = str(uuid.uuid4())[:8]
+    _ds_tasks[task_id] = {
+        'status': 'running',
+        'message': '准备开始...',
+        'doc_id': doc_id,
+        'progress': 0,
+        'total': len(chapters),
+    }
+
+    def _worker(task_id, doc_id, subject, chapters):
+        import json as _json
+        try:
+            _add_to_path()
+            from dotenv import dotenv_values
+            env_file = _project_root() / '.env'
+            env_vals = dotenv_values(env_file) if env_file.exists() else {}
+            api_key = (
+                env_vals.get('DEEPSEEK_API_KEY')
+                or env_vals.get('DEEPSEEK_TOKEN')
+                or os.environ.get('DEEPSEEK_API_KEY', '')
+                or os.environ.get('DEEPSEEK_TOKEN', '')
+            )
+            if not api_key:
+                with _ds_db_conn() as conn:
+                    conn.execute(
+                        "UPDATE ds_docs SET status='error', error_msg=? WHERE doc_id=?",
+                        ('未设置 DEEPSEEK_API_KEY', doc_id),
+                    )
+                    conn.commit()
+                _ds_tasks[task_id] = {
+                    'status': 'error',
+                    'message': '未设置 DEEPSEEK_API_KEY，请在 API 配置中填写',
+                    'doc_id': doc_id,
+                }
+                return
+
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key, base_url='https://api.deepseek.com')
+            total = len(chapters)
+
+            for i, ch in enumerate(chapters):
+                _ds_tasks[task_id].update({
+                    'message': f'正在提取第 {i + 1}/{total} 章：{ch["chapter_name"]}',
+                    'progress': i,
+                    'total': total,
+                })
+                ch_text = ch['raw_text']
+                if len(ch_text) > 8000:
+                    ch_text = ch_text[:8000] + '\n\n[（内容过长，已截断）]'
+
+                prompt = _DS_EXTRACT_PROMPT.format(
+                    subject=subject or '（未指定）',
+                    chapter_name=ch['chapter_name'],
+                    chapter_text=ch_text,
+                )
+                try:
+                    resp = client.chat.completions.create(
+                        model='deepseek-chat',
+                        messages=[
+                            {'role': 'system', 'content': _DS_EXTRACT_SYSTEM},
+                            {'role': 'user', 'content': prompt},
+                        ],
+                        max_tokens=3000,
+                        temperature=0.3,
+                    )
+                    raw = resp.choices[0].message.content.strip()
+                    # 清除可能的 Markdown 代码块标记
+                    if raw.startswith('```'):
+                        raw = '\n'.join(raw.split('\n')[1:])
+                    if raw.endswith('```'):
+                        raw = '\n'.join(raw.split('\n')[:-1])
+                    raw = raw.strip()
+
+                    parsed = _json.loads(raw)
+                    kps = parsed.get('knowledge_points', [])
+                    with _ds_db_conn() as conn:
+                        for kp in kps:
+                            conn.execute(
+                                "INSERT INTO ds_kps "
+                                "(doc_id, chapter_name, chapter_num, kp_name, kp_content, relations_json) "
+                                "VALUES (?,?,?,?,?,?)",
+                                (
+                                    doc_id,
+                                    ch['chapter_name'],
+                                    ch['chapter_num'],
+                                    kp.get('name', ''),
+                                    kp.get('content', ''),
+                                    _json.dumps(kp.get('relations', []), ensure_ascii=False),
+                                ),
+                            )
+                        conn.commit()
+                except Exception as ch_err:
+                    # 单章失败不影响整体，记录并继续
+                    _ds_tasks[task_id]['message'] = (
+                        f'第 {i + 1} 章提取出错（{ch_err}），跳过，继续下一章...'
+                    )
+
+            # 全部完成
+            with _ds_db_conn() as conn:
+                kp_count = conn.execute(
+                    "SELECT COUNT(*) FROM ds_kps WHERE doc_id=?", (doc_id,)
+                ).fetchone()[0]
+                conn.execute(
+                    "UPDATE ds_docs SET status='done' WHERE doc_id=?", (doc_id,)
+                )
+                conn.commit()
+            _ds_tasks[task_id] = {
+                'status': 'done',
+                'message': f'提取完成！共提取 {kp_count} 个知识点（{total} 章）',
+                'doc_id': doc_id,
+                'kp_count': kp_count,
+                'total': total,
+            }
+        except Exception as e:
+            with _ds_db_conn() as conn:
+                conn.execute(
+                    "UPDATE ds_docs SET status='error', error_msg=? WHERE doc_id=?",
+                    (str(e), doc_id),
+                )
+                conn.commit()
+            _ds_tasks[task_id] = {
+                'status': 'error',
+                'message': str(e),
+                'doc_id': doc_id,
+            }
+
+    t = threading.Thread(
+        target=_worker, args=(task_id, doc_id, subject, list(chapters)), daemon=True
+    )
+    t.start()
+    return jsonify({'success': True, 'task_id': task_id, 'total': len(chapters)})
+
+
+@rag_bp.route('/api/rag/ds-tasks/<task_id>', methods=['GET'])
+def ds_task_status(task_id):
+    """轮询 DS 知识点提取任务状态。"""
+    task = _ds_tasks.get(task_id)
+    if task is None:
+        return jsonify({'error': '任务不存在'}), 404
+    return jsonify(task)
+
+
+@rag_bp.route('/api/rag/ds-docs', methods=['GET'])
+def list_ds_docs():
+    """列出所有 DS 模式文档及其状态。"""
+    _init_ds_db()
+    with _ds_db_conn() as conn:
+        rows = conn.execute(
+            "SELECT doc_id, filename, subject, status, error_msg FROM ds_docs "
+            "ORDER BY created_at DESC"
+        ).fetchall()
+    result = []
+    for r in rows:
+        with _ds_db_conn() as conn:
+            kp_count = conn.execute(
+                "SELECT COUNT(*) FROM ds_kps WHERE doc_id=?", (r['doc_id'],)
+            ).fetchone()[0]
+            ch_count = conn.execute(
+                "SELECT COUNT(*) FROM ds_chapters WHERE doc_id=?", (r['doc_id'],)
+            ).fetchone()[0]
+        result.append({
+            'doc_id': r['doc_id'],
+            'filename': r['filename'] or '',
+            'subject': r['subject'] or '',
+            'status': r['status'],
+            'error_msg': r['error_msg'] or '',
+            'kp_count': kp_count,
+            'chapter_count': ch_count,
+        })
+    return jsonify(result)
+
+
+@rag_bp.route('/api/rag/ds-docs/<path:doc_id>/kps', methods=['GET'])
+def ds_doc_kps(doc_id):
+    """获取文档的章节列表和知识点列表（用于前端三级联动筛选）。"""
+    _init_ds_db()
+    with _ds_db_conn() as conn:
+        chapters = conn.execute(
+            "SELECT DISTINCT chapter_num, chapter_name FROM ds_chapters "
+            "WHERE doc_id=? ORDER BY chapter_num",
+            (doc_id,),
+        ).fetchall()
+        kps = conn.execute(
+            "SELECT id, chapter_name, chapter_num, kp_name, kp_content, relations_json "
+            "FROM ds_kps WHERE doc_id=? ORDER BY chapter_num, id",
+            (doc_id,),
+        ).fetchall()
+    return jsonify({
+        'chapters': [{'num': c['chapter_num'], 'name': c['chapter_name']} for c in chapters],
+        'kps': [
+            {
+                'id': k['id'],
+                'chapter_name': k['chapter_name'],
+                'chapter_num': k['chapter_num'],
+                'name': k['kp_name'],
+                'content': k['kp_content'],
+                'relations': k['relations_json'],
+            }
+            for k in kps
+        ],
+    })
+
+
+@rag_bp.route('/api/rag/ds-docs/<path:doc_id>', methods=['DELETE'])
+def ds_delete_doc(doc_id):
+    """删除 DS 文档及其所有章节和知识点数据。"""
+    _init_ds_db()
+    with _ds_db_conn() as conn:
+        conn.execute("DELETE FROM ds_docs WHERE doc_id=?", (doc_id,))
+        conn.execute("DELETE FROM ds_chapters WHERE doc_id=?", (doc_id,))
+        conn.execute("DELETE FROM ds_kps WHERE doc_id=?", (doc_id,))
+        conn.commit()
+    return jsonify({'success': True})
+
+
+@rag_bp.route('/api/rag/ds-generate', methods=['POST'])
+def ds_generate():
+    """基于 DS 提取的知识图谱生成题目（DeepSeek 直出，无向量检索）。"""
+    import json as _json
+    _init_ds_db()
+    data = request.json or {}
+    doc_ids = data.get('doc_ids', [])
+    chapters = data.get('chapters', [])
+    kp_names = data.get('kp_names', [])
+    prompt_template = data.get('prompt', '')
+    question_list = data.get('question_list', '')
+
+    if not prompt_template:
+        return jsonify({'error': '未提供提示词模板'}), 400
+
+    # ── 从 DS 数据库读取相关知识点 ────────────────────────────────────────────
+    kps_data = []
+    try:
+        with _ds_db_conn() as conn:
+            for doc_id in (doc_ids or []):
+                query = (
+                    "SELECT chapter_name, chapter_num, kp_name, kp_content, relations_json "
+                    "FROM ds_kps WHERE doc_id=?"
+                )
+                params: list = [doc_id]
+                if chapters:
+                    placeholders = ','.join(['?' for _ in chapters])
+                    query += f" AND chapter_name IN ({placeholders})"
+                    params.extend(chapters)
+                if kp_names:
+                    placeholders = ','.join(['?' for _ in kp_names])
+                    query += f" AND kp_name IN ({placeholders})"
+                    params.extend(kp_names)
+                query += " ORDER BY chapter_num, id"
+                rows = conn.execute(query, params).fetchall()
+                kps_data.extend(rows)
+    except Exception:
+        kps_data = []
+
+    # ── 构建知识图谱 context ──────────────────────────────────────────────────
+    if kps_data:
+        context_parts: list = []
+        current_chapter = None
+        total_chars = 0
+        for kp in kps_data:
+            if total_chars > 7000:
+                context_parts.append('\n（已达上下文长度上限，后续知识点省略）')
+                break
+            if kp['chapter_name'] != current_chapter:
+                current_chapter = kp['chapter_name']
+                context_parts.append(f'\n## {current_chapter}\n')
+            context_parts.append(f'### 知识点：{kp["kp_name"]}')
+            context_parts.append(kp['kp_content'])
+            try:
+                rels = _json.loads(kp['relations_json'] or '[]')
+                if rels:
+                    rel_str = '；'.join(
+                        f"{r.get('type', '')} → {r.get('target', '')}"
+                        for r in rels
+                        if r.get('target')
+                    )
+                    if rel_str:
+                        context_parts.append(f'关联关系：{rel_str}')
+            except Exception:
+                pass
+            context_parts.append('')
+            total_chars += len(kp['kp_content'])
+        context = '\n'.join(context_parts)
+    else:
+        context = '（未选择知识点或知识点提取尚未完成，请先上传文档并完成知识点提取）'
+
+    # ── 替换占位符 ────────────────────────────────────────────────────────────
+    final_prompt = (
+        prompt_template
+        .replace('{context}', context)
+        .replace('{question_list}', question_list)
+    )
+
+    # ── 调用 DeepSeek API ─────────────────────────────────────────────────────
+    try:
+        _add_to_path()
+        from dotenv import dotenv_values
+        env_file = _project_root() / '.env'
+        env_vals = dotenv_values(env_file) if env_file.exists() else {}
+        api_key = (
+            env_vals.get('DEEPSEEK_API_KEY')
+            or env_vals.get('DEEPSEEK_TOKEN')
+            or os.environ.get('DEEPSEEK_API_KEY', '')
+            or os.environ.get('DEEPSEEK_TOKEN', '')
+        )
+        if not api_key:
+            return jsonify({
+                'error': '未设置 DEEPSEEK_API_KEY，请在 API 配置中填写'
+            }), 400
+
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key, base_url='https://api.deepseek.com')
+        response = client.chat.completions.create(
+            model='deepseek-chat',
+            messages=[
+                {
+                    'role': 'system',
+                    'content': '你是一位专业的教学内容设计专家，擅长根据课程知识图谱设计题库。',
+                },
+                {'role': 'user', 'content': final_prompt},
+            ],
+            max_tokens=8000,
+            temperature=0.7,
+        )
+        content = response.choices[0].message.content
+        return jsonify({
+            'success': True,
+            'content': content,
+            'stats': {
+                'kps_used': len(kps_data),
+                'context_chars': len(context),
+            },
+        })
+    except Exception as e:
+        return jsonify({'error': f'DeepSeek API 调用失败：{str(e)}'}), 500
