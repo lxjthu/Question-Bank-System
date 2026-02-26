@@ -1,5 +1,29 @@
 # 更新日志
 
+## 1.5.0 - 2026-02-26
+
+### 新功能
+
+- **知识图谱标签页改名** — AI 智能出题标签页（第 7 个）由「AI智能出题」更名为「知识图谱」，与页面内容更匹配
+- **知识图谱出题题型动态增删** — 出题配置区的题型与数量表格从静态 6 行改为可动态增删：每行有下拉选择题型、数量输入和删除按钮，表格下方有「+ 添加题型」按钮；题型变化时提示词编辑器中的格式示例区段随之联动（仅展示当前已选题型的格式示例）
+- **提示词格式示例动态联动** — 三套提示词模板（中文/双语/英文）中原先固定的 6 种题型格式示例，改为按当前已选题型动态生成（`{format_examples}` 占位符），新增「简答>计算」格式和双语/英文多选格式，共 7 种题型格式示例
+- **DS 模式知识提取断点续传** — 点击「提取」时支持两种模式：① 默认全新提取（清空重来）；② 「继续」恢复上次暂停处（`resume=true`，仅处理尚未提取的章节）；文档列表新增「继续」和重新提取（↺）两个独立按钮
+- **DS 模式提取随时暂停** — 提取进行中，进度条右侧显示橙色「暂停」按钮；点击后在当前章节完成后优雅停止，已提取数据写入数据库；文档状态变为 `paused`，显示「已提取 X/Y 章 · N 个知识点」；暂停文档仍可参与出题
+- **自动组卷题型拖拽排序** — 「一键自动组卷」配置区每个题型行左侧新增竖点手柄（`⋮⋮`），可拖动调整各题型在试卷中的排列顺序；拖过目标行时显示蓝色位置指示线，松手即完成排序
+
+### 架构变更
+
+- `app/rag_routes.py`：`ds_extract` 端点增加 `resume` 参数（跳过已提取章节）；`_worker` 在每章开始前检查 `pause_requested` 标志并优雅退出；新增 `POST /api/rag/ds-tasks/<task_id>/pause` 端点；`list_ds_docs` 返回新增字段 `ch_with_kps`（已提取 KP 的章节数）；`ds_docs.status` 新增 `'paused'` 状态值
+- `app/templates/index.html`：新增 `RAG_TYPE_META` / `RAG_FORMAT_EXAMPLES` 常量（7 种题型 × 3 种语言的格式示例文本）；新增函数 `initRagTypeTable` / `addRagTypeRow` / `removeRagTypeRow` / `buildFormatExamples`；修改 `buildQuestionList()` 从动态表格 DOM 读取；修改 `setRagPromptMode()` 注入 `{format_examples}`；新增 `_currentDsTaskId` 状态变量和 `pauseDsExtract()` 函数；新增拖拽相关函数 `_examDragStart/Over/Leave/Drop/End` 及 `_bindDragEvents`
+
+### 文档
+
+- `CHANGELOG.zh.md` 新增 1.5.0 条目
+- `README.md` 更新 DeepSeek 直出模式说明（断点续传/暂停）、自动组卷说明（拖拽排序）、DS 直出 API 表（新增 pause 端点）
+- `技术文档.md` 更新 12.11 节（断点续传/暂停机制）
+
+---
+
 ## 1.4.0 - 2026-02-26
 
 ### 新功能

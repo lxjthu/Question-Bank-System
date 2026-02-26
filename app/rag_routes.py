@@ -1122,10 +1122,14 @@ def ds_upload():
 
 @rag_bp.route('/api/rag/ds-extract/<path:doc_id>', methods=['POST'])
 def ds_extract(doc_id):
-    """异步：逐章调用 DeepSeek 提取知识点，构建知识图谱。"""
+    """异步：逐章调用 DeepSeek 提取知识点，构建知识图谱。
+
+    resume=True 时跳过已提取的章节，实现断点续传。
+    """
     _init_ds_db()
     data = request.json or {}
     subject = data.get('subject', '')
+    resume = bool(data.get('resume', False))
 
     with _ds_db_conn() as conn:
         conn.execute("UPDATE ds_docs SET subject=? WHERE doc_id=?", (subject, doc_id))
@@ -1133,17 +1137,44 @@ def ds_extract(doc_id):
             "UPDATE ds_docs SET status='extracting', error_msg='' WHERE doc_id=?",
             (doc_id,),
         )
-        conn.execute("DELETE FROM ds_kps WHERE doc_id=?", (doc_id,))
+        if not resume:
+            # 全新提取：清空已有知识点
+            conn.execute("DELETE FROM ds_kps WHERE doc_id=?", (doc_id,))
         conn.commit()
-        chapters = conn.execute(
+        all_chapters = conn.execute(
             "SELECT chapter_num, chapter_name, raw_text FROM ds_chapters "
             "WHERE doc_id=? ORDER BY chapter_num",
             (doc_id,),
         ).fetchall()
+        if resume:
+            # 续传：跳过已有 KP 的章节
+            extracted_nums = {
+                r[0] for r in conn.execute(
+                    "SELECT DISTINCT chapter_num FROM ds_kps WHERE doc_id=?",
+                    (doc_id,),
+                ).fetchall()
+            }
+            chapters = [ch for ch in all_chapters if ch['chapter_num'] not in extracted_nums]
+        else:
+            chapters = list(all_chapters)
 
-    if not chapters:
+    if not all_chapters:
         return jsonify({'error': '文档未上传或章节解析失败，请先上传文档'}), 404
 
+    if not chapters:
+        # 续传但所有章节都已提取完毕，直接标记 done
+        with _ds_db_conn() as conn:
+            kp_count = conn.execute(
+                "SELECT COUNT(*) FROM ds_kps WHERE doc_id=?", (doc_id,)
+            ).fetchone()[0]
+            conn.execute("UPDATE ds_docs SET status='done' WHERE doc_id=?", (doc_id,))
+            conn.commit()
+        return jsonify({
+            'success': True, 'task_id': None,
+            'total': 0, 'already_done': True, 'kp_count': kp_count,
+        })
+
+    total_chapters = len(all_chapters)
     task_id = str(uuid.uuid4())[:8]
     _ds_tasks[task_id] = {
         'status': 'running',
@@ -1151,6 +1182,8 @@ def ds_extract(doc_id):
         'doc_id': doc_id,
         'progress': 0,
         'total': len(chapters),
+        'total_chapters': total_chapters,
+        'pause_requested': False,
     }
 
     def _worker(task_id, doc_id, subject, chapters):
@@ -1185,6 +1218,31 @@ def ds_extract(doc_id):
             total = len(chapters)
 
             for i, ch in enumerate(chapters):
+                # 检查暂停请求
+                if _ds_tasks.get(task_id, {}).get('pause_requested', False):
+                    with _ds_db_conn() as conn:
+                        kp_count = conn.execute(
+                            "SELECT COUNT(*) FROM ds_kps WHERE doc_id=?", (doc_id,)
+                        ).fetchone()[0]
+                        ch_done = conn.execute(
+                            "SELECT COUNT(DISTINCT chapter_num) FROM ds_kps WHERE doc_id=?",
+                            (doc_id,),
+                        ).fetchone()[0]
+                        conn.execute(
+                            "UPDATE ds_docs SET status='paused' WHERE doc_id=?", (doc_id,)
+                        )
+                        conn.commit()
+                    _ds_tasks[task_id] = {
+                        'status': 'paused',
+                        'message': f'已暂停。已完成 {ch_done}/{_ds_tasks[task_id].get("total_chapters", total)} 章，共 {kp_count} 个知识点',
+                        'doc_id': doc_id,
+                        'progress': i,
+                        'total': total,
+                        'total_chapters': _ds_tasks[task_id].get('total_chapters', total),
+                        'kp_count': kp_count,
+                    }
+                    return
+
                 _ds_tasks[task_id].update({
                     'message': f'正在提取第 {i + 1}/{total} 章：{ch["chapter_name"]}',
                     'progress': i,
@@ -1286,6 +1344,18 @@ def ds_task_status(task_id):
     # 不把内部重试参数暴露给前端
     result = {k: v for k, v in task.items() if k != '_retry'}
     return jsonify(result)
+
+
+@rag_bp.route('/api/rag/ds-tasks/<task_id>/pause', methods=['POST'])
+def ds_pause_task(task_id):
+    """请求暂停正在进行的知识点提取任务（将在当前章节完成后生效）。"""
+    task = _ds_tasks.get(task_id)
+    if task is None:
+        return jsonify({'error': '任务不存在'}), 404
+    if task.get('status') != 'running':
+        return jsonify({'error': f'任务当前状态为 {task.get("status")}，无法暂停'}), 400
+    _ds_tasks[task_id]['pause_requested'] = True
+    return jsonify({'success': True, 'message': '暂停请求已发送，将在当前章节完成后暂停'})
 
 
 @rag_bp.route('/api/rag/ds-retry-ocr/<task_id>', methods=['POST'])
@@ -1437,6 +1507,10 @@ def list_ds_docs():
             ch_count = conn.execute(
                 "SELECT COUNT(*) FROM ds_chapters WHERE doc_id=?", (r['doc_id'],)
             ).fetchone()[0]
+            ch_with_kps = conn.execute(
+                "SELECT COUNT(DISTINCT chapter_num) FROM ds_kps WHERE doc_id=?",
+                (r['doc_id'],),
+            ).fetchone()[0]
         result.append({
             'doc_id': r['doc_id'],
             'filename': r['filename'] or '',
@@ -1445,6 +1519,7 @@ def list_ds_docs():
             'error_msg': r['error_msg'] or '',
             'kp_count': kp_count,
             'chapter_count': ch_count,
+            'ch_with_kps': ch_with_kps,
         })
     return jsonify(result)
 
