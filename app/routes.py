@@ -429,8 +429,10 @@ def import_questions():
             imported = len(models)
             return jsonify({
                 'message': 'Questions imported successfully',
-                'count': imported,
+                'imported': imported,
+                'count': imported,   # backward compat alias
                 'skipped': skipped,
+                'failed': 0,
             })
         except Exception as e:
             db.session.rollback()

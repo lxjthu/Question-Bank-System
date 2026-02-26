@@ -30,6 +30,10 @@ _retriever = None   # rag_pipeline.retriever.HybridRetriever
 # OCR 后台任务状态表  {task_id: {status, message, doc_id}}
 _ocr_tasks: dict = {}
 
+# DS 直出模式 OCR 后台任务状态表  {task_id: {...}}
+# 注：_ds_tasks 在下方 DS 模式区域定义，此处仅声明占位供模块级函数引用
+_ds_tasks: dict = {}
+
 # RAG 文档上传目录
 _UPLOAD_DIR = Path(__file__).parent.parent / "rag_uploads"
 
@@ -590,6 +594,174 @@ def rag_set_config():
 # 不依赖向量库和嵌入模型，纯 DeepSeek 知识提取 + 出题
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
+def _do_ocr_then_parse(task_id: str, suffix: str, save_path, doc_id: str,
+                       filename: str, subject: str, stem: str,
+                       resume: bool = True) -> None:
+    """模块级 OCR 后台工作函数（支持断点续传）。
+
+    Args:
+        task_id:  任务 ID，用于更新 _ds_tasks 状态。
+        suffix:   文件后缀（.pdf / .pptx / .ppt）。
+        save_path: 已保存的源文件路径。
+        doc_id:   文档 ID。
+        filename: 原始文件名。
+        subject:  学科名称。
+        stem:     文件名主干（用于构造 ocr_output 目录）。
+        resume:   是否从检查点续传（默认 True）。
+    """
+    import datetime
+    import json as _json
+    from pathlib import Path as _Path
+
+    save_path = _Path(save_path)
+    ocr_output = _UPLOAD_DIR / (stem + '_ocr')
+
+    def _progress(done, total, msg):
+        _ds_tasks[task_id].update({
+            'message': msg,
+            'done_chunks': done,
+            'total_chunks': total,
+        })
+
+    try:
+        _add_to_path()
+        ocr_cfg = _read_env_vars('PADDLEOCR_API_URL', 'PADDLEOCR_TOKEN', 'PADDLEOCR_TIMEOUT')
+        ocr_url     = ocr_cfg.get('PADDLEOCR_API_URL', '')
+        ocr_token   = ocr_cfg.get('PADDLEOCR_TOKEN', '')
+        ocr_timeout = int(ocr_cfg.get('PADDLEOCR_TIMEOUT') or 120)
+
+        if suffix == '.pdf':
+            from pptx_ocr.pipeline import process_pdf
+            result_md = process_pdf(
+                save_path, output_dir=ocr_output,
+                api_url=ocr_url, api_token=ocr_token, api_timeout=ocr_timeout,
+                resume=resume, progress_callback=_progress,
+            )
+        else:
+            from pptx_ocr.pipeline import process_pptx
+            result_md = process_pptx(
+                save_path, output_dir=ocr_output,
+                api_url=ocr_url, api_token=ocr_token, api_timeout=ocr_timeout,
+            )
+
+        _ds_tasks[task_id]['message'] = 'OCR 完成，正在分析文档结构...'
+
+        # ── 1. 读取 OCR 结果并清理页码标记 ────────────────────────────────────
+        result_text = result_md.read_text(encoding='utf-8', errors='replace')
+        cleaned_text, had_page_markers = _clean_ocr_md(result_text)
+
+        # ── 2. 若发现页码标记，调用 DeepSeek 判断章节标题级别 ─────────────────
+        chapter_level = 1
+        if had_page_markers:
+            _ds_tasks[task_id]['message'] = (
+                '检测到页码标记，已自动清理；正在识别章节层级...'
+            )
+            ds_cfg = _read_env_vars('DEEPSEEK_API_KEY', 'DEEPSEEK_TOKEN')
+            ds_key = (
+                ds_cfg.get('DEEPSEEK_API_KEY')
+                or ds_cfg.get('DEEPSEEK_TOKEN')
+                or os.environ.get('DEEPSEEK_API_KEY', '')
+                or os.environ.get('DEEPSEEK_TOKEN', '')
+            )
+            if ds_key:
+                try:
+                    from openai import OpenAI as _OAI
+                    _ds_client = _OAI(api_key=ds_key, base_url='https://api.deepseek.com')
+                    chapter_level = _detect_chapter_level(cleaned_text, subject, _ds_client)
+                    _ds_tasks[task_id]['message'] = (
+                        f'已识别章节层级为 H{chapter_level}（{"#" * chapter_level}），正在分段...'
+                    )
+                except Exception:
+                    chapter_level = 1  # 检测失败时安全回退
+
+        # ── 3. 按检测到的级别切分章节 ─────────────────────────────────────────
+        chapters = _parse_md_to_chapters(cleaned_text, chapter_level)
+        if not chapters:
+            _ds_tasks[task_id] = {
+                'status': 'error',
+                'message': '未能从 OCR 结果中解析出章节内容，请确认文档含有标题结构',
+                'doc_id': doc_id, 'type': 'ocr',
+            }
+            return
+
+        with _ds_db_conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO ds_docs "
+                "(doc_id, filename, subject, status, error_msg, created_at) "
+                "VALUES (?,?,?,'uploaded','',?)",
+                (doc_id, filename, subject, datetime.datetime.now().isoformat()),
+            )
+            conn.execute("DELETE FROM ds_chapters WHERE doc_id=?", (doc_id,))
+            conn.execute("DELETE FROM ds_kps WHERE doc_id=?", (doc_id,))
+            for ch in chapters:
+                conn.execute(
+                    "INSERT INTO ds_chapters "
+                    "(doc_id, chapter_num, chapter_name, raw_text) VALUES (?,?,?,?)",
+                    (doc_id, ch['num'], ch['name'], ch['text']),
+                )
+            conn.commit()
+
+        _ds_tasks[task_id] = {
+            'status': 'done',
+            'message': f'完成！已解析 {len(chapters)} 个章节，可点击「提取」按钮提取知识点',
+            'doc_id': doc_id,
+            'chapter_count': len(chapters),
+            'type': 'ocr',
+        }
+
+    except Exception as e:
+        err_str = str(e)
+        # 判断是否为网络超时 / 连接错误（可续传）
+        _lower = err_str.lower()
+        is_timeout = (
+            'timed out' in _lower
+            or 'timeout' in _lower
+            or 'connectionerror' in _lower
+            or 'connection' in _lower and 'error' in _lower
+            or 'read timeout' in _lower
+        )
+
+        if is_timeout:
+            # 从检查点文件读取已完成块数
+            ck_file = ocr_output / 'checkpoint.json'
+            done_count = _ds_tasks[task_id].get('done_chunks', 0)
+            total_count = _ds_tasks[task_id].get('total_chunks', 0)
+            if ck_file.exists():
+                try:
+                    ck = _json.loads(ck_file.read_text(encoding='utf-8'))
+                    done_count = len(ck.get('done', []))
+                    total_count = ck.get('total', total_count)
+                except Exception:
+                    pass
+
+            _ds_tasks[task_id] = {
+                'status': 'timeout',
+                'message': (
+                    f'OCR 超时（已完成 {done_count}/{total_count} 块）。'
+                    f'已保存进度，点击「重试」按钮继续'
+                ),
+                'doc_id': doc_id,
+                'type': 'ocr',
+                'done_chunks': done_count,
+                'total_chunks': total_count,
+                # 重试所需参数
+                '_retry': {
+                    'suffix': suffix,
+                    'save_path': str(save_path),
+                    'filename': filename,
+                    'subject': subject,
+                    'stem': stem,
+                },
+            }
+        else:
+            _ds_tasks[task_id] = {
+                'status': 'error',
+                'message': err_str,
+                'doc_id': doc_id, 'type': 'ocr',
+            }
+
+
 def _ds_db_path() -> Path:
     """DS 模式独立 SQLite 数据库，不影响 RAG 的 kg.db。"""
     return _project_root() / "ds_knowledge.db"
@@ -636,19 +808,119 @@ def _init_ds_db():
         conn.commit()
 
 
-# DS 异步任务状态表  {task_id: {status, message, doc_id, progress, total}}
-_ds_tasks: dict = {}
+# _ds_tasks 已在模块顶部声明，此处不重复定义
 
 
-def _parse_md_to_chapters(text: str) -> list:
-    """将 Markdown/TXT 文本按一级/二级标题切分为章节列表。"""
+def _clean_ocr_md(text: str) -> tuple:
+    """清理 OCR pipeline 生成的 result.md 中的人工产物。
+
+    处理步骤：
+    1. 去掉 pipeline 生成的文件头（# 文件名 / > Source / > Generated / > Chunks / ---）
+    2. 去掉页码标记行（## Page N、## 第N页 等）
+    3. 去掉多余的 --- 分隔线（OCR 分页符）
+    4. 合并连续空行（>2 行 → 1 空行）
+
+    返回 (cleaned_text: str, had_page_markers: bool)
+    """
     import re
+
+    # 步骤 1：识别并去掉 pipeline 文件头
+    # 文件头特征：开头有 "# 文件名" 行，随后有 "> Source:" / "> Generated:" 等元信息行，
+    # 以第一个单独的 "---" 行结束。
+    header_match = re.search(r'^---[ \t]*\n', text, re.MULTILINE)
+    if header_match:
+        before_sep = text[:header_match.start()]
+        # 判断 --- 之前确实含有 pipeline 元信息（> Source / > Generated / > Chunks）
+        if re.search(r'^>\s*(?:Source|Generated|Chunks)', before_sep, re.MULTILINE):
+            text = text[header_match.end():]
+
+    # 步骤 2：去掉页码标记行
+    # 匹配：## Page 1、## Page 123、## 第1页、## 第 12 面 等，整行独立
+    page_pattern = re.compile(
+        r'^##\s+(?:Page\s+\d+|第\s*\d+\s*[页面])\s*$',
+        re.MULTILINE | re.IGNORECASE,
+    )
+    cleaned, n_markers = page_pattern.subn('', text)
+
+    # 步骤 3：去掉多余的 --- 分隔线（OCR 各 chunk 之间的分页符）
+    # 只在页码标记被清理后执行，避免误删文档原有 --- 分隔
+    if n_markers > 0:
+        cleaned = re.sub(r'\n[ \t]*---[ \t]*\n', '\n', cleaned)
+
+    # 步骤 4：合并 3 行及以上连续空行为 1 行
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+
+    return cleaned.strip(), n_markers > 0
+
+
+def _detect_chapter_level(text_sample: str, subject: str, ds_client) -> int:
+    """调用 DeepSeek 判断 Markdown 文档中哪个标题级别代表"章"。
+
+    参数：
+        text_sample: 文档前 2000 字左右的样本（已清理页码标记）
+        subject:     学科名称（辅助判断）
+        ds_client:   已初始化的 OpenAI-compatible 客户端
+
+    返回：1、2 或 3（对应 #、## 或 ###），失败时默认返回 1。
+    """
+    import json as _json
+
+    prompt = (
+        '请分析以下教材文档（OCR 识别结果）的部分内容，判断哪个 Markdown 标题级别代表"章"。\n\n'
+        f'【学科/科目】：{subject or "（未指定）"}\n\n'
+        '【说明】\n'
+        '- 章是文档最高层的内容组织单元，通常含"第X章""Chapter X"或同等表述\n'
+        '- 标题级别：# = 1级，## = 2级，### = 3级\n'
+        '- 若文档无明显章级别，选择最接近章粒度的标题级别\n\n'
+        f'【文档样本】：\n{text_sample[:2000]}\n\n'
+        '请直接输出 JSON（不加代码块标记或其他文字）：\n'
+        '{"chapter_level": 1, "reason": "简要说明（20字以内）"}'
+    )
+    try:
+        resp = ds_client.chat.completions.create(
+            model='deepseek-chat',
+            messages=[
+                {'role': 'system', 'content': '你是一位文档结构分析专家，善于识别教材的章节层级。'},
+                {'role': 'user', 'content': prompt},
+            ],
+            max_tokens=120,
+            temperature=0,
+        )
+        raw = resp.choices[0].message.content.strip()
+        if raw.startswith('```'):
+            raw = '\n'.join(raw.split('\n')[1:])
+        if raw.endswith('```'):
+            raw = '\n'.join(raw.split('\n')[:-1])
+        parsed = _json.loads(raw.strip())
+        level = int(parsed.get('chapter_level', 1))
+        if level in (1, 2, 3):
+            return level
+    except Exception:
+        pass
+    return 1  # 默认值
+
+
+def _parse_md_to_chapters(text: str, heading_level: int = 1) -> list:
+    """将 Markdown/TXT 文本按指定标题级别切分为章节列表。
+
+    参数：
+        text:          文档文本（应已用 _clean_ocr_md 清理）
+        heading_level: 章标题级别，1=#，2=##，3=###（默认 1）
+
+    返回 [{'num': int, 'name': str, 'text': str}, ...]，过滤空章节。
+    """
+    import re
+    # 精确匹配 heading_level 个 #，后面不能再跟 #（避免 ## 被 # 规则误匹配）
+    pattern = re.compile(
+        r'^#{' + str(heading_level) + r'}(?!#)\s+(.+)',
+        re.MULTILINE,
+    )
     chapters: list = []
     current_title = '（前言/概述）'
     current_num = 0
     current_lines: list = []
     for line in text.splitlines():
-        m = re.match(r'^#{1,2}\s+(.+)', line)
+        m = pattern.match(line)
         if m:
             if current_lines:
                 chapters.append({
@@ -670,11 +942,17 @@ def _parse_md_to_chapters(text: str) -> list:
     return [c for c in chapters if c['text'].strip()]
 
 
-def _parse_file_to_chapters(filepath: Path, suffix: str) -> list:
-    """从文件解析章节列表 [{num, name, text}]。"""
+def _parse_file_to_chapters(filepath: Path, suffix: str,
+                            heading_level: int = 1) -> list:
+    """从文件解析章节列表 [{num, name, text}]。
+
+    对 .md/.txt 文件自动应用 _clean_ocr_md 清理（对非 OCR 文件无副作用）。
+    若需智能章节级别检测，请在调用前先用 _detect_chapter_level 获取 heading_level。
+    """
     if suffix in ('.md', '.txt'):
         text = filepath.read_text(encoding='utf-8', errors='replace')
-        return _parse_md_to_chapters(text)
+        cleaned, _ = _clean_ocr_md(text)
+        return _parse_md_to_chapters(cleaned, heading_level)
     if suffix == '.docx':
         try:
             from docx import Document as DocxDocument
@@ -691,7 +969,9 @@ def _parse_file_to_chapters(filepath: Path, suffix: str) -> list:
                     md_lines.append(f'## {t}')
                 else:
                     md_lines.append(t)
-            return _parse_md_to_chapters('\n'.join(md_lines))
+            combined = '\n'.join(md_lines)
+            cleaned, _ = _clean_ocr_md(combined)
+            return _parse_md_to_chapters(cleaned, heading_level)
         except Exception:
             return []
     return []
@@ -769,72 +1049,8 @@ def ds_upload():
             'type': 'ocr',
         }
 
-        def _ocr_then_parse(task_id, suffix, save_path, doc_id, filename, subject, stem):
-            import datetime
-            try:
-                _add_to_path()
-                ocr_cfg = _read_env_vars('PADDLEOCR_API_URL', 'PADDLEOCR_TOKEN', 'PADDLEOCR_TIMEOUT')
-                ocr_url     = ocr_cfg.get('PADDLEOCR_API_URL', '')
-                ocr_token   = ocr_cfg.get('PADDLEOCR_TOKEN', '')
-                ocr_timeout = int(ocr_cfg.get('PADDLEOCR_TIMEOUT') or 120)
-
-                ocr_output = _UPLOAD_DIR / (stem + '_ocr')
-                if suffix == '.pdf':
-                    from pptx_ocr.pipeline import process_pdf
-                    result_md = process_pdf(
-                        save_path, output_dir=ocr_output,
-                        api_url=ocr_url, api_token=ocr_token, api_timeout=ocr_timeout,
-                    )
-                else:
-                    from pptx_ocr.pipeline import process_pptx
-                    result_md = process_pptx(
-                        save_path, output_dir=ocr_output,
-                        api_url=ocr_url, api_token=ocr_token, api_timeout=ocr_timeout,
-                    )
-
-                _ds_tasks[task_id]['message'] = 'OCR 完成，正在解析章节结构...'
-                chapters = _parse_file_to_chapters(result_md, '.md')
-                if not chapters:
-                    _ds_tasks[task_id] = {
-                        'status': 'error',
-                        'message': '未能从 OCR 结果中解析出章节内容，请确认文档含有标题结构',
-                        'doc_id': doc_id, 'type': 'ocr',
-                    }
-                    return
-
-                with _ds_db_conn() as conn:
-                    conn.execute(
-                        "INSERT OR REPLACE INTO ds_docs "
-                        "(doc_id, filename, subject, status, error_msg, created_at) "
-                        "VALUES (?,?,?,'uploaded','',?)",
-                        (doc_id, filename, subject, datetime.datetime.now().isoformat()),
-                    )
-                    conn.execute("DELETE FROM ds_chapters WHERE doc_id=?", (doc_id,))
-                    conn.execute("DELETE FROM ds_kps WHERE doc_id=?", (doc_id,))
-                    for ch in chapters:
-                        conn.execute(
-                            "INSERT INTO ds_chapters "
-                            "(doc_id, chapter_num, chapter_name, raw_text) VALUES (?,?,?,?)",
-                            (doc_id, ch['num'], ch['name'], ch['text']),
-                        )
-                    conn.commit()
-
-                _ds_tasks[task_id] = {
-                    'status': 'done',
-                    'message': f'完成！已解析 {len(chapters)} 个章节，可点击「提取」按钮提取知识点',
-                    'doc_id': doc_id,
-                    'chapter_count': len(chapters),
-                    'type': 'ocr',
-                }
-            except Exception as e:
-                _ds_tasks[task_id] = {
-                    'status': 'error',
-                    'message': str(e),
-                    'doc_id': doc_id, 'type': 'ocr',
-                }
-
         t = threading.Thread(
-            target=_ocr_then_parse,
+            target=_do_ocr_then_parse,
             args=(task_id, suffix, save_path, doc_id, filename, subject, stem),
             daemon=True,
         )
@@ -843,7 +1059,37 @@ def ds_upload():
 
     # ── 文本格式：同步解析章节 ───────────────────────────────────────────────────
     try:
-        chapters = _parse_file_to_chapters(save_path, suffix)
+        # 读取原始文本并清理 OCR 页码标记（对非 OCR 文件无副作用）
+        if suffix in ('.md', '.txt'):
+            raw_text = save_path.read_text(encoding='utf-8', errors='replace')
+            cleaned_text, had_markers = _clean_ocr_md(raw_text)
+        else:
+            cleaned_text, had_markers = None, False
+
+        # 若发现页码标记（上传了 OCR 结果文件），自动检测章节级别
+        chapter_level = 1
+        if had_markers:
+            ds_cfg = _read_env_vars('DEEPSEEK_API_KEY', 'DEEPSEEK_TOKEN')
+            ds_key = (
+                ds_cfg.get('DEEPSEEK_API_KEY')
+                or ds_cfg.get('DEEPSEEK_TOKEN')
+                or os.environ.get('DEEPSEEK_API_KEY', '')
+                or os.environ.get('DEEPSEEK_TOKEN', '')
+            )
+            if ds_key:
+                try:
+                    from openai import OpenAI as _OAI
+                    _ds_client = _OAI(api_key=ds_key, base_url='https://api.deepseek.com')
+                    chapter_level = _detect_chapter_level(cleaned_text, subject, _ds_client)
+                except Exception:
+                    chapter_level = 1
+
+        # 按检测级别解析章节
+        if cleaned_text is not None:
+            chapters = _parse_md_to_chapters(cleaned_text, chapter_level)
+        else:
+            chapters = _parse_file_to_chapters(save_path, suffix, chapter_level)
+
         if not chapters:
             return jsonify({'error': '未能从文件中解析出章节内容，请确认文件含有标题结构'}), 400
 
@@ -1037,7 +1283,140 @@ def ds_task_status(task_id):
     task = _ds_tasks.get(task_id)
     if task is None:
         return jsonify({'error': '任务不存在'}), 404
-    return jsonify(task)
+    # 不把内部重试参数暴露给前端
+    result = {k: v for k, v in task.items() if k != '_retry'}
+    return jsonify(result)
+
+
+@rag_bp.route('/api/rag/ds-retry-ocr/<task_id>', methods=['POST'])
+def ds_retry_ocr(task_id):
+    """断点续传：基于已有检查点重新启动 OCR 任务。"""
+    task = _ds_tasks.get(task_id)
+    if not task:
+        return jsonify({'error': '原任务不存在'}), 404
+    if task.get('status') != 'timeout':
+        return jsonify({'error': '该任务不是超时状态，无法续传'}), 400
+
+    retry_params = task.get('_retry')
+    if not retry_params:
+        return jsonify({'error': '缺少重试参数，请重新上传文件'}), 400
+
+    new_task_id = str(uuid.uuid4())[:8]
+    doc_id = task['doc_id']
+    _ds_tasks[new_task_id] = {
+        'status': 'running',
+        'message': 'OCR 断点续传中，正在跳过已完成分块...',
+        'doc_id': doc_id,
+        'type': 'ocr',
+    }
+
+    t = threading.Thread(
+        target=_do_ocr_then_parse,
+        args=(
+            new_task_id,
+            retry_params['suffix'],
+            retry_params['save_path'],
+            doc_id,
+            retry_params['filename'],
+            retry_params['subject'],
+            retry_params['stem'],
+        ),
+        kwargs={'resume': True},
+        daemon=True,
+    )
+    t.start()
+    return jsonify({'success': True, 'task_id': new_task_id, 'doc_id': doc_id})
+
+
+@rag_bp.route('/api/rag/ds-graph', methods=['GET'])
+def ds_graph():
+    """返回 DS 知识图谱数据（节点 + 边），供前端 D3 力导向图可视化。
+
+    Query params:
+        doc_id  (可重复): 限定文档，不传则返回所有已完成文档
+        chapter (可重复): 章节名称过滤
+    """
+    import json as _json
+    _init_ds_db()
+
+    doc_ids = request.args.getlist('doc_id')
+    chapters_filter = request.args.getlist('chapter')
+
+    with _ds_db_conn() as conn:
+        # 若未指定 doc_id，取所有 status='done' 的文档
+        if not doc_ids:
+            rows_d = conn.execute(
+                "SELECT doc_id FROM ds_docs WHERE status='done'"
+            ).fetchall()
+            doc_ids = [r['doc_id'] for r in rows_d]
+
+        if not doc_ids:
+            return jsonify({'nodes': [], 'links': [], 'chapters': []})
+
+        ph = ','.join('?' for _ in doc_ids)
+        query = (
+            "SELECT id, doc_id, chapter_name, chapter_num, "
+            "kp_name, kp_content, relations_json "
+            f"FROM ds_kps WHERE doc_id IN ({ph})"
+        )
+        params: list = list(doc_ids)
+        if chapters_filter:
+            cp = ','.join('?' for _ in chapters_filter)
+            query += f" AND chapter_name IN ({cp})"
+            params.extend(chapters_filter)
+        query += " ORDER BY doc_id, chapter_num, id"
+        rows = conn.execute(query, params).fetchall()
+
+    if not rows:
+        return jsonify({'nodes': [], 'links': [], 'chapters': []})
+
+    nodes: list = []
+    # name_to_id: (doc_id, kp_name) -> node_id，同时保留 kp_name -> node_id 作为跨文档回退
+    name_to_id: dict = {}
+    chapters_map: dict = {}  # chapter_name -> chapter_num
+
+    for row in rows:
+        nid = f"kp_{row['id']}"
+        name_to_id[(row['doc_id'], row['kp_name'])] = nid
+        name_to_id.setdefault(row['kp_name'], nid)  # 跨文档回退（先写先得）
+        nodes.append({
+            'id': nid,
+            'name': row['kp_name'],
+            'chapter': row['chapter_name'],
+            'chapter_num': row['chapter_num'],
+            'doc_id': row['doc_id'],
+            'content': row['kp_content'],
+        })
+        chapters_map.setdefault(row['chapter_name'], row['chapter_num'])
+
+    links: list = []
+    for row in rows:
+        try:
+            rels = _json.loads(row['relations_json'] or '[]')
+            src = f"kp_{row['id']}"
+            for rel in rels:
+                tgt_name = (rel.get('target') or '').strip()
+                rel_type = rel.get('type', '')
+                tgt = (
+                    name_to_id.get((row['doc_id'], tgt_name))
+                    or name_to_id.get(tgt_name)
+                )
+                if tgt and tgt != src:
+                    links.append({'source': src, 'target': tgt, 'type': rel_type})
+        except Exception:
+            pass
+
+    chapters = sorted(
+        [{'name': k, 'num': v} for k, v in chapters_map.items()],
+        key=lambda c: c['num'],
+    )
+    return jsonify({
+        'nodes': nodes,
+        'links': links,
+        'chapters': chapters,
+        'total_nodes': len(nodes),
+        'total_links': len(links),
+    })
 
 
 @rag_bp.route('/api/rag/ds-docs', methods=['GET'])

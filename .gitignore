@@ -21,6 +21,14 @@ nul
 ~$*
 *.backup
 
+# Environment variables (secrets)
+.env
+
+# RAG pipeline runtime artifacts
+rag_pipeline/kg.db
+rag_pipeline/progress.json
+rag_pipeline/output/
+
 # One-time scripts & dev tooling (not part of the project)
 word_to_csv_converter.py
 migrate_*.py

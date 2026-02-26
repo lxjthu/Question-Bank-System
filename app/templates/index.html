@@ -1208,9 +1208,14 @@
 
                         <!-- DS 知识点提取面板（DeepSeek 直出模式，默认显示） -->
                         <div id="ds-kb-panel" class="form-container" style="padding:16px;">
-                            <h3 style="margin-bottom:12px; font-size:0.95rem;">
-                                <i class="fas fa-brain"></i> 文档知识提取
-                            </h3>
+                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                                <h3 style="margin:0;font-size:0.95rem;"><i class="fas fa-brain"></i> 文档知识提取</h3>
+                                <button onclick="showDsKgModal()"
+                                    style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;font-size:0.78rem;background:linear-gradient(135deg,#6c3483,#2980b9);color:#fff;border:none;border-radius:14px;cursor:pointer;white-space:nowrap;box-shadow:0 2px 5px rgba(0,0,0,0.15);"
+                                    title="可视化展示已提取的知识点关系图谱">
+                                    <i class="fas fa-project-diagram"></i> 知识图谱
+                                </button>
+                            </div>
 
                             <!-- 提取进度条 -->
                             <div id="ds-extract-progress" style="display:none; padding:7px 10px;
@@ -4277,6 +4282,13 @@ Now please start generating questions. Output question content directly without 
                             <div style="color:#888;font-size:0.75rem;margin-top:2px;">${kpInfo}</div>
                         </div>
                         <div style="display:flex;gap:3px;flex-shrink:0;">
+                            ${d.status === 'done' && d.kp_count > 0 ? `
+                            <button onclick="showDsKgModal('${escapeHtml(d.doc_id)}')" title="查看此文档的知识图谱"
+                                style="background:none;border:1px solid #8e44ad;color:#8e44ad;cursor:pointer;
+                                       padding:2px 7px;font-size:0.75rem;border-radius:4px;white-space:nowrap;"
+                                onmouseover="this.style.background='#f5eef8'" onmouseout="this.style.background='none'">
+                                <i class="fas fa-project-diagram"></i>
+                            </button>` : ''}
                             ${d.status !== 'extracting' ? `
                             <button onclick="dsExtract('${escapeHtml(d.doc_id)}')" title="提取/重新提取知识点"
                                 style="background:none;border:1px solid #3498db;color:#3498db;cursor:pointer;
@@ -4334,6 +4346,228 @@ Now please start generating questions. Output question content directly without 
             }
         }
 
+        // ── DS 知识图谱可视化 ──────────────────────────────────────────────────────
+
+        let _dsKgD3Ready = false;
+
+        function _loadD3(cb) {
+            if (window.d3) { cb(); return; }
+            const s = document.createElement('script');
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js';
+            s.onload = () => { _dsKgD3Ready = true; cb(); };
+            s.onerror = () => {
+                const c = document.getElementById('ds-kg-container');
+                if (c) c.innerHTML = '<div style="padding:40px;text-align:center;color:#e74c3c;"><i class="fas fa-exclamation-triangle"></i> D3.js 加载失败，请检查网络连接后重试</div>';
+            };
+            document.head.appendChild(s);
+        }
+
+        // docId 可选：传入则只展示该文档；不传则展示所有已勾选文档
+        async function showDsKgModal(docId) {
+            const modal = document.getElementById('ds-kg-modal');
+            modal.style.display = 'flex';
+
+            // 确定要查询的 doc_ids
+            let ids = [];
+            if (docId) {
+                ids = [docId];
+            } else {
+                ids = [...document.querySelectorAll('.rag-doc-cb:checked')].map(cb => cb.value);
+            }
+
+            const subtitle = document.getElementById('ds-kg-subtitle');
+            if (subtitle) {
+                subtitle.textContent = ids.length === 1 ? `（${ids[0]}）`
+                    : ids.length > 1 ? `（${ids.length} 个文档）` : '（全部文档）';
+            }
+
+            const container = document.getElementById('ds-kg-container');
+            container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#888;font-size:0.9rem;"><i class="fas fa-spinner fa-spin" style="margin-right:8px;font-size:1.2rem;"></i>加载知识图谱...</div>';
+
+            _loadD3(async () => {
+                try {
+                    const qs = ids.length > 0
+                        ? '?' + ids.map(id => `doc_id=${encodeURIComponent(id)}`).join('&')
+                        : '';
+                    const resp = await fetch('/api/rag/ds-graph' + qs);
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const data = await resp.json();
+                    _renderDsKg(data.nodes || [], data.links || [], data.chapters || []);
+                } catch (e) {
+                    container.innerHTML = `<div style="padding:40px;text-align:center;color:#e74c3c;">加载失败：${escapeHtml(e.message)}</div>`;
+                }
+            });
+        }
+
+        function closeDsKgModal() {
+            const modal = document.getElementById('ds-kg-modal');
+            if (modal) modal.style.display = 'none';
+            // 停止仿真，释放内存
+            if (window._dsKgSimulation) { window._dsKgSimulation.stop(); window._dsKgSimulation = null; }
+            const c = document.getElementById('ds-kg-container');
+            if (c) c.innerHTML = '';
+            const tt = document.getElementById('ds-kg-tooltip');
+            if (tt) tt.style.display = 'none';
+        }
+
+        function _renderDsKg(nodes, links, chapters) {
+            const container = document.getElementById('ds-kg-container');
+            const legend    = document.getElementById('ds-kg-legend');
+            container.innerHTML = '';
+
+            if (!nodes.length) {
+                container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#aaa;font-size:0.88rem;"><i class="fas fa-info-circle" style="margin-right:6px;"></i>暂无知识点数据，请先完成知识点提取</div>';
+                if (legend) legend.innerHTML = '';
+                return;
+            }
+
+            // ── 颜色映射 ──────────────────────────────────────────────────────
+            const palette = [
+                '#3498db','#e74c3c','#27ae60','#f39c12','#9b59b6',
+                '#1abc9c','#e67e22','#2c3e50','#e91e63','#00bcd4',
+                '#8bc34a','#ff5722','#607d8b','#795548','#ff9800',
+            ];
+            const chNames = chapters.map(c => c.name);
+            const colorOf = ch => palette[chNames.indexOf(ch) % palette.length] || '#999';
+
+            const relColors = {
+                '从属': '#3498db', '比较': '#e67e22', '并列': '#27ae60',
+                '交叉': '#9b59b6', '前提': '#e74c3c',
+            };
+            const relColor = t => relColors[t] || '#aaa';
+
+            // ── 图例 ──────────────────────────────────────────────────────────
+            if (legend) {
+                const chHtml = chNames.map(ch =>
+                    `<span style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:10px;background:${colorOf(ch)}18;border:1px solid ${colorOf(ch)}55;cursor:default;" title="${escapeHtml(ch)}">
+                        <span style="width:7px;height:7px;border-radius:50%;background:${colorOf(ch)};flex-shrink:0;"></span>
+                        <span style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333;">${escapeHtml(ch)}</span>
+                    </span>`
+                ).join('');
+                const relHtml = Object.entries(relColors).map(([t, c]) =>
+                    `<span style="display:inline-flex;align-items:center;gap:3px;">
+                        <span style="width:18px;height:2px;background:${c};display:inline-block;border-radius:1px;"></span>
+                        <span style="color:#666;">${escapeHtml(t)}</span>
+                    </span>`
+                ).join('');
+                legend.innerHTML = chHtml
+                    + (chHtml && relHtml ? '<span style="color:#ddd;margin:0 6px;">│</span>' : '')
+                    + relHtml
+                    + `<span style="margin-left:auto;color:#aaa;">${nodes.length} 个知识点 · ${links.length} 条关系</span>`;
+            }
+
+            // ── D3 绘图 ───────────────────────────────────────────────────────
+            const W = container.clientWidth  || 900;
+            const H = container.clientHeight || 520;
+
+            const svg = d3.select(container)
+                .append('svg')
+                .attr('width', W).attr('height', H)
+                .style('cursor', 'grab');
+
+            // 箭头标记
+            const defs = svg.append('defs');
+            [...Object.keys(relColors), '_default'].forEach(t => {
+                const col = relColors[t] || '#aaa';
+                defs.append('marker')
+                    .attr('id', `dskg-arrow-${t}`)
+                    .attr('viewBox', '0 -5 10 10').attr('refX', 32).attr('refY', 0)
+                    .attr('markerWidth', 5).attr('markerHeight', 5).attr('orient', 'auto')
+                    .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', col);
+            });
+
+            const g = svg.append('g');
+
+            // 缩放平移
+            svg.call(
+                d3.zoom().scaleExtent([0.1, 5])
+                    .on('zoom', e => { g.attr('transform', e.transform); })
+            );
+
+            // 克隆数据（D3 会直接修改 source/target 为对象引用）
+            const nodesD = nodes.map(n => ({...n}));
+            const linksD = links.map(l => ({...l}));
+
+            // 力仿真
+            const sim = d3.forceSimulation(nodesD)
+                .force('link',      d3.forceLink(linksD).id(d => d.id).distance(140).strength(0.4))
+                .force('charge',    d3.forceManyBody().strength(-320))
+                .force('center',    d3.forceCenter(W / 2, H / 2))
+                .force('collision', d3.forceCollide(46));
+            window._dsKgSimulation = sim;
+
+            // 边
+            const edgeG = g.append('g');
+            const edgeLine = edgeG.selectAll('line').data(linksD).enter().append('line')
+                .attr('stroke', d => relColor(d.type))
+                .attr('stroke-width', 1.5).attr('stroke-opacity', 0.65)
+                .attr('marker-end', d => `url(#dskg-arrow-${d.type in relColors ? d.type : '_default'})`);
+
+            const edgeLabel = edgeG.selectAll('text').data(linksD).enter().append('text')
+                .attr('font-size', 8.5).attr('fill', d => relColor(d.type))
+                .attr('text-anchor', 'middle').attr('dy', -3)
+                .text(d => d.type || '');
+
+            // 节点
+            const nodeG = g.append('g').selectAll('g').data(nodesD).enter().append('g')
+                .call(d3.drag()
+                    .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+                    .on('drag',  (e, d) => { d.fx = e.x; d.fy = e.y; })
+                    .on('end',   (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; })
+                );
+
+            nodeG.append('circle')
+                .attr('r', 22)
+                .attr('fill', d => colorOf(d.chapter))
+                .attr('fill-opacity', 0.82)
+                .attr('stroke', d => colorOf(d.chapter))
+                .attr('stroke-width', 2.5).attr('stroke-opacity', 0.4);
+
+            nodeG.append('text')
+                .attr('text-anchor', 'middle').attr('dy', '0.35em')
+                .attr('font-size', 9).attr('fill', '#fff').attr('font-weight', '600')
+                .attr('pointer-events', 'none')
+                .text(d => d.name.length > 7 ? d.name.slice(0, 7) + '…' : d.name);
+
+            // Tooltip
+            const tt = document.getElementById('ds-kg-tooltip');
+            nodeG.on('mouseenter', (e, d) => {
+                if (!tt) return;
+                tt.style.display = 'block';
+                tt.innerHTML =
+                    `<div style="font-weight:600;color:#2c3e50;margin-bottom:4px;font-size:0.83rem;">${escapeHtml(d.name)}</div>` +
+                    `<div style="color:#8e44ad;font-size:0.71rem;margin-bottom:5px;"><i class="fas fa-book-open" style="font-size:0.65rem;"></i> ${escapeHtml(d.chapter || '')}</div>` +
+                    `<div style="color:#555;max-height:110px;overflow:hidden;">${escapeHtml((d.content || '').slice(0, 220))}${(d.content||'').length > 220 ? '…' : ''}</div>`;
+                _moveDsKgTt(e);
+            }).on('mousemove', _moveDsKgTt).on('mouseleave', () => { if (tt) tt.style.display = 'none'; });
+
+            sim.on('tick', () => {
+                edgeLine
+                    .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+                    .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+                edgeLabel
+                    .attr('x', d => (d.source.x + d.target.x) / 2)
+                    .attr('y', d => (d.source.y + d.target.y) / 2);
+                nodeG.attr('transform', d => `translate(${d.x},${d.y})`);
+            });
+        }
+
+        function _moveDsKgTt(e) {
+            const tt = document.getElementById('ds-kg-tooltip');
+            if (!tt) return;
+            const x = e.clientX + 14, y = e.clientY - 10;
+            tt.style.left = (x + tt.offsetWidth  > window.innerWidth  - 10 ? x - tt.offsetWidth  - 28 : x) + 'px';
+            tt.style.top  = (y + tt.offsetHeight > window.innerHeight - 10 ? y - tt.offsetHeight - 20 : y) + 'px';
+        }
+
+        // ESC 关闭图谱 modal
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') {
+                const m = document.getElementById('ds-kg-modal');
+                if (m && m.style.display !== 'none') closeDsKgModal();
+            }
+        });
+
         // ── DS 文件上传 ────────────────────────────────────────────────────────────
 
         async function dsUploadFiles(files) {
@@ -4380,8 +4614,18 @@ Now please start generating questions. Output question content directly without 
         }
 
         function updateDsUploadStatus(el, status, msg) {
-            const icons  = { done: 'fa-check-circle', error: 'fa-times-circle', processing: 'fa-spinner fa-spin' };
-            const colors = { done: '#27ae60', error: '#e74c3c', processing: '#f39c12' };
+            const icons  = {
+                done: 'fa-check-circle',
+                error: 'fa-times-circle',
+                processing: 'fa-spinner fa-spin',
+                timeout: 'fa-exclamation-circle',
+            };
+            const colors = {
+                done: '#27ae60',
+                error: '#e74c3c',
+                processing: '#f39c12',
+                timeout: '#e67e22',
+            };
             const icon  = el.querySelector('i');
             const msgEl = el.querySelector('.ds-upload-msg');
             if (icon) {
@@ -4399,10 +4643,21 @@ Now please start generating questions. Output question content directly without 
                     if (task.status === 'done') {
                         updateDsUploadStatus(statusEl, 'done', task.message);
                         await loadDsDocs();
+                    } else if (task.status === 'timeout') {
+                        // 超时但有检查点可续传
+                        const done = task.done_chunks || 0;
+                        const total = task.total_chunks || '?';
+                        updateDsUploadStatus(statusEl, 'timeout',
+                            `OCR 超时（已完成 ${done}/${total} 块）`);
+                        // 渲染重试按钮
+                        _renderRetryButton(statusEl, taskId, task.doc_id);
                     } else if (task.status === 'error') {
                         updateDsUploadStatus(statusEl, 'error', task.message);
                     } else {
-                        updateDsUploadStatus(statusEl, 'processing', task.message || 'OCR 处理中...');
+                        const progressMsg = task.total_chunks
+                            ? `OCR 处理中 (${task.done_chunks || 0}/${task.total_chunks} 块)...`
+                            : (task.message || 'OCR 处理中...');
+                        updateDsUploadStatus(statusEl, 'processing', progressMsg);
                         setTimeout(poll, 3000);
                     }
                 } catch (e) {
@@ -4410,6 +4665,38 @@ Now please start generating questions. Output question content directly without 
                 }
             };
             setTimeout(poll, 2000);
+        }
+
+        function _renderRetryButton(statusEl, oldTaskId, docId) {
+            // 避免重复添加
+            if (statusEl.querySelector('.ds-retry-btn')) return;
+            const btn = document.createElement('button');
+            btn.className = 'ds-retry-btn';
+            btn.textContent = '重试续传';
+            btn.style.cssText = 'margin-left:8px;padding:2px 10px;border:1px solid #e67e22;border-radius:4px;background:#fff7f0;color:#e67e22;cursor:pointer;font-size:0.78rem;';
+            btn.onclick = async () => {
+                btn.disabled = true;
+                btn.textContent = '续传中...';
+                updateDsUploadStatus(statusEl, 'processing', 'OCR 断点续传中...');
+                try {
+                    const resp = await fetch(`/api/rag/ds-retry-ocr/${oldTaskId}`, {
+                        method: 'POST'
+                    });
+                    const data = await resp.json();
+                    if (!resp.ok || data.error) {
+                        updateDsUploadStatus(statusEl, 'error', data.error || '续传启动失败');
+                        btn.remove();
+                        return;
+                    }
+                    // 移除重试按钮，开始轮询新任务
+                    btn.remove();
+                    pollDsUploadTask(data.task_id, statusEl);
+                } catch (e) {
+                    updateDsUploadStatus(statusEl, 'error', '续传请求出错：' + e.message);
+                    btn.remove();
+                }
+            };
+            statusEl.querySelector('div')?.appendChild(btn);
         }
 
         // ── DS 知识点提取 ──────────────────────────────────────────────────────────
@@ -5066,5 +5353,50 @@ Now please start generating questions. Output question content directly without 
             }
         }
     </script>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         DS 知识图谱 Modal
+    ════════════════════════════════════════════════════════════════ -->
+    <div id="ds-kg-modal" style="display:none;position:fixed;inset:0;z-index:9500;
+         background:rgba(0,0,0,0.72);align-items:center;justify-content:center;">
+        <div style="background:#fff;width:95vw;height:92vh;border-radius:12px;
+                    display:flex;flex-direction:column;overflow:hidden;
+                    box-shadow:0 12px 48px rgba(0,0,0,0.45);">
+            <!-- 标题栏 -->
+            <div style="display:flex;align-items:center;justify-content:space-between;
+                        padding:11px 18px;background:linear-gradient(135deg,#6c3483,#2980b9);color:#fff;flex-shrink:0;">
+                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;font-weight:600;">
+                    <i class="fas fa-project-diagram"></i>
+                    <span>DS 知识图谱</span>
+                    <span id="ds-kg-subtitle" style="font-size:0.76rem;opacity:0.8;font-weight:400;"></span>
+                </div>
+                <button onclick="closeDsKgModal()"
+                    style="background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);
+                           color:#fff;cursor:pointer;padding:4px 12px;border-radius:6px;font-size:0.82rem;">
+                    ✕ 关闭
+                </button>
+            </div>
+            <!-- 图例栏 -->
+            <div id="ds-kg-legend"
+                 style="padding:7px 16px;border-bottom:1px solid #eee;display:flex;
+                        flex-wrap:wrap;gap:6px;align-items:center;background:#fafafa;
+                        font-size:0.75rem;color:#555;flex-shrink:0;min-height:34px;"></div>
+            <!-- 图谱画布 -->
+            <div id="ds-kg-container"
+                 style="flex:1;position:relative;overflow:hidden;background:#f4f6fb;"></div>
+            <!-- 底部提示 -->
+            <div style="padding:5px 16px;font-size:0.7rem;color:#bbb;border-top:1px solid #f0f0f0;
+                        background:#fafafa;flex-shrink:0;">
+                悬停节点查看知识点详情 &nbsp;·&nbsp; 滚轮缩放 &nbsp;·&nbsp; 拖拽平移 &nbsp;·&nbsp; 拖动节点调整布局
+            </div>
+        </div>
+    </div>
+    <!-- 知识点悬浮详情卡 -->
+    <div id="ds-kg-tooltip"
+         style="display:none;position:fixed;z-index:9999;background:#fff;
+                border:1px solid #dde;border-radius:8px;padding:10px 14px;
+                max-width:300px;box-shadow:0 4px 20px rgba(0,0,0,0.14);
+                font-size:0.79rem;pointer-events:none;line-height:1.5;"></div>
+
 </body>
 </html>

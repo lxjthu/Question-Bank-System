@@ -1,0 +1,33 @@
+[
+  {
+    "test": "导入题库导入模板.txt",
+    "status": "PASS",
+    "count": 17
+  },
+  {
+    "test": "题目替换",
+    "status": "FAIL",
+    "error": "{\n  \"error\": \"Old question not found in exam\"\n}\n"
+  },
+  {
+    "test": "试卷确认",
+    "status": "PASS"
+  },
+  {
+    "test": "防重复",
+    "status": "FAIL",
+    "error": "发现重复题目"
+  },
+  {
+    "test": "导出Word",
+    "status": "PASS"
+  },
+  {
+    "test": "手动添加题目",
+    "status": "PASS"
+  },
+  {
+    "test": "移除题目",
+    "status": "PASS"
+  }
+]

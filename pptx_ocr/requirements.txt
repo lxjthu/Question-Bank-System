@@ -1,0 +1,10 @@
+# pptx_ocr module dependencies
+requests>=2.28
+python-dotenv>=1.0
+
+# PPTX to PDF/image conversion on Windows (recommended)
+# pip install pywin32
+# Requires Microsoft Office to be installed.
+
+# Cross-platform alternative (install LibreOffice separately):
+# https://www.libreoffice.org/download/

@@ -1,0 +1,75 @@
+[
+  {
+    "test": "添加单选题",
+    "status": "PASS"
+  },
+  {
+    "test": "添加多选题",
+    "status": "PASS"
+  },
+  {
+    "test": "添加是非题",
+    "status": "PASS"
+  },
+  {
+    "test": "添加简答题",
+    "status": "PASS"
+  },
+  {
+    "test": "添加计算题",
+    "status": "PASS"
+  },
+  {
+    "test": "添加论述题",
+    "status": "PASS"
+  },
+  {
+    "test": "获取题目列表",
+    "status": "PASS",
+    "count": 52
+  },
+  {
+    "test": "关键词搜索",
+    "status": "PASS",
+    "count": 15
+  },
+  {
+    "test": "题型搜索",
+    "status": "PASS",
+    "count": 5
+  },
+  {
+    "test": "组合搜索",
+    "status": "PASS",
+    "count": 3
+  },
+  {
+    "test": "编辑题目",
+    "status": "PASS"
+  },
+  {
+    "test": "删除题目",
+    "status": "PASS"
+  },
+  {
+    "test": "导出为JSON",
+    "status": "PASS"
+  },
+  {
+    "test": "导出为CSV",
+    "status": "PASS"
+  },
+  {
+    "test": "创建试卷",
+    "status": "PASS"
+  },
+  {
+    "test": "自动组卷",
+    "status": "PASS",
+    "question_count": 2
+  },
+  {
+    "test": "下载模板",
+    "status": "PASS"
+  }
+]

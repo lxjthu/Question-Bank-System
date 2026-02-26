@@ -1,0 +1,3106 @@
+{
+  "questions": [
+    {
+      "question_id": "test_single_001",
+      "question_type": "单选",
+      "content": "【已修改】Python是什么类型的语言？",
+      "options": [
+        "编译型",
+        "解释型",
+        "汇编型",
+        "机器语言"
+      ],
+      "answer": "B",
+      "reference_answer": null,
+      "explanation": "Python是解释型语言",
+      "language": "zh",
+      "metadata": {},
+      "is_used": true,
+      "used_date": "2026-01-12T13:11:39.853944",
+      "created_at": "2026-01-12T13:01:49.058055",
+      "updated_at": "2026-01-12T13:11:29.295113"
+    },
+    {
+      "question_id": "test_multi_001",
+      "question_type": "多选",
+      "content": "以下哪些是Python的特点？",
+      "options": [
+        "简洁易读",
+        "面向对象",
+        "跨平台",
+        "编译执行"
+      ],
+      "answer": "ABC",
+      "reference_answer": null,
+      "explanation": "Python是解释型语言，不是编译执行",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:01:49.061375",
+      "updated_at": "2026-01-12T13:01:49.061379"
+    },
+    {
+      "question_id": "test_tf_001",
+      "question_type": "是非",
+      "content": "Python中的列表是可变的",
+      "options": [
+        "是",
+        "否"
+      ],
+      "answer": "A",
+      "reference_answer": null,
+      "explanation": "Python列表是可变序列",
+      "language": "zh",
+      "metadata": {},
+      "is_used": true,
+      "used_date": "2026-01-12T13:11:39.794530",
+      "created_at": "2026-01-12T13:01:49.064268",
+      "updated_at": "2026-01-12T13:01:49.064270"
+    },
+    {
+      "question_id": "test_essay_001",
+      "question_type": "简答",
+      "content": "请简述Python中列表和元组的区别",
+      "options": [],
+      "answer": null,
+      "reference_answer": "列表是可变的，元组是不可变的",
+      "explanation": "这是基础概念题",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:01:49.066785",
+      "updated_at": "2026-01-12T13:01:49.066786"
+    },
+    {
+      "question_id": "test_calc_001",
+      "question_type": "简答>计算",
+      "content": "计算 2 + 3 * 4 的结果",
+      "options": [],
+      "answer": null,
+      "reference_answer": "14",
+      "explanation": "先乘除后加减：3*4=12，2+12=14",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:01:49.068923",
+      "updated_at": "2026-01-12T13:01:49.068925"
+    },
+    {
+      "question_id": "test_discuss_001",
+      "question_type": "简答>论述",
+      "content": "论述Python在人工智能领域的应用",
+      "options": [],
+      "answer": null,
+      "reference_answer": "Python在AI领域有广泛应用，包括机器学习、深度学习等",
+      "explanation": "开放性题目",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:01:49.070995",
+      "updated_at": "2026-01-12T13:01:49.070996"
+    },
+    {
+      "question_id": "test_single_001",
+      "question_type": "单选",
+      "content": "Python是什么类型的语言？",
+      "options": [
+        "编译型",
+        "解释型",
+        "汇编型",
+        "机器语言"
+      ],
+      "answer": "B",
+      "reference_answer": null,
+      "explanation": "Python是解释型语言",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:02:48.215918",
+      "updated_at": "2026-01-12T13:02:48.215921"
+    },
+    {
+      "question_id": "test_multi_001",
+      "question_type": "多选",
+      "content": "以下哪些是Python的特点？",
+      "options": [
+        "简洁易读",
+        "面向对象",
+        "跨平台",
+        "编译执行"
+      ],
+      "answer": "ABC",
+      "reference_answer": null,
+      "explanation": "Python是解释型语言，不是编译执行",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:02:48.219917",
+      "updated_at": "2026-01-12T13:02:48.219928"
+    },
+    {
+      "question_id": "test_tf_001",
+      "question_type": "是非",
+      "content": "Python中的列表是可变的",
+      "options": [
+        "是",
+        "否"
+      ],
+      "answer": "A",
+      "reference_answer": null,
+      "explanation": "Python列表是可变序列",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:02:48.222480",
+      "updated_at": "2026-01-12T13:02:48.222481"
+    },
+    {
+      "question_id": "test_essay_001",
+      "question_type": "简答",
+      "content": "请简述Python中列表和元组的区别",
+      "options": [],
+      "answer": null,
+      "reference_answer": "列表是可变的，元组是不可变的",
+      "explanation": "这是基础概念题",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:02:48.224758",
+      "updated_at": "2026-01-12T13:02:48.224759"
+    },
+    {
+      "question_id": "test_calc_001",
+      "question_type": "简答>计算",
+      "content": "计算 2 + 3 * 4 的结果",
+      "options": [],
+      "answer": null,
+      "reference_answer": "14",
+      "explanation": "先乘除后加减：3*4=12，2+12=14",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:02:48.227271",
+      "updated_at": "2026-01-12T13:02:48.227272"
+    },
+    {
+      "question_id": "test_discuss_001",
+      "question_type": "简答>论述",
+      "content": "论述Python在人工智能领域的应用",
+      "options": [],
+      "answer": null,
+      "reference_answer": "Python在AI领域有广泛应用，包括机器学习、深度学习等",
+      "explanation": "开放性题目",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:02:48.230151",
+      "updated_at": "2026-01-12T13:02:48.230154"
+    },
+    {
+      "question_id": "q_20260112_130836_13",
+      "question_type": "单选",
+      "content": "[D]\n湖北省的省会城市是（）？",
+      "options": [],
+      "answer": "D",
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": true,
+      "used_date": "2026-01-12T13:08:36.136192",
+      "created_at": "2026-01-12T13:08:36.095323",
+      "updated_at": "2026-01-12T13:08:36.095324"
+    },
+    {
+      "question_id": "q_20260112_130836_14",
+      "question_type": "A",
+      "content": "长沙",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:08:36.096873",
+      "updated_at": "2026-01-12T13:08:36.096873"
+    },
+    {
+      "question_id": "q_20260112_130836_15",
+      "question_type": "B",
+      "content": "宜昌",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:08:36.098181",
+      "updated_at": "2026-01-12T13:08:36.098182"
+    },
+    {
+      "question_id": "q_20260112_130836_16",
+      "question_type": "C",
+      "content": "荆州",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:08:36.099592",
+      "updated_at": "2026-01-12T13:08:36.099593"
+    },
+    {
+      "question_id": "q_20260112_130836_17",
+      "question_type": "D",
+      "content": "武汉",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "\n\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:08:36.100837",
+      "updated_at": "2026-01-12T13:08:36.100837"
+    },
+    {
+      "question_id": "q_20260112_130836_18",
+      "question_type": "多选",
+      "content": "[ABD]",
+      "options": [],
+      "answer": "ABD",
+      "reference_answer": "",
+      "explanation": "\n请问下列哪些书籍是中国四大小说名著？",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:08:36.102088",
+      "updated_at": "2026-01-12T13:08:36.102089"
+    },
+    {
+      "question_id": "q_20260112_130836_19",
+      "question_type": "A",
+      "content": "三国演义",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:08:36.103388",
+      "updated_at": "2026-01-12T13:08:36.103388"
+    },
+    {
+      "question_id": "q_20260112_130836_20",
+      "question_type": "B",
+      "content": "红楼梦",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:08:36.104639",
+      "updated_at": "2026-01-12T13:08:36.104639"
+    },
+    {
+      "question_id": "q_20260112_130836_21",
+      "question_type": "C",
+      "content": "老残游记",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:08:36.105933",
+      "updated_at": "2026-01-12T13:08:36.105933"
+    },
+    {
+      "question_id": "q_20260112_130836_22",
+      "question_type": "D",
+      "content": "水浒传",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "\n\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:08:36.107871",
+      "updated_at": "2026-01-12T13:08:36.107871"
+    },
+    {
+      "question_id": "q_20260112_130836_23",
+      "question_type": "是非",
+      "content": "[B]",
+      "options": [],
+      "answer": "B",
+      "reference_answer": "",
+      "explanation": "\n在《西游记》中六耳猕猴是唐僧的徒弟吗？",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:08:36.109373",
+      "updated_at": "2026-01-12T13:08:36.109373"
+    },
+    {
+      "question_id": "q_20260112_130836_24",
+      "question_type": "A",
+      "content": "是",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:08:36.111565",
+      "updated_at": "2026-01-12T13:08:36.111565"
+    },
+    {
+      "question_id": "q_20260112_130836_25",
+      "question_type": "B",
+      "content": "否",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:08:36.113083",
+      "updated_at": "2026-01-12T13:08:36.113084"
+    },
+    {
+      "question_id": "q_20260112_130836_26",
+      "question_type": "是非",
+      "content": "[是]",
+      "options": [],
+      "answer": "是",
+      "reference_answer": "",
+      "explanation": "\n你将来会选择自主创业吗？\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:08:36.114985",
+      "updated_at": "2026-01-12T13:08:36.114986"
+    },
+    {
+      "question_id": "q_20260112_130836_27",
+      "question_type": "简答",
+      "content": "你对今天这节课有什么评价？",
+      "options": [],
+      "answer": null,
+      "reference_answer": "\n",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:08:36.116785",
+      "updated_at": "2026-01-12T13:08:36.116785"
+    },
+    {
+      "question_id": "q_20260112_130836_28",
+      "question_type": "简答",
+      "content": "（英语）",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:08:36.118224",
+      "updated_at": "2026-01-12T13:08:36.118224"
+    },
+    {
+      "question_id": "q_20260112_130836_29",
+      "question_type": "简答",
+      "content": "（中文）",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "\n\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:08:36.120090",
+      "updated_at": "2026-01-12T13:08:36.120090"
+    },
+    {
+      "question_id": "q_20260112_130949_30",
+      "question_type": "单选",
+      "content": "[D]\n湖北省的省会城市是（）？",
+      "options": [],
+      "answer": "D",
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": true,
+      "used_date": "2026-01-12T13:09:49.384407",
+      "created_at": "2026-01-12T13:09:49.353379",
+      "updated_at": "2026-01-12T13:09:49.353379"
+    },
+    {
+      "question_id": "q_20260112_130949_31",
+      "question_type": "A",
+      "content": "长沙",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:09:49.355078",
+      "updated_at": "2026-01-12T13:09:49.355079"
+    },
+    {
+      "question_id": "q_20260112_130949_32",
+      "question_type": "B",
+      "content": "宜昌",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:09:49.356553",
+      "updated_at": "2026-01-12T13:09:49.356553"
+    },
+    {
+      "question_id": "q_20260112_130949_33",
+      "question_type": "C",
+      "content": "荆州",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:09:49.358017",
+      "updated_at": "2026-01-12T13:09:49.358017"
+    },
+    {
+      "question_id": "q_20260112_130949_34",
+      "question_type": "D",
+      "content": "武汉",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "\n\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:09:49.359486",
+      "updated_at": "2026-01-12T13:09:49.359486"
+    },
+    {
+      "question_id": "q_20260112_130949_35",
+      "question_type": "多选",
+      "content": "[ABD]",
+      "options": [],
+      "answer": "ABD",
+      "reference_answer": "",
+      "explanation": "\n请问下列哪些书籍是中国四大小说名著？",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:09:49.360978",
+      "updated_at": "2026-01-12T13:09:49.360978"
+    },
+    {
+      "question_id": "q_20260112_130949_36",
+      "question_type": "A",
+      "content": "三国演义",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:09:49.362793",
+      "updated_at": "2026-01-12T13:09:49.362793"
+    },
+    {
+      "question_id": "q_20260112_130949_37",
+      "question_type": "B",
+      "content": "红楼梦",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:09:49.364308",
+      "updated_at": "2026-01-12T13:09:49.364309"
+    },
+    {
+      "question_id": "q_20260112_130949_38",
+      "question_type": "C",
+      "content": "老残游记",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:09:49.365813",
+      "updated_at": "2026-01-12T13:09:49.365813"
+    },
+    {
+      "question_id": "q_20260112_130949_39",
+      "question_type": "D",
+      "content": "水浒传",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "\n\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:09:49.367333",
+      "updated_at": "2026-01-12T13:09:49.367333"
+    },
+    {
+      "question_id": "q_20260112_130949_40",
+      "question_type": "是非",
+      "content": "[B]",
+      "options": [],
+      "answer": "B",
+      "reference_answer": "",
+      "explanation": "\n在《西游记》中六耳猕猴是唐僧的徒弟吗？",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:09:49.368875",
+      "updated_at": "2026-01-12T13:09:49.368875"
+    },
+    {
+      "question_id": "q_20260112_130949_41",
+      "question_type": "A",
+      "content": "是",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:09:49.370385",
+      "updated_at": "2026-01-12T13:09:49.370385"
+    },
+    {
+      "question_id": "q_20260112_130949_42",
+      "question_type": "B",
+      "content": "否",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:09:49.371889",
+      "updated_at": "2026-01-12T13:09:49.371889"
+    },
+    {
+      "question_id": "q_20260112_130949_43",
+      "question_type": "是非",
+      "content": "[是]",
+      "options": [],
+      "answer": "是",
+      "reference_answer": "",
+      "explanation": "\n你将来会选择自主创业吗？\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:09:49.373391",
+      "updated_at": "2026-01-12T13:09:49.373391"
+    },
+    {
+      "question_id": "q_20260112_130949_44",
+      "question_type": "简答",
+      "content": "你对今天这节课有什么评价？",
+      "options": [],
+      "answer": null,
+      "reference_answer": "\n",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:09:49.375009",
+      "updated_at": "2026-01-12T13:09:49.375009"
+    },
+    {
+      "question_id": "q_20260112_130949_45",
+      "question_type": "简答",
+      "content": "（英语）",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:09:49.376552",
+      "updated_at": "2026-01-12T13:09:49.376552"
+    },
+    {
+      "question_id": "q_20260112_130949_46",
+      "question_type": "简答",
+      "content": "（中文）",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "\n\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:09:49.378068",
+      "updated_at": "2026-01-12T13:09:49.378069"
+    },
+    {
+      "question_id": "test_single_001",
+      "question_type": "单选",
+      "content": "Python是什么类型的语言？",
+      "options": [
+        "编译型",
+        "解释型",
+        "汇编型",
+        "机器语言"
+      ],
+      "answer": "B",
+      "reference_answer": null,
+      "explanation": "Python是解释型语言",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:29.255683",
+      "updated_at": "2026-01-12T13:11:29.255686"
+    },
+    {
+      "question_id": "test_multi_001",
+      "question_type": "多选",
+      "content": "以下哪些是Python的特点？",
+      "options": [
+        "简洁易读",
+        "面向对象",
+        "跨平台",
+        "编译执行"
+      ],
+      "answer": "ABC",
+      "reference_answer": null,
+      "explanation": "Python是解释型语言，不是编译执行",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:29.261008",
+      "updated_at": "2026-01-12T13:11:29.261010"
+    },
+    {
+      "question_id": "test_tf_001",
+      "question_type": "是非",
+      "content": "Python中的列表是可变的",
+      "options": [
+        "是",
+        "否"
+      ],
+      "answer": "A",
+      "reference_answer": null,
+      "explanation": "Python列表是可变序列",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:29.266336",
+      "updated_at": "2026-01-12T13:11:29.266338"
+    },
+    {
+      "question_id": "test_essay_001",
+      "question_type": "简答",
+      "content": "请简述Python中列表和元组的区别",
+      "options": [],
+      "answer": null,
+      "reference_answer": "列表是可变的，元组是不可变的",
+      "explanation": "这是基础概念题",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:29.271401",
+      "updated_at": "2026-01-12T13:11:29.271403"
+    },
+    {
+      "question_id": "test_calc_001",
+      "question_type": "简答>计算",
+      "content": "计算 2 + 3 * 4 的结果",
+      "options": [],
+      "answer": null,
+      "reference_answer": "14",
+      "explanation": "先乘除后加减：3*4=12，2+12=14",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:29.276418",
+      "updated_at": "2026-01-12T13:11:29.276420"
+    },
+    {
+      "question_id": "test_discuss_001",
+      "question_type": "简答>论述",
+      "content": "论述Python在人工智能领域的应用",
+      "options": [],
+      "answer": null,
+      "reference_answer": "Python在AI领域有广泛应用，包括机器学习、深度学习等",
+      "explanation": "开放性题目",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:29.281288",
+      "updated_at": "2026-01-12T13:11:29.281290"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_0",
+      "question_type": "单选",
+      "content": "[D]\n湖北省的省会城市是（）？",
+      "options": [],
+      "answer": "D",
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.682729",
+      "updated_at": "2026-01-12T13:11:39.682729"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_1",
+      "question_type": "A",
+      "content": "长沙",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.689593",
+      "updated_at": "2026-01-12T13:11:39.689593"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_2",
+      "question_type": "B",
+      "content": "宜昌",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.692097",
+      "updated_at": "2026-01-12T13:11:39.692097"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_3",
+      "question_type": "C",
+      "content": "荆州",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.694527",
+      "updated_at": "2026-01-12T13:11:39.694527"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_4",
+      "question_type": "D",
+      "content": "武汉",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "\n\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.696971",
+      "updated_at": "2026-01-12T13:11:39.696971"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_5",
+      "question_type": "多选",
+      "content": "[ABD]",
+      "options": [],
+      "answer": "ABD",
+      "reference_answer": "",
+      "explanation": "\n请问下列哪些书籍是中国四大小说名著？",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.699447",
+      "updated_at": "2026-01-12T13:11:39.699447"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_6",
+      "question_type": "A",
+      "content": "三国演义",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.702413",
+      "updated_at": "2026-01-12T13:11:39.702414"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_7",
+      "question_type": "B",
+      "content": "红楼梦",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.704895",
+      "updated_at": "2026-01-12T13:11:39.704895"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_8",
+      "question_type": "C",
+      "content": "老残游记",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.707357",
+      "updated_at": "2026-01-12T13:11:39.707357"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_9",
+      "question_type": "D",
+      "content": "水浒传",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "\n\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.709837",
+      "updated_at": "2026-01-12T13:11:39.709837"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_10",
+      "question_type": "是非",
+      "content": "[B]",
+      "options": [],
+      "answer": "B",
+      "reference_answer": "",
+      "explanation": "\n在《西游记》中六耳猕猴是唐僧的徒弟吗？",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.712267",
+      "updated_at": "2026-01-12T13:11:39.712268"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_11",
+      "question_type": "A",
+      "content": "是",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.714740",
+      "updated_at": "2026-01-12T13:11:39.714740"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_12",
+      "question_type": "B",
+      "content": "否",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.717484",
+      "updated_at": "2026-01-12T13:11:39.717484"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_13",
+      "question_type": "是非",
+      "content": "[是]",
+      "options": [],
+      "answer": "是",
+      "reference_answer": "",
+      "explanation": "\n你将来会选择自主创业吗？\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.720070",
+      "updated_at": "2026-01-12T13:11:39.720070"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_14",
+      "question_type": "简答",
+      "content": "你对今天这节课有什么评价？",
+      "options": [],
+      "answer": null,
+      "reference_answer": "\n",
+      "explanation": "",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.722905",
+      "updated_at": "2026-01-12T13:11:39.722905"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_15",
+      "question_type": "简答",
+      "content": "（英语）",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.725469",
+      "updated_at": "2026-01-12T13:11:39.725470"
+    },
+    {
+      "question_id": "q_20260112_131139_txt_16",
+      "question_type": "简答",
+      "content": "（中文）",
+      "options": [],
+      "answer": null,
+      "reference_answer": "",
+      "explanation": "\n\n",
+      "language": "zh",
+      "metadata": {},
+      "is_used": false,
+      "used_date": null,
+      "created_at": "2026-01-12T13:11:39.728043",
+      "updated_at": "2026-01-12T13:11:39.728043"
+    }
+  ],
+  "exams": [
+    {
+      "exam_id": "test_exam_001",
+      "name": "测试试卷",
+      "questions": [],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        },
+        "是非": {
+          "count": 2,
+          "points": 1
+        }
+      },
+      "created_at": "2026-01-12T13:01:49.116772",
+      "updated_at": "2026-01-12T13:01:49.116774"
+    },
+    {
+      "exam_id": "auto_exam_001",
+      "name": "自动组卷测试",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "【已修改】Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:01:49.119110",
+          "created_at": "2026-01-12T13:01:49.058055",
+          "updated_at": "2026-01-12T13:01:49.083454"
+        },
+        {
+          "question_id": "test_tf_001",
+          "question_type": "是非",
+          "content": "Python中的列表是可变的",
+          "options": [
+            "是",
+            "否"
+          ],
+          "answer": "A",
+          "reference_answer": null,
+          "explanation": "Python列表是可变序列",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:01:49.119562",
+          "created_at": "2026-01-12T13:01:49.064268",
+          "updated_at": "2026-01-12T13:01:49.064270"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        },
+        "是非": {
+          "count": 1,
+          "points": 1
+        }
+      },
+      "created_at": "2026-01-12T13:01:49.119096",
+      "updated_at": "2026-01-12T13:01:49.119560"
+    },
+    {
+      "exam_id": "test_exam_001",
+      "name": "测试试卷",
+      "questions": [],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        },
+        "是非": {
+          "count": 2,
+          "points": 1
+        }
+      },
+      "created_at": "2026-01-12T13:02:48.301160",
+      "updated_at": "2026-01-12T13:02:48.301161"
+    },
+    {
+      "exam_id": "auto_exam_001",
+      "name": "自动组卷测试",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        },
+        {
+          "question_id": "test_tf_001",
+          "question_type": "是非",
+          "content": "Python中的列表是可变的",
+          "options": [
+            "是",
+            "否"
+          ],
+          "answer": "A",
+          "reference_answer": null,
+          "explanation": "Python列表是可变序列",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.222480",
+          "updated_at": "2026-01-12T13:02:48.222481"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        },
+        "是非": {
+          "count": 1,
+          "points": 1
+        }
+      },
+      "created_at": "2026-01-12T13:02:48.304713",
+      "updated_at": "2026-01-12T13:02:48.305322"
+    },
+    {
+      "exam_id": "test_replace_exam",
+      "name": "测试替换试卷",
+      "questions": [
+        {
+          "question_id": "q_20260112_130836_13",
+          "question_type": "单选",
+          "content": "[D]\n湖北省的省会城市是（）？",
+          "options": [],
+          "answer": "D",
+          "reference_answer": "",
+          "explanation": "",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:08:36.136192",
+          "created_at": "2026-01-12T13:08:36.095323",
+          "updated_at": "2026-01-12T13:08:36.095324"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:05:45.646477",
+      "updated_at": "2026-01-12T13:05:45.646484"
+    },
+    {
+      "exam_id": "test_confirm_exam",
+      "name": "测试确认试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:05:45.652203",
+      "updated_at": "2026-01-12T13:11:39.767447"
+    },
+    {
+      "exam_id": "test_duplicate_exam",
+      "name": "测试防重复试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "【已修改】Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:05:45.762032",
+          "created_at": "2026-01-12T13:01:49.058055",
+          "updated_at": "2026-01-12T13:02:48.243135"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:05:45.674228",
+      "updated_at": "2026-01-12T13:11:39.782167"
+    },
+    {
+      "exam_id": "test_duplicate_exam_2",
+      "name": "测试防重复试卷2",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:05:45.680871",
+      "updated_at": "2026-01-12T13:05:45.680874"
+    },
+    {
+      "exam_id": "test_export_exam",
+      "name": "测试导出试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        },
+        {
+          "question_id": "test_tf_001",
+          "question_type": "是非",
+          "content": "Python中的列表是可变的",
+          "options": [
+            "是",
+            "否"
+          ],
+          "answer": "A",
+          "reference_answer": null,
+          "explanation": "Python列表是可变序列",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.222480",
+          "updated_at": "2026-01-12T13:02:48.222481"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        },
+        "是非": {
+          "count": 1,
+          "points": 1
+        }
+      },
+      "created_at": "2026-01-12T13:05:45.683975",
+      "updated_at": "2026-01-12T13:05:45.684630"
+    },
+    {
+      "exam_id": "test_manual_exam",
+      "name": "测试手动添加试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "【已修改】Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:05:45.762032",
+          "created_at": "2026-01-12T13:01:49.058055",
+          "updated_at": "2026-01-12T13:02:48.243135"
+        },
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "【已修改】Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:07:08.906231",
+          "created_at": "2026-01-12T13:01:49.058055",
+          "updated_at": "2026-01-12T13:02:48.243135"
+        },
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "【已修改】Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:07:08.906231",
+          "created_at": "2026-01-12T13:01:49.058055",
+          "updated_at": "2026-01-12T13:02:48.243135"
+        },
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "【已修改】Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:10:01.044737",
+          "created_at": "2026-01-12T13:01:49.058055",
+          "updated_at": "2026-01-12T13:02:48.243135"
+        },
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "【已修改】Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:10:01.044737",
+          "created_at": "2026-01-12T13:01:49.058055",
+          "updated_at": "2026-01-12T13:02:48.243135"
+        },
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "【已修改】Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:11:39.853944",
+          "created_at": "2026-01-12T13:01:49.058055",
+          "updated_at": "2026-01-12T13:11:29.295113"
+        }
+      ],
+      "config": {},
+      "created_at": "2026-01-12T13:05:45.755096",
+      "updated_at": "2026-01-12T13:11:39.844956"
+    },
+    {
+      "exam_id": "test_remove_exam",
+      "name": "测试移除题目试卷",
+      "questions": [],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:05:45.762028",
+      "updated_at": "2026-01-12T13:11:39.861013"
+    },
+    {
+      "exam_id": "test_replace_exam",
+      "name": "测试替换试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:07:01.554997",
+      "updated_at": "2026-01-12T13:07:01.555007"
+    },
+    {
+      "exam_id": "test_confirm_exam",
+      "name": "测试确认试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:07:01.561033",
+      "updated_at": "2026-01-12T13:07:01.561038"
+    },
+    {
+      "exam_id": "test_duplicate_exam",
+      "name": "测试防重复试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "【已修改】Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:07:08.906231",
+          "created_at": "2026-01-12T13:01:49.058055",
+          "updated_at": "2026-01-12T13:02:48.243135"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:07:01.577015",
+      "updated_at": "2026-01-12T13:07:01.577019"
+    },
+    {
+      "exam_id": "test_duplicate_exam_2",
+      "name": "测试防重复试卷2",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:07:01.584476",
+      "updated_at": "2026-01-12T13:07:01.584479"
+    },
+    {
+      "exam_id": "test_export_exam",
+      "name": "测试导出试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        },
+        {
+          "question_id": "test_tf_001",
+          "question_type": "是非",
+          "content": "Python中的列表是可变的",
+          "options": [
+            "是",
+            "否"
+          ],
+          "answer": "A",
+          "reference_answer": null,
+          "explanation": "Python列表是可变序列",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.222480",
+          "updated_at": "2026-01-12T13:02:48.222481"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        },
+        "是非": {
+          "count": 1,
+          "points": 1
+        }
+      },
+      "created_at": "2026-01-12T13:07:01.589034",
+      "updated_at": "2026-01-12T13:07:01.590025"
+    },
+    {
+      "exam_id": "test_manual_exam",
+      "name": "测试手动添加试卷",
+      "questions": [],
+      "config": {},
+      "created_at": "2026-01-12T13:07:01.653543",
+      "updated_at": "2026-01-12T13:07:01.653544"
+    },
+    {
+      "exam_id": "test_remove_exam",
+      "name": "测试移除题目试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:07:01.661321",
+      "updated_at": "2026-01-12T13:07:01.661325"
+    },
+    {
+      "exam_id": "test_replace_exam",
+      "name": "测试替换试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:07:08.813288",
+      "updated_at": "2026-01-12T13:07:08.813295"
+    },
+    {
+      "exam_id": "test_confirm_exam",
+      "name": "测试确认试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:07:08.820288",
+      "updated_at": "2026-01-12T13:07:08.820292"
+    },
+    {
+      "exam_id": "test_duplicate_exam",
+      "name": "测试防重复试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "【已修改】Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:07:08.906231",
+          "created_at": "2026-01-12T13:01:49.058055",
+          "updated_at": "2026-01-12T13:02:48.243135"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:07:08.837629",
+      "updated_at": "2026-01-12T13:07:08.837633"
+    },
+    {
+      "exam_id": "test_duplicate_exam_2",
+      "name": "测试防重复试卷2",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:07:08.847087",
+      "updated_at": "2026-01-12T13:07:08.847091"
+    },
+    {
+      "exam_id": "test_export_exam",
+      "name": "测试导出试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        },
+        {
+          "question_id": "test_tf_001",
+          "question_type": "是非",
+          "content": "Python中的列表是可变的",
+          "options": [
+            "是",
+            "否"
+          ],
+          "answer": "A",
+          "reference_answer": null,
+          "explanation": "Python列表是可变序列",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.222480",
+          "updated_at": "2026-01-12T13:02:48.222481"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        },
+        "是非": {
+          "count": 1,
+          "points": 1
+        }
+      },
+      "created_at": "2026-01-12T13:07:08.851712",
+      "updated_at": "2026-01-12T13:07:08.853044"
+    },
+    {
+      "exam_id": "test_manual_exam",
+      "name": "测试手动添加试卷",
+      "questions": [],
+      "config": {},
+      "created_at": "2026-01-12T13:07:08.896731",
+      "updated_at": "2026-01-12T13:07:08.896733"
+    },
+    {
+      "exam_id": "test_remove_exam",
+      "name": "测试移除题目试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:07:08.906224",
+      "updated_at": "2026-01-12T13:07:08.906230"
+    },
+    {
+      "exam_id": "test_remove_exam_debug",
+      "name": "Debug",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:08:16.855582",
+      "updated_at": "2026-01-12T13:08:16.855591"
+    },
+    {
+      "exam_id": "test_replace_exam",
+      "name": "测试替换试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        },
+        {
+          "question_id": "q_20260112_130836_13",
+          "question_type": "单选",
+          "content": "[D]\n湖北省的省会城市是（）？",
+          "options": [],
+          "answer": "D",
+          "reference_answer": "",
+          "explanation": "",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:08:36.136192",
+          "created_at": "2026-01-12T13:08:36.095323",
+          "updated_at": "2026-01-12T13:08:36.095324"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:08:36.124681",
+      "updated_at": "2026-01-12T13:08:36.126216"
+    },
+    {
+      "exam_id": "test_confirm_exam",
+      "name": "测试确认试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "【已修改】Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:10:01.044737",
+          "created_at": "2026-01-12T13:01:49.058055",
+          "updated_at": "2026-01-12T13:02:48.243135"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:08:36.141991",
+      "updated_at": "2026-01-12T13:08:36.141997"
+    },
+    {
+      "exam_id": "test_duplicate_exam",
+      "name": "测试防重复试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "【已修改】Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:10:01.044737",
+          "created_at": "2026-01-12T13:01:49.058055",
+          "updated_at": "2026-01-12T13:02:48.243135"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:08:36.161066",
+      "updated_at": "2026-01-12T13:08:36.161070"
+    },
+    {
+      "exam_id": "test_duplicate_exam_2",
+      "name": "测试防重复试卷2",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:08:36.172203",
+      "updated_at": "2026-01-12T13:08:36.172207"
+    },
+    {
+      "exam_id": "test_export_exam",
+      "name": "测试导出试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        },
+        {
+          "question_id": "test_tf_001",
+          "question_type": "是非",
+          "content": "Python中的列表是可变的",
+          "options": [
+            "是",
+            "否"
+          ],
+          "answer": "A",
+          "reference_answer": null,
+          "explanation": "Python列表是可变序列",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.222480",
+          "updated_at": "2026-01-12T13:02:48.222481"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        },
+        "是非": {
+          "count": 1,
+          "points": 1
+        }
+      },
+      "created_at": "2026-01-12T13:08:36.177949",
+      "updated_at": "2026-01-12T13:08:36.179595"
+    },
+    {
+      "exam_id": "test_manual_exam",
+      "name": "测试手动添加试卷",
+      "questions": [],
+      "config": {},
+      "created_at": "2026-01-12T13:08:36.248861",
+      "updated_at": "2026-01-12T13:08:36.248863"
+    },
+    {
+      "exam_id": "test_remove_exam",
+      "name": "测试移除题目试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:08:36.258166",
+      "updated_at": "2026-01-12T13:08:36.258169"
+    },
+    {
+      "exam_id": "debug_exam1",
+      "name": "Debug Exam 1",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:09:00.728569",
+      "updated_at": "2026-01-12T13:09:00.737350"
+    },
+    {
+      "exam_id": "debug_exam2",
+      "name": "Debug Exam 2",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:09:00.750142",
+      "updated_at": "2026-01-12T13:09:00.750149"
+    },
+    {
+      "exam_id": "test_replace_exam",
+      "name": "测试替换试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        },
+        {
+          "question_id": "q_20260112_130949_30",
+          "question_type": "单选",
+          "content": "[D]\n湖北省的省会城市是（）？",
+          "options": [],
+          "answer": "D",
+          "reference_answer": "",
+          "explanation": "",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:09:49.384407",
+          "created_at": "2026-01-12T13:09:49.353379",
+          "updated_at": "2026-01-12T13:09:49.353379"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:09:49.382523",
+      "updated_at": "2026-01-12T13:09:49.384404"
+    },
+    {
+      "exam_id": "test_confirm_exam",
+      "name": "测试确认试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:09:49.393901",
+      "updated_at": "2026-01-12T13:09:49.393905"
+    },
+    {
+      "exam_id": "test_duplicate_exam",
+      "name": "测试防重复试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "【已修改】Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:10:01.044737",
+          "created_at": "2026-01-12T13:01:49.058055",
+          "updated_at": "2026-01-12T13:02:48.243135"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:09:49.412466",
+      "updated_at": "2026-01-12T13:09:49.412470"
+    },
+    {
+      "exam_id": "test_duplicate_exam_2",
+      "name": "测试防重复试卷2",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:09:49.423707",
+      "updated_at": "2026-01-12T13:09:49.423710"
+    },
+    {
+      "exam_id": "test_export_exam",
+      "name": "测试导出试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        },
+        {
+          "question_id": "test_tf_001",
+          "question_type": "是非",
+          "content": "Python中的列表是可变的",
+          "options": [
+            "是",
+            "否"
+          ],
+          "answer": "A",
+          "reference_answer": null,
+          "explanation": "Python列表是可变序列",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.222480",
+          "updated_at": "2026-01-12T13:02:48.222481"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        },
+        "是非": {
+          "count": 1,
+          "points": 1
+        }
+      },
+      "created_at": "2026-01-12T13:09:49.428679",
+      "updated_at": "2026-01-12T13:09:49.430433"
+    },
+    {
+      "exam_id": "test_manual_exam",
+      "name": "测试手动添加试卷",
+      "questions": [],
+      "config": {},
+      "created_at": "2026-01-12T13:09:49.473115",
+      "updated_at": "2026-01-12T13:09:49.473118"
+    },
+    {
+      "exam_id": "test_remove_exam",
+      "name": "测试移除题目试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:09:49.484810",
+      "updated_at": "2026-01-12T13:09:49.484814"
+    },
+    {
+      "exam_id": "final_test_exam1",
+      "name": "Final Test Exam 1",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:10:01.027147",
+      "updated_at": "2026-01-12T13:10:01.037682"
+    },
+    {
+      "exam_id": "final_test_exam2",
+      "name": "Final Test Exam 2",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:10:01.044726",
+      "updated_at": "2026-01-12T13:10:01.044735"
+    },
+    {
+      "exam_id": "dup_test_exam1",
+      "name": "Dup Test Exam 1",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:11:03.421963",
+      "updated_at": "2026-01-12T13:11:03.432586"
+    },
+    {
+      "exam_id": "dup_test_exam2",
+      "name": "Dup Test Exam 2",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:11:03.436950",
+      "updated_at": "2026-01-12T13:11:03.436957"
+    },
+    {
+      "exam_id": "test_exam_001",
+      "name": "测试试卷",
+      "questions": [],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        },
+        "是非": {
+          "count": 2,
+          "points": 1
+        }
+      },
+      "created_at": "2026-01-12T13:11:29.360495",
+      "updated_at": "2026-01-12T13:11:29.360496"
+    },
+    {
+      "exam_id": "auto_exam_001",
+      "name": "自动组卷测试",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        },
+        {
+          "question_id": "test_tf_001",
+          "question_type": "是非",
+          "content": "Python中的列表是可变的",
+          "options": [
+            "是",
+            "否"
+          ],
+          "answer": "A",
+          "reference_answer": null,
+          "explanation": "Python列表是可变序列",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.222480",
+          "updated_at": "2026-01-12T13:02:48.222481"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        },
+        "是非": {
+          "count": 1,
+          "points": 1
+        }
+      },
+      "created_at": "2026-01-12T13:11:29.364990",
+      "updated_at": "2026-01-12T13:11:29.367893"
+    },
+    {
+      "exam_id": "test_replace_exam",
+      "name": "测试替换试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        },
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:11:29.255683",
+          "updated_at": "2026-01-12T13:11:29.255686"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:11:39.734169",
+      "updated_at": "2026-01-12T13:11:39.736837"
+    },
+    {
+      "exam_id": "test_confirm_exam",
+      "name": "测试确认试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:11:39.748988",
+      "updated_at": "2026-01-12T13:11:39.748994"
+    },
+    {
+      "exam_id": "test_duplicate_exam",
+      "name": "测试防重复试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "【已修改】Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": true,
+          "used_date": "2026-01-12T13:11:39.853944",
+          "created_at": "2026-01-12T13:01:49.058055",
+          "updated_at": "2026-01-12T13:11:29.295113"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:11:39.772870",
+      "updated_at": "2026-01-12T13:11:39.772875"
+    },
+    {
+      "exam_id": "test_duplicate_exam_2",
+      "name": "测试防重复试卷2",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:11:39.785944",
+      "updated_at": "2026-01-12T13:11:39.785949"
+    },
+    {
+      "exam_id": "test_export_exam",
+      "name": "测试导出试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        },
+        {
+          "question_id": "test_tf_001",
+          "question_type": "是非",
+          "content": "Python中的列表是可变的",
+          "options": [
+            "是",
+            "否"
+          ],
+          "answer": "A",
+          "reference_answer": null,
+          "explanation": "Python列表是可变序列",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.222480",
+          "updated_at": "2026-01-12T13:02:48.222481"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 1,
+          "points": 2
+        },
+        "是非": {
+          "count": 1,
+          "points": 1
+        }
+      },
+      "created_at": "2026-01-12T13:11:39.792001",
+      "updated_at": "2026-01-12T13:11:39.794529"
+    },
+    {
+      "exam_id": "test_manual_exam",
+      "name": "测试手动添加试卷",
+      "questions": [],
+      "config": {},
+      "created_at": "2026-01-12T13:11:39.838287",
+      "updated_at": "2026-01-12T13:11:39.838288"
+    },
+    {
+      "exam_id": "test_remove_exam",
+      "name": "测试移除题目试卷",
+      "questions": [
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:02:48.215918",
+          "updated_at": "2026-01-12T13:02:48.215921"
+        },
+        {
+          "question_id": "test_single_001",
+          "question_type": "单选",
+          "content": "Python是什么类型的语言？",
+          "options": [
+            "编译型",
+            "解释型",
+            "汇编型",
+            "机器语言"
+          ],
+          "answer": "B",
+          "reference_answer": null,
+          "explanation": "Python是解释型语言",
+          "language": "zh",
+          "metadata": {},
+          "is_used": false,
+          "used_date": null,
+          "created_at": "2026-01-12T13:11:29.255683",
+          "updated_at": "2026-01-12T13:11:29.255686"
+        }
+      ],
+      "config": {
+        "单选": {
+          "count": 2,
+          "points": 2
+        }
+      },
+      "created_at": "2026-01-12T13:11:39.851472",
+      "updated_at": "2026-01-12T13:11:39.853943"
+    }
+  ]
+}

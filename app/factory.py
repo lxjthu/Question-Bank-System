@@ -1,5 +1,7 @@
 from flask import Flask
 from app.routes import bp
+from app.rag_routes import rag_bp
+from app.kg_routes import kg_bp
 from app.db_models import db, QuestionTypeModel
 from config import config
 from datetime import datetime
@@ -25,6 +27,8 @@ def create_app(config_name=None):
 
     # Register blueprints
     app.register_blueprint(bp)
+    app.register_blueprint(rag_bp)
+    app.register_blueprint(kg_bp)
 
     return app
 

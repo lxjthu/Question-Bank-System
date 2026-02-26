@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(del \"D:\\\\code\\\\试卷\\\\试卷生成\\\\_doc_dump.txt\")",
+      "Bash(cd \"D:/code/试卷/试卷生成\" && venv/Scripts/python.exe -c \"\n# Check what packages are available\nimport pkg_resources\ninstalled = {p.key for p in pkg_resources.working_set}\nprint\\('Installed packages \\(relevant\\):'\\)\nfor p in sorted\\(installed\\):\n    if any\\(k in p for k in ['flask', 'sqlalchemy', 'docx', 'pillow', 'image', 'bs4', 'lxml', 'html']\\):\n        print\\(f'  {p}'\\)\n\" 2>&1)",
+      "Bash(cd \"D:/code/试卷/试卷生成\" && venv/Scripts/python.exe -c \"\n# Verify lxml and docx are available\nfrom lxml import etree\nfrom docx import Document\nprint\\('lxml version:', etree.__version__ if hasattr\\(etree, '__version__'\\) else 'ok'\\)\nprint\\('docx ok'\\)\n\n# Check if Pillow or similar is available\ntry:\n    from PIL import Image\n    print\\('Pillow: available'\\)\nexcept ImportError:\n    print\\('Pillow: NOT installed'\\)\n\n# Check if html.parser / BeautifulSoup is available\ntry:\n    from bs4 import BeautifulSoup\n    print\\('BeautifulSoup: available'\\)\nexcept ImportError:\n    print\\('BeautifulSoup: NOT installed'\\)\n\n# Check re module \\(stdlib\\)\nimport re, base64, io, os\nprint\\('stdlib \\(re, base64, io, os\\): ok'\\)\n\" 2>&1)",
+      "Bash(cd \"D:/code/试卷/试卷生成\" && venv/Scripts/python.exe -c \"\n# Verify the exact structure: body[1] is the question marker paragraph\n# Body[1] has a line break w:br textWrapping — this means the question type and content\n# are in the SAME paragraph element separated by a soft return\n\nfrom docx import Document\nfrom docx.oxml.ns import qn\nfrom lxml import etree\n\ndoc = Document\\('带图表材料分析题示例.docx'\\)\nbody = doc.element.body\n\nprint\\('=== Body[1] full XML ==='\\)\nxml = etree.tostring\\(body[1], encoding='unicode', pretty_print=True\\)\n# print first 800 chars\nprint\\(xml[:800]\\)\n\nprint\\(\\)\nprint\\('=== Body[8] full XML ==='\\)\nxml8 = etree.tostring\\(body[8], encoding='unicode', pretty_print=True\\)\nprint\\(xml8[:1500]\\)\n\" 2>&1)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:ragflow.io)",
+      "WebSearch"
+    ]
+  }
+}

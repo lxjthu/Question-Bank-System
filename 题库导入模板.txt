@@ -1,0 +1,67 @@
+[单选][D]
+湖北省的省会城市是（）？
+[A]长沙
+[B]宜昌
+[C]荆州
+[D]武汉
+<解析>
+这是一段解析
+武汉是湖北省省会城市
+<解析>
+
+
+[多选][ABD]
+请问下列哪些书籍是中国四大小说名著？
+[A]三国演义
+[B]红楼梦
+[C]老残游记
+[D]水浒传
+<解析>
+老残游记不属于四大名著，其他都属于
+<解析>
+
+
+[是非][B]
+在《西游记》中六耳猕猴是唐僧的徒弟吗？
+[A]是
+[B]否
+<解析>
+老残游记不属于四大名著，其他都属于
+<解析>
+
+[是非][是]
+你将来会选择自主创业吗？
+
+[简答]
+你对今天这节课有什么评价？
+<参考答案>
+这是一段参考答案
+课程非常的生动
+<参考答案>
+
+[简答>计算]
+（英语）
+A tract of 10 hectares has been harvested and the choice is between leaving it to regenerate naturally or planting it with young seedlings.
+If left to reforest naturally at no cost, in 20 years the tract would yield 300 cubic metres per hectare of an inferior species worth only ¥20 per cubic metre.
+If planted immediately at a cost of ¥1000 per hectare, in 20 years the tract would yield 400 cubic metres per hectare worth ¥25 per cubic metre.
+If the discount rate is 5%(approximate value of the discount factor is 0.4 ), what is the benefit/cost ratio of the investment in planting?
+<参考答案>
+1.6
+<参考答案>
+<解析>
+（400*25*10*0.4-300*20*10*0.4)/(10*1000)=1.6
+<解析>
+
+[简答>论述]
+（中文）
+什么是代际公平？在森林资源管理中，如何体现代际公平原则？过度采伐对代际公平有何影响？请探讨可持续森林经营与代际公平的关系。
+（英文）
+What is intergenerational equity? How is the principle of intergenerational equity reflected in forest resource management? What impact does over-harvesting have on intergenerational equity? Please discuss the relationship between sustainable forest management and intergenerational equity.
+<参考答案>
+定义代际公平(2分); 分析在森林管理中的体现(4分); 评估过度采伐影响(4分); 探讨与可持续经营关系(5分)
+<参考答案>
+<解析>
+知识点: Intergenerational equity
+标签: equity,sustainability,forest management
+<解析>
+
