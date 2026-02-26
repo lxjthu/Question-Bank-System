@@ -4234,6 +4234,107 @@ Now please start generating questions. Output question content directly without 
 
         let _dsKgD3Ready = false;
 
+        // 全局调色板 & 关系颜色（供渲染和筛选面板共用，颜色一致）
+        const _dsKgPalette = [
+            '#3498db','#e74c3c','#27ae60','#f39c12','#9b59b6',
+            '#1abc9c','#e67e22','#2c3e50','#e91e63','#00bcd4',
+            '#8bc34a','#ff5722','#607d8b','#795548','#ff9800',
+        ];
+        const _dsKgRelColors = {
+            '从属': '#3498db', '比较': '#e67e22', '并列': '#27ae60',
+            '交叉': '#9b59b6', '前提': '#e74c3c',
+        };
+
+        // 全量原始数据（切换筛选条件时不重新请求）
+        let _dsKgAllNodes    = [];
+        let _dsKgAllLinks    = [];
+        let _dsKgAllChapters = [];
+
+        // 稳定的章节颜色（以全量章节列表为基准，避免筛选后颜色跳变）
+        function _dsKgColorOf(chName) {
+            const idx = _dsKgAllChapters.findIndex(c => c.name === chName);
+            return _dsKgPalette[(idx < 0 ? 0 : idx) % _dsKgPalette.length];
+        }
+
+        // ── 构建左侧筛选面板 ──────────────────────────────────────────────────
+        function _buildDsKgFilterPanel() {
+            // 章节复选框
+            const chPanel = document.getElementById('ds-kg-chapter-checks');
+            if (chPanel) {
+                chPanel.innerHTML = _dsKgAllChapters.map(ch => `
+                    <label style="display:flex;align-items:center;gap:5px;padding:2px 0;
+                                  cursor:pointer;font-size:0.78rem;overflow:hidden;min-width:0;">
+                        <input type="checkbox" class="ds-kg-ch-cb" value="${escapeHtml(ch.name)}"
+                               checked onchange="_applyDsKgFilter()" style="flex-shrink:0;">
+                        <span style="width:8px;height:8px;border-radius:50%;
+                                     background:${_dsKgColorOf(ch.name)};flex-shrink:0;"></span>
+                        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                              title="${escapeHtml(ch.name)}">${escapeHtml(ch.name)}</span>
+                    </label>`).join('');
+            }
+            // 关系类型复选框
+            const relPanel = document.getElementById('ds-kg-rel-checks');
+            if (relPanel) {
+                const entries = [...Object.entries(_dsKgRelColors), ['_other', '#aaa']];
+                relPanel.innerHTML = entries.map(([t, c]) => `
+                    <label style="display:flex;align-items:center;gap:5px;padding:2px 0;
+                                  cursor:pointer;font-size:0.78rem;">
+                        <input type="checkbox" class="ds-kg-rel-cb" value="${escapeHtml(t)}"
+                               checked onchange="_applyDsKgFilter()" style="flex-shrink:0;">
+                        <span style="width:18px;height:2px;background:${c};
+                                     flex-shrink:0;border-radius:1px;display:inline-block;"></span>
+                        <span>${t === '_other' ? '其他' : escapeHtml(t)}</span>
+                    </label>`).join('');
+            }
+        }
+
+        // ── 应用筛选并重渲染 ──────────────────────────────────────────────────
+        function _applyDsKgFilter() {
+            const selectedCh  = new Set([...document.querySelectorAll('.ds-kg-ch-cb:checked')].map(cb => cb.value));
+            const selectedRel = new Set([...document.querySelectorAll('.ds-kg-rel-cb:checked')].map(cb => cb.value));
+            const searchText  = (document.getElementById('ds-kg-kp-search')?.value || '').trim().toLowerCase();
+
+            // 筛选节点：按章节 + 知识点关键词
+            let filteredNodes = _dsKgAllNodes.filter(n => selectedCh.has(n.chapter));
+            if (searchText) {
+                filteredNodes = filteredNodes.filter(n =>
+                    n.name.toLowerCase().includes(searchText) ||
+                    (n.content || '').toLowerCase().includes(searchText)
+                );
+            }
+
+            // 筛选边：两端均在可见节点内 + 关系类型被勾选
+            const nodeIds = new Set(filteredNodes.map(n => n.id));
+            const knownTypes = new Set(Object.keys(_dsKgRelColors));
+            const filteredLinks = _dsKgAllLinks.filter(l => {
+                if (!nodeIds.has(l.source) || !nodeIds.has(l.target)) return false;
+                const key = knownTypes.has(l.type) ? l.type : '_other';
+                return selectedRel.has(key);
+            });
+
+            // 更新统计文字
+            const stats = document.getElementById('ds-kg-filter-stats');
+            if (stats) stats.textContent = `${filteredNodes.length} 个知识点 · ${filteredLinks.length} 条关系`;
+
+            // 只把有可见节点的章节传给渲染（用于图例）
+            const visCh = new Set(filteredNodes.map(n => n.chapter));
+            const filteredChapters = _dsKgAllChapters.filter(c => visCh.has(c.name));
+            _renderDsKg(filteredNodes, filteredLinks, filteredChapters);
+        }
+
+        function _dsKgSelectAllChapters(checked) {
+            document.querySelectorAll('.ds-kg-ch-cb').forEach(cb => cb.checked = checked);
+            _applyDsKgFilter();
+        }
+
+        function _resetDsKgFilter() {
+            document.querySelectorAll('.ds-kg-ch-cb').forEach(cb => cb.checked = true);
+            document.querySelectorAll('.ds-kg-rel-cb').forEach(cb => cb.checked = true);
+            const s = document.getElementById('ds-kg-kp-search');
+            if (s) s.value = '';
+            _applyDsKgFilter();
+        }
+
         function _loadD3(cb) {
             if (window.d3) { cb(); return; }
             const s = document.createElement('script');
@@ -4276,7 +4377,11 @@ Now please start generating questions. Output question content directly without 
                     const resp = await fetch('/api/rag/ds-graph' + qs);
                     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                     const data = await resp.json();
-                    _renderDsKg(data.nodes || [], data.links || [], data.chapters || []);
+                    _dsKgAllNodes    = data.nodes    || [];
+                    _dsKgAllLinks    = data.links    || [];
+                    _dsKgAllChapters = data.chapters || [];
+                    _buildDsKgFilterPanel();
+                    _applyDsKgFilter();
                 } catch (e) {
                     container.innerHTML = `<div style="padding:40px;text-align:center;color:#e74c3c;">加载失败：${escapeHtml(e.message)}</div>`;
                 }
@@ -4292,6 +4397,8 @@ Now please start generating questions. Output question content directly without 
             if (c) c.innerHTML = '';
             const tt = document.getElementById('ds-kg-tooltip');
             if (tt) tt.style.display = 'none';
+            // 清空全量数据
+            _dsKgAllNodes = []; _dsKgAllLinks = []; _dsKgAllChapters = [];
         }
 
         function _renderDsKg(nodes, links, chapters) {
@@ -4305,20 +4412,9 @@ Now please start generating questions. Output question content directly without 
                 return;
             }
 
-            // ── 颜色映射 ──────────────────────────────────────────────────────
-            const palette = [
-                '#3498db','#e74c3c','#27ae60','#f39c12','#9b59b6',
-                '#1abc9c','#e67e22','#2c3e50','#e91e63','#00bcd4',
-                '#8bc34a','#ff5722','#607d8b','#795548','#ff9800',
-            ];
-            const chNames = chapters.map(c => c.name);
-            const colorOf = ch => palette[chNames.indexOf(ch) % palette.length] || '#999';
-
-            const relColors = {
-                '从属': '#3498db', '比较': '#e67e22', '并列': '#27ae60',
-                '交叉': '#9b59b6', '前提': '#e74c3c',
-            };
-            const relColor = t => relColors[t] || '#aaa';
+            // ── 颜色映射（使用全局常量，章节色以全量列表为基准保证一致） ──────
+            const colorOf = ch => _dsKgColorOf(ch);
+            const relColor = t => _dsKgRelColors[t] || '#aaa';
 
             // ── 图例 ──────────────────────────────────────────────────────────
             if (legend) {
@@ -4328,7 +4424,7 @@ Now please start generating questions. Output question content directly without 
                         <span style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333;">${escapeHtml(ch)}</span>
                     </span>`
                 ).join('');
-                const relHtml = Object.entries(relColors).map(([t, c]) =>
+                const relHtml = Object.entries(_dsKgRelColors).map(([t, c]) =>
                     `<span style="display:inline-flex;align-items:center;gap:3px;">
                         <span style="width:18px;height:2px;background:${c};display:inline-block;border-radius:1px;"></span>
                         <span style="color:#666;">${escapeHtml(t)}</span>
@@ -4351,8 +4447,8 @@ Now please start generating questions. Output question content directly without 
 
             // 箭头标记
             const defs = svg.append('defs');
-            [...Object.keys(relColors), '_default'].forEach(t => {
-                const col = relColors[t] || '#aaa';
+            [...Object.keys(_dsKgRelColors), '_default'].forEach(t => {
+                const col = _dsKgRelColors[t] || '#aaa';
                 defs.append('marker')
                     .attr('id', `dskg-arrow-${t}`)
                     .attr('viewBox', '0 -5 10 10').attr('refX', 32).attr('refY', 0)
@@ -5720,9 +5816,59 @@ Reference answer integrating theory and case.
                  style="padding:7px 16px;border-bottom:1px solid #eee;display:flex;
                         flex-wrap:wrap;gap:6px;align-items:center;background:#fafafa;
                         font-size:0.75rem;color:#555;flex-shrink:0;min-height:34px;"></div>
-            <!-- 图谱画布 -->
-            <div id="ds-kg-container"
-                 style="flex:1;position:relative;overflow:hidden;background:#f4f6fb;"></div>
+            <!-- 主体：左侧筛选面板 + 右侧画布 -->
+            <div style="flex:1;display:flex;overflow:hidden;">
+                <!-- 左侧筛选面板 -->
+                <div style="width:195px;flex-shrink:0;border-right:1px solid #eee;
+                            background:#fff;overflow-y:auto;padding:10px 11px;
+                            display:flex;flex-direction:column;gap:0;">
+                    <!-- 章节筛选 -->
+                    <div style="font-size:0.76rem;font-weight:600;color:#6c3483;
+                                margin-bottom:5px;display:flex;align-items:center;justify-content:space-between;">
+                        <span><i class="fas fa-layer-group" style="margin-right:3px;font-size:0.7rem;"></i>章节筛选</span>
+                        <div style="display:flex;gap:3px;">
+                            <button onclick="_dsKgSelectAllChapters(true)"
+                                style="padding:1px 6px;font-size:0.68rem;border:1px solid #c39;color:#c39;
+                                       background:none;border-radius:3px;cursor:pointer;"
+                                onmouseover="this.style.background='#f9f'" onmouseout="this.style.background='none'">全选</button>
+                            <button onclick="_dsKgSelectAllChapters(false)"
+                                style="padding:1px 6px;font-size:0.68rem;border:1px solid #bbb;color:#888;
+                                       background:none;border-radius:3px;cursor:pointer;"
+                                onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='none'">全不选</button>
+                        </div>
+                    </div>
+                    <div id="ds-kg-chapter-checks" style="margin-bottom:12px;"></div>
+
+                    <!-- 知识点搜索 -->
+                    <div style="font-size:0.76rem;font-weight:600;color:#2980b9;margin-bottom:5px;">
+                        <i class="fas fa-search" style="margin-right:3px;font-size:0.7rem;"></i>知识点搜索
+                    </div>
+                    <input id="ds-kg-kp-search" type="text" placeholder="输入名称或内容关键词…"
+                        oninput="_applyDsKgFilter()"
+                        style="width:100%;box-sizing:border-box;padding:5px 8px;border:1px solid #ddd;
+                               border-radius:5px;font-size:0.78rem;margin-bottom:12px;outline:none;"
+                        onfocus="this.style.borderColor='#2980b9'" onblur="this.style.borderColor='#ddd'">
+
+                    <!-- 关系类型筛选 -->
+                    <div style="font-size:0.76rem;font-weight:600;color:#555;margin-bottom:5px;">
+                        <i class="fas fa-link" style="margin-right:3px;font-size:0.7rem;"></i>关系类型
+                    </div>
+                    <div id="ds-kg-rel-checks" style="margin-bottom:12px;"></div>
+
+                    <!-- 统计 + 重置 -->
+                    <div id="ds-kg-filter-stats"
+                         style="font-size:0.72rem;color:#aaa;margin-bottom:8px;text-align:center;"></div>
+                    <button onclick="_resetDsKgFilter()"
+                        style="width:100%;padding:5px 0;font-size:0.78rem;border:1px solid #ddd;
+                               border-radius:5px;background:#f8f8f8;cursor:pointer;color:#666;margin-top:auto;"
+                        onmouseover="this.style.background='#eee'" onmouseout="this.style.background='#f8f8f8'">
+                        <i class="fas fa-undo" style="font-size:0.7rem;margin-right:3px;"></i>重置筛选
+                    </button>
+                </div>
+                <!-- 右侧图谱画布 -->
+                <div id="ds-kg-container"
+                     style="flex:1;position:relative;overflow:hidden;background:#f4f6fb;"></div>
+            </div>
             <!-- 底部提示 -->
             <div style="padding:5px 16px;font-size:0.7rem;color:#bbb;border-top:1px solid #f0f0f0;
                         background:#fafafa;flex-shrink:0;">
