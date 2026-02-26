@@ -1187,40 +1187,70 @@
                     </span>
                 </div>
 
-                <!-- ── RAG 模式切换警告弹窗 ── -->
+                <!-- ── RAG 模式切换弹窗（两阶段：确认 → 安装） ── -->
                 <div id="rag-warning-modal" style="display:none; position:fixed; inset:0;
                     background:rgba(0,0,0,0.55); z-index:9999; justify-content:center; align-items:center;">
                     <div style="background:white; border-radius:10px; padding:28px 32px; max-width:500px;
                         width:90%; box-shadow:0 20px 40px rgba(0,0,0,0.3);">
-                        <h3 style="margin-bottom:14px; color:var(--warning-color);">
-                            <i class="fas fa-exclamation-triangle"></i> 切换到 RAG 向量检索模式
-                        </h3>
-                        <p style="margin-bottom:12px; color:#444; line-height:1.7; font-size:0.92rem;">
-                            RAG 模式需要在本地运行 <strong>向量嵌入模型</strong>，对硬件有较高要求：
-                        </p>
-                        <ul style="margin:0 0 14px 18px; color:#555; font-size:0.88rem; line-height:2.1;">
-                            <li>推荐 <strong>GPU 显存 ≥ 4 GB</strong>（RTX 3060 及以上）</li>
-                            <li>CPU 模式可用，但每次检索约需 10～30 秒</li>
-                            <li>首次使用需下载嵌入模型权重：<strong>BGE-large-zh（约 1.3 GB）</strong></li>
-                            <li>需额外安装依赖：<code style="background:#f0f0f0; padding:1px 6px; border-radius:3px;">qdrant-client sentence-transformers</code></li>
-                        </ul>
-                        <p style="margin-bottom:18px; color:#888; font-size:0.82rem;">
-                            安装命令：
-                            <code style="background:#f0f0f0; padding:3px 10px; border-radius:4px; display:inline-block; margin-top:4px;">
-                                pip install qdrant-client sentence-transformers
-                            </code>
-                        </p>
-                        <div style="display:flex; gap:10px; justify-content:flex-end;">
-                            <button onclick="closeRagWarning(false)" class="btn btn-outline" style="padding:7px 18px;">
-                                取消
-                            </button>
-                            <button onclick="closeRagWarning(true)" class="btn btn-warning"
-                                style="padding:7px 18px;">
-                                我已了解，继续切换
-                            </button>
+
+                        <!-- 阶段1：确认提示 -->
+                        <div id="rag-warn-phase1">
+                            <h3 style="margin-bottom:14px; color:var(--warning-color);">
+                                <i class="fas fa-exclamation-triangle"></i> 切换到 RAG 向量检索模式
+                            </h3>
+                            <p style="margin-bottom:12px; color:#444; line-height:1.7; font-size:0.92rem;">
+                                RAG 模式需要在本地运行 <strong>向量嵌入模型</strong>，对硬件有较高要求：
+                            </p>
+                            <ul style="margin:0 0 14px 18px; color:#555; font-size:0.88rem; line-height:2.1;">
+                                <li>推荐 <strong>GPU 显存 ≥ 4 GB</strong>（RTX 3060 及以上）</li>
+                                <li>CPU 模式可用，但每次检索约需 10～30 秒</li>
+                                <li>首次使用需下载嵌入模型权重：<strong>BGE-large-zh（约 1.3 GB）</strong></li>
+                                <li>点击「确认」后将自动安装所需 Python 依赖包</li>
+                            </ul>
+                            <div style="display:flex; gap:10px; justify-content:flex-end;">
+                                <button onclick="closeRagWarning(false)" class="btn btn-outline" style="padding:7px 18px;">
+                                    取消
+                                </button>
+                                <button onclick="closeRagWarning(true)" class="btn btn-warning" style="padding:7px 18px;">
+                                    确认，开始安装依赖
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 阶段2：安装进度 -->
+                        <div id="rag-warn-phase2" style="display:none;">
+                            <h3 style="margin-bottom:18px; color:var(--secondary-color);">
+                                <i class="fas fa-download"></i> 正在安装 RAG 依赖
+                            </h3>
+                            <div style="background:#f8f9fa; border-radius:6px; padding:14px 16px; margin-bottom:16px;
+                                font-size:0.88rem; color:#444; min-height:48px; line-height:1.7;">
+                                <i class="fas fa-spinner fa-spin" style="color:var(--secondary-color);"></i>
+                                <span id="rag-install-log" style="margin-left:8px;">准备中...</span>
+                            </div>
+                            <div style="background:#eee; border-radius:4px; height:6px; overflow:hidden; margin-bottom:16px;">
+                                <div id="rag-install-bar" style="height:100%; width:30%; background:var(--secondary-color);
+                                    border-radius:4px; transition:width 0.4s;
+                                    animation: rag-bar-anim 1.5s ease-in-out infinite alternate;"></div>
+                            </div>
+                            <p style="font-size:0.8rem; color:#999; margin:0;">
+                                安装过程中请勿关闭窗口，网络较慢时可能需要数分钟。
+                            </p>
+                        </div>
+
+                        <!-- 阶段3：安装结果 -->
+                        <div id="rag-warn-phase3" style="display:none;">
+                            <h3 id="rag-install-result-title" style="margin-bottom:14px;"></h3>
+                            <p id="rag-install-result-msg" style="color:#555; font-size:0.9rem; margin-bottom:20px; line-height:1.7;"></p>
+                            <div style="display:flex; gap:10px; justify-content:flex-end;">
+                                <button id="rag-install-result-btn" onclick="closeRagWarning(false)"
+                                    class="btn btn-outline" style="padding:7px 18px;">关闭</button>
+                            </div>
                         </div>
                     </div>
                 </div>
+                <style>
+                @keyframes rag-bar-anim { from { width:20%; } to { width:80%; } }
+                </style>
 
                 <!-- Top: Two columns -->
                 <div style="display:flex; gap:16px; margin-bottom:16px; align-items:flex-start;">
@@ -4077,16 +4107,79 @@ Now please start generating questions. Output question content directly without 
         }
 
         function showRagWarning() {
+            // 重置为阶段1
+            document.getElementById('rag-warn-phase1').style.display = '';
+            document.getElementById('rag-warn-phase2').style.display = 'none';
+            document.getElementById('rag-warn-phase3').style.display = 'none';
             const modal = document.getElementById('rag-warning-modal');
             if (modal) modal.style.display = 'flex';
         }
 
         function closeRagWarning(confirmed) {
             const modal = document.getElementById('rag-warning-modal');
-            if (modal) modal.style.display = 'none';
-            if (confirmed) {
-                _aiMode = 'rag';
-                _applyAiMode();
+            if (!confirmed) {
+                if (modal) modal.style.display = 'none';
+                return;
+            }
+            // 进入阶段2：触发安装
+            document.getElementById('rag-warn-phase1').style.display = 'none';
+            document.getElementById('rag-warn-phase2').style.display = '';
+            _startRagDepInstall();
+        }
+
+        async function _startRagDepInstall() {
+            try {
+                const resp = await fetch('/api/rag/install-rag-deps', { method: 'POST' });
+                const data = await resp.json();
+                if (data.error) { _ragInstallFinish(false, data.error); return; }
+                _pollRagInstall(data.task_id);
+            } catch (e) {
+                _ragInstallFinish(false, '网络请求失败：' + e.message);
+            }
+        }
+
+        function _pollRagInstall(taskId) {
+            const logEl = document.getElementById('rag-install-log');
+            const timer = setInterval(async () => {
+                try {
+                    const resp = await fetch(`/api/rag/install-tasks/${taskId}`);
+                    const task = await resp.json();
+                    if (logEl) logEl.textContent = task.log || '';
+                    if (task.status === 'done') {
+                        clearInterval(timer);
+                        _ragInstallFinish(true, task.log);
+                    } else if (task.status === 'error') {
+                        clearInterval(timer);
+                        _ragInstallFinish(false, task.log);
+                    }
+                } catch (e) { /* 网络抖动，继续轮询 */ }
+            }, 2000);
+        }
+
+        function _ragInstallFinish(success, msg) {
+            document.getElementById('rag-warn-phase2').style.display = 'none';
+            document.getElementById('rag-warn-phase3').style.display = '';
+            const titleEl = document.getElementById('rag-install-result-title');
+            const msgEl   = document.getElementById('rag-install-result-msg');
+            const btnEl   = document.getElementById('rag-install-result-btn');
+            if (success) {
+                titleEl.innerHTML = '<i class="fas fa-check-circle" style="color:var(--success-color);"></i> 依赖安装成功';
+                titleEl.style.color = 'var(--success-color)';
+                msgEl.textContent = msg;
+                btnEl.textContent = '切换到 RAG 模式';
+                btnEl.onclick = () => {
+                    document.getElementById('rag-warning-modal').style.display = 'none';
+                    _aiMode = 'rag';
+                    _applyAiMode();
+                };
+            } else {
+                titleEl.innerHTML = '<i class="fas fa-times-circle" style="color:var(--danger-color);"></i> 安装失败';
+                titleEl.style.color = 'var(--danger-color)';
+                msgEl.textContent = msg;
+                btnEl.textContent = '关闭';
+                btnEl.onclick = () => {
+                    document.getElementById('rag-warning-modal').style.display = 'none';
+                };
             }
         }
 

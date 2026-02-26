@@ -1,0 +1,15 @@
+# RAG 向量检索依赖（切换到 RAG 模式时自动安装）
+# 手动安装：pip install -r requirements-rag.txt -i https://pypi.tuna.tsinghua.edu.cn/simple/
+
+# 向量库
+qdrant-client>=1.9
+
+# 嵌入模型（本地推理，首次运行自动下载 BGE-large-zh 约 1.3 GB）
+sentence-transformers>=3.0
+
+# BM25 稀疏检索
+rank_bm25>=0.2
+jieba>=0.42
+
+# Reranker（可选，精度更高）
+# FlagEmbedding>=1.2

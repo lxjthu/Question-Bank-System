@@ -1,3 +1,7 @@
+# 基础依赖（Flask + DeepSeek 直出模式）
 flask
 flask-sqlalchemy
 python-docx
+openai>=1.0
+python-dotenv>=1.0
+requests>=2.28

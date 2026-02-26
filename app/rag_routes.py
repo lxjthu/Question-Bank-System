@@ -7,6 +7,9 @@
   POST   /api/rag/ingest                上传并摄入文档
   GET    /api/rag/tasks/<task_id>       轮询 OCR 后台任务状态
   POST   /api/rag/generate              RAG 检索 + DeepSeek 出题
+  GET    /api/rag/rag-deps-status       检测 RAG 依赖是否已安装
+  POST   /api/rag/install-rag-deps      后台安装 RAG 依赖（返回 task_id）
+  GET    /api/rag/install-tasks/<tid>   轮询 RAG 依赖安装进度
 """
 from __future__ import annotations
 
@@ -14,6 +17,7 @@ import os
 import sys
 import uuid
 import sqlite3
+import subprocess
 import threading
 from pathlib import Path
 
@@ -1687,3 +1691,94 @@ def ds_generate():
         })
     except Exception as e:
         return jsonify({'error': f'DeepSeek API 调用失败：{str(e)}'}), 500
+
+
+# ── RAG 依赖检测与自动安装 ─────────────────────────────────────────────────────
+
+# 安装任务状态表  {task_id: {status, log, returncode}}
+_install_tasks: dict = {}
+_install_lock = threading.Lock()
+
+
+def _check_rag_deps() -> dict:
+    """检测 RAG 核心依赖是否已安装，返回 {installed: bool, missing: [...]}"""
+    missing = []
+    for pkg, import_name in [('qdrant-client', 'qdrant_client'), ('sentence-transformers', 'sentence_transformers'),
+                              ('rank_bm25', 'rank_bm25'), ('jieba', 'jieba')]:
+        try:
+            __import__(import_name)
+        except ImportError:
+            missing.append(pkg)
+    return {'installed': len(missing) == 0, 'missing': missing}
+
+
+@rag_bp.route('/api/rag/rag-deps-status', methods=['GET'])
+def rag_deps_status():
+    """检测 RAG 依赖是否已安装。"""
+    return jsonify(_check_rag_deps())
+
+
+@rag_bp.route('/api/rag/install-rag-deps', methods=['POST'])
+def install_rag_deps():
+    """后台安装 requirements-rag.txt，返回 task_id 供轮询。"""
+    # 已有进行中的任务则直接返回
+    with _install_lock:
+        for tid, t in _install_tasks.items():
+            if t['status'] == 'running':
+                return jsonify({'task_id': tid})
+
+    # 检查是否已安装
+    check = _check_rag_deps()
+    if check['installed']:
+        tid = str(uuid.uuid4())
+        _install_tasks[tid] = {'status': 'done', 'log': '所有 RAG 依赖已就绪。', 'returncode': 0}
+        return jsonify({'task_id': tid})
+
+    req_file = _project_root() / 'requirements-rag.txt'
+    if not req_file.exists():
+        return jsonify({'error': 'requirements-rag.txt 不存在'}), 500
+
+    tid = str(uuid.uuid4())
+    _install_tasks[tid] = {'status': 'running', 'log': '正在检测可用镜像源...', 'returncode': None}
+
+    def _worker(task_id: str):
+        mirrors = [
+            None,  # 官方源
+            'https://pypi.tuna.tsinghua.edu.cn/simple/',
+            'https://mirrors.aliyun.com/pypi/simple/',
+        ]
+        mirror_names = ['官方源', '清华镜像', '阿里云镜像']
+        for mirror, name in zip(mirrors, mirror_names):
+            cmd = [sys.executable, '-m', 'pip', 'install', '-r', str(req_file), '--timeout', '120']
+            if mirror:
+                cmd += ['-i', mirror, '--trusted-host', mirror.split('/')[2]]
+            _install_tasks[task_id]['log'] = f'正在从 {name} 安装 RAG 依赖...'
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+                if result.returncode == 0:
+                    _install_tasks[task_id].update({
+                        'status': 'done',
+                        'log': f'安装成功（{name}）。首次使用 RAG 模式时将自动下载 BGE 嵌入模型（约 1.3 GB）。',
+                        'returncode': 0,
+                    })
+                    return
+                _install_tasks[task_id]['log'] = f'{name} 失败，尝试下一个镜像...'
+            except subprocess.TimeoutExpired:
+                _install_tasks[task_id]['log'] = f'{name} 超时，尝试下一个镜像...'
+        _install_tasks[task_id].update({
+            'status': 'error',
+            'log': '所有镜像源均安装失败，请检查网络后手动执行：pip install -r requirements-rag.txt',
+            'returncode': 1,
+        })
+
+    threading.Thread(target=_worker, args=(tid,), daemon=True).start()
+    return jsonify({'task_id': tid})
+
+
+@rag_bp.route('/api/rag/install-tasks/<task_id>', methods=['GET'])
+def get_install_task(task_id: str):
+    """轮询 RAG 依赖安装进度。"""
+    task = _install_tasks.get(task_id)
+    if not task:
+        return jsonify({'error': '任务不存在'}), 404
+    return jsonify(task)
