@@ -13,10 +13,6 @@ uploads/
 exports/
 temp/
 
-# Test folders (contain test results and runtime data)
-tests/
-test/
-
 # RAG uploads folder (user uploaded files, not source code)
 rag_uploads/
 
