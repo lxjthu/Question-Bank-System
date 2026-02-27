@@ -36,3 +36,10 @@ models/
 word_to_csv_converter.py
 migrate_*.py
 CLAUDE.md
+
+# Exclude specific file types and files
+*.doc
+*.docx
+*.pdf
+*.txt
+农业经济学1.pdf_by_PaddleOCR.md
