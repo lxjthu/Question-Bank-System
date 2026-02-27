@@ -5,3 +5,9 @@ python-docx
 openai>=1.0
 python-dotenv>=1.0
 requests>=2.28
+
+# OCR PDF处理（PPTX/PDF转Markdown必需）
+pymupdf>=1.23.0
+
+# Windows PPTX转PDF（可选，Windows用户推荐安装）
+# pywin32>=306
