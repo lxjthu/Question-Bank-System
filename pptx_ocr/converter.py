@@ -19,21 +19,34 @@ from typing import Optional
 # ---------------------------------------------------------------------------
 
 def _win32com_to_pdf(pptx_path: Path, pdf_path: Path) -> bool:
+    """Try Office first, then WPS."""
     try:
         import win32com.client  # type: ignore
     except ImportError:
         return False
-    try:
-        ppt = win32com.client.Dispatch("PowerPoint.Application")
-        ppt.Visible = True
-        presentation = ppt.Presentations.Open(str(pptx_path.resolve()))
-        presentation.SaveAs(str(pdf_path.resolve()), 32)  # 32 = ppSaveAsPDF
-        presentation.Close()
-        ppt.Quit()
-        return pdf_path.exists()
-    except Exception as e:
-        print(f"  [win32com→PDF] {e}")
-        return False
+    
+    # Try Microsoft Office first, then WPS
+    apps = [
+        ("PowerPoint.Application", "Microsoft Office"),
+        ("KWPP.Application", "WPS Office"),  # Kingsoft PowerPoint
+    ]
+    
+    for app_name, app_label in apps:
+        try:
+            ppt = win32com.client.Dispatch(app_name)
+            ppt.Visible = True
+            presentation = ppt.Presentations.Open(str(pptx_path.resolve()))
+            # 32 = ppSaveAsPDF (works for both Office and WPS)
+            presentation.SaveAs(str(pdf_path.resolve()), 32)
+            presentation.Close()
+            ppt.Quit()
+            print(f"OK ({app_label})")
+            return pdf_path.exists()
+        except Exception as e:
+            print(f"  [{app_label}] not available")
+            continue
+    
+    return False
 
 
 def _libreoffice_to_pdf(pptx_path: Path, pdf_path: Path) -> bool:
