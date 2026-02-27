@@ -1610,6 +1610,12 @@ def ds_generate():
     except Exception:
         kps_data = []
 
+    # ── 校验：无 KP 数据时提前返回错误 ───────────────────────────────────────
+    if not doc_ids:
+        return jsonify({'error': '请先勾选文档'}), 400
+    if not kps_data:
+        return jsonify({'error': '未找到知识点数据，请先完成知识点提取'}), 400
+
     # ── 构建知识图谱 context ──────────────────────────────────────────────────
     if kps_data:
         context_parts: list = []
@@ -1639,8 +1645,6 @@ def ds_generate():
             context_parts.append('')
             total_chars += len(kp['kp_content'])
         context = '\n'.join(context_parts)
-    else:
-        context = '（未选择知识点或知识点提取尚未完成，请先上传文档并完成知识点提取）'
 
     # ── 替换占位符 ────────────────────────────────────────────────────────────
     final_prompt = (

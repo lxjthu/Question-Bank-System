@@ -3941,6 +3941,7 @@ Now please start generating questions. Output question content directly without 
 3. 覆盖参考内容的主要知识点和核心概念
 4. 每道题必须标注对应知识点（写在解析里）
 5. 题目必须独立成立，严禁出现引用文件位置的表述，如"如第X章所述""见图""根据上文"等
+6. ⚠️ **严禁**在题干中出现"根据知识图谱""根据以上材料""根据所给信息"等表述——考生看不见知识图谱，题目必须自包含，所有信息在题干中直接给出
 
 **输出格式（必须严格遵守）：**
 
@@ -3960,6 +3961,7 @@ Now please start generating questions. Output question content directly without 
 1. 不要添加题号（系统会自动编号）
 2. 不要在题目外添加任何说明文字、章节标题或分割线
 3. 不要使用 *、**、# 等 Markdown 格式符号，不要对文字加粗
+4. ⚠️ 再次强调：题干中严禁出现"根据知识图谱""根据以上内容""根据所给材料"等字样，考生看不见任何背景材料，题目必须能够独立作答
 
 现在请开始出题，直接输出题目内容，不需要任何前言。`;
 
@@ -3980,6 +3982,7 @@ Now please start generating questions. Output question content directly without 
 3. 每道题必须同时提供中文和英文版本，语义完全对应，英文表达符合学术规范
 4. 覆盖参考内容的主要知识点和核心概念
 5. 题目必须独立成立，严禁出现引用文件位置的表述
+6. ⚠️ **严禁**在题干中出现"根据知识图谱""根据以上材料""根据所给信息"等表述——考生看不见知识图谱，题目必须自包含，所有信息在题干中直接给出
 
 **双语输出格式（必须严格遵守）：**
 
@@ -4002,6 +4005,7 @@ Now please start generating questions. Output question content directly without 
 3. 题型标识符始终使用中文 [单选]、[多选]、[是非]、[简答] 等
 4. 不要添加题号，不要在题目外添加任何说明文字
 5. 不要使用 *、**、# 等 Markdown 格式符号
+6. ⚠️ 再次强调：题干中严禁出现"根据知识图谱""根据以上内容""根据所给材料"等字样，考生看不见任何背景材料，题目必须能够独立作答
 
 现在请开始出题，直接输出题目内容，不需要任何前言。`;
 
@@ -4024,6 +4028,7 @@ Based on the above reference content, generate exam questions according to the r
    - Hard: requires integrating multiple knowledge points; tests critical analysis
 3. Cover major knowledge points and core concepts from the reference content
 4. Every question must be self-contained; do not reference the source material's location
+5. ⚠️ **Never** include phrases like "according to the knowledge graph", "based on the above material", or "from the given information" in question stems — test-takers cannot see the knowledge graph; all necessary information must be stated directly within the question itself
 
 **Output format (must follow strictly):**
 
@@ -4046,6 +4051,7 @@ Important notes:
 3. Keep Chinese field names 知识点, 标签, 英文题目, 难度 exactly as shown
 4. Do not add question numbers; do not add explanatory text outside question blocks
 5. Do not use Markdown formatting: *, **, #
+6. ⚠️ Reminder: question stems must NEVER contain "according to the knowledge graph", "based on the above content", or similar references — test-takers see no background material; every question must be fully self-contained and answerable on its own
 
 Now please start generating questions. Output question content directly without any preamble.`;
 
