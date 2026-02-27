@@ -29,7 +29,9 @@ INCLUDE_FILES = [
     "app/routes.py",
     "app/utils.py",
     "app/rag_routes.py",
+    "app/kg_routes.py",
     "app/templates/index.html",
+    "app/templates/kg.html",
     # 入口 & 配置
     "server.py",
     "config.py",
