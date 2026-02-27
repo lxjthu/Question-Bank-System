@@ -1,5 +1,23 @@
 # 更新日志
 
+## 1.6.1 - 2026-02-27
+
+### 新功能
+
+- **WPS Office 转 PDF 支持** — `pptx_ocr` 转换器新增 WPS Office (`KWPP.Application`) 作为备选，优先尝试 Microsoft Office，失败后自动切换 WPS
+
+### 修复
+
+- **Release 包补全 RAG 模块** — `make_release.py` 新增 `rag_pipeline/`、`pptx_ocr/`、`app/rag_routes.py`、`requirements-rag.txt` 的打包逻辑，修复之前 release 包缺少 RAG 相关代码的问题
+
+### 维护
+
+- 两段式依赖安装：启动时只安装基础包，切换 RAG 模式时自动安装向量库依赖
+- 添加 `pymupdf` 依赖用于 OCR PDF 处理
+- `.gitignore` 多项修正（排除运行时数据文件夹、大模型权重文件、测试输出等）
+
+---
+
 ## 1.6.0 - 2026-02-26
 
 ### 新功能
