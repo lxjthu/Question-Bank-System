@@ -34,7 +34,7 @@ def _data_dir() -> str:
         d = os.path.dirname(os.path.abspath(__file__))
 
     os.makedirs(d, exist_ok=True)
-    for sub in ('uploads/images', 'temp', 'exports'):
+    for sub in ('uploads/images', 'temp', 'exports', 'rag_uploads'):
         os.makedirs(os.path.join(d, sub), exist_ok=True)
     return d
 

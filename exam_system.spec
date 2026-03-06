@@ -52,16 +52,27 @@ a = Analysis(
         'lxml',
         'lxml.etree',
         'lxml._elementpath',
+        # DeepSeek 直出模式（DS Mode）
+        'openai',
+        'openai._models',
+        'openai.resources',
+        'dotenv',          # python-dotenv
+        'httpx',
+        'httpcore',
+        'anyio',
+        'certifi',
+        'charset_normalizer',
         # 标准库可能被遗漏
         'email.mime.text',
         'email.mime.multipart',
         'uuid',
         'json',
+        'sqlite3',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # 排除所有 AI/ML 重量级依赖（它们是可选功能，不打包进 DMG）
+    # 排除 RAG 向量检索和 OCR 重量级依赖（DS 直出模式不需要这些）
     excludes=[
         'torch', 'torchvision', 'torchaudio',
         'sentence_transformers',
@@ -77,8 +88,6 @@ a = Analysis(
         'cv2', 'opencv',
         'sympy', 'mpmath',
         'rank_bm25', 'jieba',
-        'openai',           # AI 相关（打包版不使用）
-        'httpx', 'httpcore', 'anyio',
         'test', 'tests',
         'unittest',
     ],

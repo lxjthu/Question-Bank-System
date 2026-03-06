@@ -65,6 +65,8 @@ pip install --quiet \
     flask-sqlalchemy \
     "python-docx>=1.1" \
     lxml \
+    openai \
+    python-dotenv \
     pyinstaller
 
 echo "✅ 依赖安装完成"

@@ -38,14 +38,23 @@ _ocr_tasks: dict = {}
 # 注：_ds_tasks 在下方 DS 模式区域定义，此处仅声明占位供模块级函数引用
 _ds_tasks: dict = {}
 
-# RAG 文档上传目录
-_UPLOAD_DIR = Path(__file__).parent.parent / "rag_uploads"
-
-
 # ── 路径工具 ──────────────────────────────────────────────────────────────────
 
 def _project_root() -> Path:
     return Path(__file__).parent.parent
+
+
+def _data_root() -> Path:
+    """返回用户可写数据根目录。
+    打包版（PyInstaller）由 launcher.py 预先写入 EXAM_DATA_DIR；
+    普通运行时退回项目根目录。
+    """
+    env_dir = os.environ.get('EXAM_DATA_DIR')
+    return Path(env_dir) if env_dir else _project_root()
+
+
+def _upload_dir() -> Path:
+    return _data_root() / 'rag_uploads'
 
 
 def _rag_pipeline_dir() -> Path:
@@ -57,7 +66,7 @@ def _rag_db_path() -> Path:
 
 
 def _ensure_upload_dir():
-    _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    _upload_dir().mkdir(parents=True, exist_ok=True)
 
 
 def _add_to_path():
@@ -131,7 +140,7 @@ def _db_conn():
 # ── .env 读写工具 ─────────────────────────────────────────────────────────────
 
 def _env_path() -> Path:
-    return _project_root() / ".env"
+    return _data_root() / ".env"
 
 
 def _read_env_vars(*keys) -> dict:
@@ -298,7 +307,7 @@ def rag_ingest():
     stem = Path(filename).stem
     doc_id = stem[:40]  # 截断过长名称
 
-    save_path = _UPLOAD_DIR / filename
+    save_path = _upload_dir() / filename
     file.save(str(save_path))
 
     # ── 文本格式：同步摄入 ─────────────────────────────────────────────────
@@ -324,7 +333,7 @@ def rag_ingest():
                 if text:
                     md_lines.append(text)
                     md_lines.append('')
-            tmp_md = _UPLOAD_DIR / (stem + '_converted.md')
+            tmp_md = _upload_dir() / (stem + '_converted.md')
             tmp_md.write_text('\n'.join(md_lines), encoding='utf-8')
             ingestor = _get_ingestor()
             n = ingestor.ingest_textbook(doc_id, tmp_md)
@@ -351,7 +360,7 @@ def rag_ingest():
                 ocr_token   = ocr_cfg.get('PADDLEOCR_TOKEN', '')
                 ocr_timeout = int(ocr_cfg.get('PADDLEOCR_TIMEOUT') or 120)
 
-                ocr_output = _UPLOAD_DIR / (stem + '_ocr')
+                ocr_output = _upload_dir() / (stem + '_ocr')
                 if suffix == '.pdf':
                     from pptx_ocr.pipeline import process_pdf
                     result_md = process_pdf(
@@ -511,7 +520,7 @@ def rag_generate():
         _add_to_path()
         # 用 dotenv_values() 直接从文件读取，不受系统/进程环境变量干扰
         from dotenv import dotenv_values
-        env_file = _project_root() / '.env'
+        env_file = _env_path()
         env_vals = dotenv_values(env_file) if env_file.exists() else {}
         api_key = (
             env_vals.get('DEEPSEEK_API_KEY')
@@ -619,7 +628,7 @@ def _do_ocr_then_parse(task_id: str, suffix: str, save_path, doc_id: str,
     from pathlib import Path as _Path
 
     save_path = _Path(save_path)
-    ocr_output = _UPLOAD_DIR / (stem + '_ocr')
+    ocr_output = _upload_dir() / (stem + '_ocr')
 
     def _progress(done, total, msg):
         _ds_tasks[task_id].update({
@@ -768,7 +777,7 @@ def _do_ocr_then_parse(task_id: str, suffix: str, save_path, doc_id: str,
 
 def _ds_db_path() -> Path:
     """DS 模式独立 SQLite 数据库，不影响 RAG 的 kg.db。"""
-    return _project_root() / "ds_knowledge.db"
+    return _data_root() / "ds_knowledge.db"
 
 
 def _ds_db_conn():
@@ -1040,7 +1049,7 @@ def ds_upload():
     if suffix not in ('.md', '.txt', '.docx', '.pptx', '.ppt', '.pdf'):
         return jsonify({'error': f'不支持的文件格式：{suffix}'}), 400
 
-    save_path = _UPLOAD_DIR / filename
+    save_path = _upload_dir() / filename
     file.save(str(save_path))
 
     # ── PDF / PPTX：先走 PaddleOCR 异步流程，OCR 完成后再解析章节 ──────────────
@@ -1195,7 +1204,7 @@ def ds_extract(doc_id):
         try:
             _add_to_path()
             from dotenv import dotenv_values
-            env_file = _project_root() / '.env'
+            env_file = _env_path()
             env_vals = dotenv_values(env_file) if env_file.exists() else {}
             api_key = (
                 env_vals.get('DEEPSEEK_API_KEY')
@@ -1657,7 +1666,7 @@ def ds_generate():
     try:
         _add_to_path()
         from dotenv import dotenv_values
-        env_file = _project_root() / '.env'
+        env_file = _env_path()
         env_vals = dotenv_values(env_file) if env_file.exists() else {}
         api_key = (
             env_vals.get('DEEPSEEK_API_KEY')
