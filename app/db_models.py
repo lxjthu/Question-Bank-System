@@ -142,6 +142,9 @@ class ExamModel(db.Model):
     exam_id = db.Column(db.String(64), primary_key=True)
     name = db.Column(db.String(256), nullable=False)
     config = db.Column(db.Text, default='{}')    # JSON string
+    subject = db.Column(db.String(128), nullable=True)   # 组卷时选择的科目
+    is_confirmed = db.Column(db.Boolean, default=False)  # 是否已最终确认
+    confirmed_at = db.Column(db.DateTime, nullable=True) # 最终确认时间
     created_at = db.Column(db.DateTime)
     updated_at = db.Column(db.DateTime)
 
@@ -166,6 +169,9 @@ class ExamModel(db.Model):
             'name': self.name,
             'questions': [q.to_dict() for q in ordered_questions],
             'config': json.loads(self.config) if self.config else {},
+            'subject': self.subject or '',
+            'is_confirmed': self.is_confirmed or False,
+            'confirmed_at': self.confirmed_at.isoformat() if self.confirmed_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

@@ -5,6 +5,7 @@ from app.kg_routes import kg_bp
 from app.db_models import db, QuestionTypeModel
 from config import config
 from datetime import datetime
+from sqlalchemy import text
 import os
 
 
@@ -20,6 +21,7 @@ def create_app(config_name=None):
     db.init_app(app)
     with app.app_context():
         db.create_all()
+        _migrate_db()
         _seed_question_types()
         # Ensure image upload directory exists
         upload_folder = app.config.get('UPLOAD_FOLDER', 'uploads')
@@ -31,6 +33,22 @@ def create_app(config_name=None):
     app.register_blueprint(kg_bp)
 
     return app
+
+
+def _migrate_db():
+    """Add new columns to existing tables if they don't exist (idempotent)."""
+    new_cols = [
+        ('exams', 'subject', 'VARCHAR(128)'),
+        ('exams', 'is_confirmed', 'BOOLEAN DEFAULT 0'),
+        ('exams', 'confirmed_at', 'DATETIME'),
+    ]
+    with db.engine.connect() as conn:
+        for table, col, col_def in new_cols:
+            try:
+                conn.execute(text(f'ALTER TABLE {table} ADD COLUMN {col} {col_def}'))
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
 
 
 def _seed_question_types():

@@ -563,6 +563,8 @@ def add_question_to_exam(exam_id):
     exam = db.session.get(ExamModel, exam_id)
     if not exam:
         return jsonify({'error': 'Exam not found'}), 404
+    if exam.is_confirmed:
+        return jsonify({'error': '试卷已最终确认，无法添加题目'}), 403
 
     data = request.json
     question_id = data.get('question_id')
@@ -592,6 +594,8 @@ def remove_question_from_exam(exam_id, question_id):
     exam = db.session.get(ExamModel, exam_id)
     if not exam:
         return jsonify({'error': 'Exam not found'}), 404
+    if exam.is_confirmed:
+        return jsonify({'error': '试卷已最终确认，无法删除题目'}), 403
 
     db.session.execute(
         exam_questions.delete().where(
@@ -618,6 +622,7 @@ def generate_exam():
         exam_id=data.get('exam_id') or f"exam_{uuid.uuid4().hex[:8]}",
         name=name,
         config=json.dumps(config, ensure_ascii=False),
+        subject=subject_filter or None,
         created_at=now,
         updated_at=now,
     )
@@ -788,6 +793,9 @@ def replace_question_in_exam(exam_id):
     if not assoc:
         return jsonify({'error': 'Old question not found in exam'}), 404
 
+    if exam.is_confirmed:
+        return jsonify({'error': '试卷已最终确认，无法替换题目'}), 403
+
     old_question = db.session.get(QuestionModel, old_question_id)
     new_question = db.session.get(QuestionModel, new_question_id)
 
@@ -829,6 +837,8 @@ def confirm_exam(exam_id):
         q.is_used = True
         q.used_date = now
 
+    exam.is_confirmed = True
+    exam.confirmed_at = now
     exam.updated_at = now
     db.session.commit()
 
@@ -846,6 +856,8 @@ def revert_exam_confirmation(exam_id):
         q.is_used = False
         q.used_date = None
 
+    exam.is_confirmed = False
+    exam.confirmed_at = None
     exam.updated_at = datetime.now()
     db.session.commit()
 
