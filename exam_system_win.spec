@@ -1,12 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller 打包配置 — 试题管理系统 macOS 版
+"""PyInstaller 打包配置 — 试题管理系统 Windows 版
 
 构建命令（在项目根目录执行）：
-    pyinstaller exam_system.spec
+    pyinstaller exam_system_win.spec
 
-目标平台：macOS arm64（Apple Silicon / M1+）
-如需同时支持 Intel Mac，将 target_arch 改为 'universal2'
+目标平台：Windows 10/11 x64
+产物：dist\试题管理系统\ 目录（onedir 模式）
+      build_win.bat 会进一步打包为 zip 分发包
 """
+import os
 from PyInstaller.utils.hooks import collect_data_files
 
 block_cipher = None
@@ -16,9 +18,7 @@ with open('VERSION', 'r', encoding='utf-8') as _f:
     _VERSION = _f.read().strip()
 
 # ── 数据文件 ──────────────────────────────────────────────────────────────────
-# python-docx 自带的 Word 模板文件（必须包含，否则无法创建 .docx）
-docx_datas = collect_data_files('docx')
-# Jinja2 内置模板
+docx_datas   = collect_data_files('docx')
 jinja2_datas = collect_data_files('jinja2')
 
 a = Analysis(
@@ -33,7 +33,7 @@ a = Analysis(
         *jinja2_datas,
     ],
     hiddenimports=[
-        # SQLAlchemy 方言（必须显式声明，否则运行时找不到 SQLite 驱动）
+        # SQLAlchemy 方言
         'sqlalchemy.dialects.sqlite',
         'sqlalchemy.dialects.sqlite.pysqlite',
         'sqlalchemy.pool',
@@ -56,17 +56,17 @@ a = Analysis(
         'lxml',
         'lxml.etree',
         'lxml._elementpath',
-        # DeepSeek 直出模式（DS Mode）
+        # DeepSeek 直出
         'openai',
         'openai._models',
         'openai.resources',
-        'dotenv',          # python-dotenv
+        'dotenv',
         'httpx',
         'httpcore',
         'anyio',
         'certifi',
         'charset_normalizer',
-        # 标准库可能被遗漏
+        # 标准库
         'email.mime.text',
         'email.mime.multipart',
         'uuid',
@@ -76,7 +76,6 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # 排除 RAG 向量检索和 OCR 重量级依赖（DS 直出模式不需要这些）
     excludes=[
         'torch', 'torchvision', 'torchaudio',
         'sentence_transformers',
@@ -112,14 +111,11 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,          # macOS 上 UPX 可能导致签名问题，关闭
-    console=False,      # 不显示终端窗口
-    disable_windowed_traceback=False,
-    argv_emulation=True,          # macOS .app 需要此选项处理文件关联
-    target_arch='arm64',          # Apple Silicon (M1/M2/M3)
-    # target_arch='universal2',   # 取消注释则同时支持 Intel + Apple Silicon
-    codesign_identity=None,
-    entitlements_file=None,
+    upx=True,           # Windows 上 UPX 可减小体积
+    upx_exclude=[],
+    console=False,      # 不显示命令行窗口
+    icon=None,          # 替换为 'assets/icon.ico' 可添加自定义图标
+    version_file=None,
 )
 
 coll = COLLECT(
@@ -128,27 +124,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=False,
+    upx=True,
     upx_exclude=[],
     name='试题管理系统',
-)
-
-app = BUNDLE(
-    coll,
-    name='试题管理系统.app',
-    icon=None,          # 替换为 'assets/icon.icns' 可添加自定义图标
-    bundle_identifier='com.examSystem.questionBank',
-    info_plist={
-        'CFBundleName': '试题管理系统',
-        'CFBundleDisplayName': '试题管理系统',
-        'CFBundleVersion': _VERSION,
-        'CFBundleShortVersionString': _VERSION,
-        'NSPrincipalClass': 'NSApplication',
-        'NSHighResolutionCapable': True,
-        'NSAppleScriptEnabled': False,
-        'LSMinimumSystemVersion': '12.0',       # macOS Monterey+
-        'LSUIElement': False,                    # 显示在 Dock
-        'NSHumanReadableCopyright': '',
-        'CFBundleDocumentTypes': [],
-    },
 )

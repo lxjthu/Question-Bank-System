@@ -20,6 +20,11 @@ rag_uploads/
 # Release build artifacts
 *.zip
 
+# PyInstaller build output
+build/
+dist/
+.build_venv/
+
 # Misc
 nul
 ~$*

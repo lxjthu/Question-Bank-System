@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""试题管理系统 — macOS 应用启动器
+"""试题管理系统 — 跨平台应用启动器
 
 PyInstaller 打包时以此文件为入口。
 职责：
@@ -8,7 +8,8 @@ PyInstaller 打包时以此文件为入口。
 3. 自动打开系统浏览器
 
 数据目录（可写）：
-  macOS 打包版：~/Library/Application Support/试题管理系统/
+  Windows 打包版：%APPDATA%\\试题管理系统\\
+  macOS   打包版：~/Library/Application Support/试题管理系统/
   普通 Python 运行：项目根目录（保持向后兼容）
 """
 import os
@@ -24,11 +25,19 @@ import webbrowser
 def _data_dir() -> str:
     """返回用户可写数据目录并确保其存在。"""
     if getattr(sys, 'frozen', False):
-        # PyInstaller 打包环境 → macOS 标准用户数据目录
-        d = os.path.join(
-            os.path.expanduser('~'),
-            'Library', 'Application Support', '试题管理系统',
-        )
+        # PyInstaller 打包环境
+        if sys.platform == 'win32':
+            # Windows → %APPDATA%\试题管理系统
+            d = os.path.join(
+                os.environ.get('APPDATA', os.path.expanduser('~')),
+                '试题管理系统',
+            )
+        else:
+            # macOS → ~/Library/Application Support/试题管理系统
+            d = os.path.join(
+                os.path.expanduser('~'),
+                'Library', 'Application Support', '试题管理系统',
+            )
     else:
         # 普通 Python 运行 → 项目根目录
         d = os.path.dirname(os.path.abspath(__file__))
