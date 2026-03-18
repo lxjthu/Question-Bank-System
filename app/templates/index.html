@@ -1002,18 +1002,34 @@
                         AI 生成的结果保存为 .txt 文件后，可通过上方"导入题库"功能导入系统。
                     </p>
 
-                    <div class="form-row" style="align-items:center; margin-bottom:12px;">
-                        <div class="form-group" style="min-width:220px;">
-                            <label for="prompt-mode-select">选择出题模式</label>
-                            <select id="prompt-mode-select">
-                                <option value="zh">模式一：纯中文出题</option>
-                                <option value="bilingual">模式二：中英双语出题</option>
-                                <option value="en">模式三：纯英文出题</option>
-                            </select>
-                        </div>
-                        <button id="copy-prompt-btn" class="btn btn-outline" style="align-self:flex-end;">
+                    <!-- 提示词选择器行 -->
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
+                        <label style="font-size:0.9rem; color:#555; white-space:nowrap; font-weight:500;">提示词模板：</label>
+                        <select id="import-prompt-selector" onchange="loadImportPromptFromSelector()" style="flex:1; min-width:200px; max-width:320px; padding:6px 10px; font-size:0.88rem; border:1px solid #ddd; border-radius:5px;">
+                            <optgroup label="默认模板">
+                                <option value="default_zh">模式一：纯中文出题（默认）</option>
+                                <option value="default_bilingual">模式二：中英双语出题（默认）</option>
+                                <option value="default_en">模式三：纯英文出题（默认）</option>
+                            </optgroup>
+                            <optgroup label="我的提示词" id="import-custom-prompt-group">
+                            </optgroup>
+                        </select>
+                        <!-- 隐藏的原始模式选择器，供内部逻辑使用 -->
+                        <select id="prompt-mode-select" style="display:none;">
+                            <option value="zh">模式一：纯中文出题</option>
+                            <option value="bilingual">模式二：中英双语出题</option>
+                            <option value="en">模式三：纯英文出题</option>
+                        </select>
+                        <button id="copy-prompt-btn" class="btn btn-outline" style="padding:6px 14px; white-space:nowrap;">
                             <i class="fas fa-copy"></i> 复制提示词
                         </button>
+                        <button class="btn btn-outline" onclick="saveImportPromptTemplate()" style="padding:6px 12px; white-space:nowrap;">
+                            <i class="fas fa-save"></i> 保存当前
+                        </button>
+                        <button id="import-delete-prompt-btn" class="btn btn-outline" onclick="deleteImportPromptTemplate()" style="padding:6px 12px; display:none; color:#e74c3c; border-color:#e74c3c; white-space:nowrap;">
+                            <i class="fas fa-trash-alt"></i> 删除
+                        </button>
+                        <span id="import-prompt-save-status" style="font-size:0.82rem; color:#27ae60;"></span>
                     </div>
 
                     <!-- Review Notes Upload Panel -->
@@ -1037,9 +1053,10 @@
                         <div id="review-notes-status" style="margin-top:7px; font-size:13px;"></div>
                     </div>
 
-                    <textarea id="prompt-display" readonly rows="18"
+                    <textarea id="prompt-display" rows="18"
                         style="width:100%; font-family:monospace; font-size:13px; resize:vertical;
-                               background:#f8f9fa; border:1px solid #ddd; padding:12px; border-radius:6px; box-sizing:border-box;">
+                               background:#fff; border:1px solid #ddd; padding:12px; border-radius:6px; box-sizing:border-box;"
+                        placeholder="选择模板后可在此直接编辑提示词内容…">
                     </textarea>
                 </div>
             </div>
@@ -1459,6 +1476,26 @@
                             <button class="btn btn-outline" id="rag-lang-btn-bilingual" onclick="setRagPromptMode('bilingual')" style="padding:5px 12px; font-size:0.85rem;">双语</button>
                             <button class="btn btn-outline" id="rag-lang-btn-en" onclick="setRagPromptMode('en')" style="padding:5px 12px; font-size:0.85rem;">English</button>
                         </div>
+                    </div>
+                    <!-- 提示词选择器行 -->
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                        <label style="font-size:0.85rem; color:#555; white-space:nowrap; font-weight:500;">切换提示词：</label>
+                        <select id="rag-prompt-selector" onchange="loadRagPromptFromSelector()" style="flex:1; min-width:160px; max-width:280px; padding:5px 8px; font-size:0.85rem; border:1px solid #ddd; border-radius:5px;">
+                            <optgroup label="默认模板">
+                                <option value="default_zh">中文（默认）</option>
+                                <option value="default_bilingual">双语（默认）</option>
+                                <option value="default_en">English（默认）</option>
+                            </optgroup>
+                            <optgroup label="我的提示词" id="rag-custom-prompt-group">
+                            </optgroup>
+                        </select>
+                        <button class="btn btn-outline" onclick="saveRagPromptTemplate()" style="padding:5px 12px; font-size:0.85rem; white-space:nowrap;">
+                            <i class="fas fa-save"></i> 保存当前
+                        </button>
+                        <button id="rag-delete-prompt-btn" class="btn btn-outline" onclick="deleteRagPromptTemplate()" style="padding:5px 12px; font-size:0.85rem; display:none; color:#e74c3c; border-color:#e74c3c; white-space:nowrap;">
+                            <i class="fas fa-trash-alt"></i> 删除
+                        </button>
+                        <span id="rag-prompt-save-status" style="font-size:0.82rem; color:#27ae60;"></span>
                     </div>
                     <textarea id="rag-prompt-editor"
                         style="width:100%; height:280px; font-family:monospace; font-size:0.82rem; padding:10px; border:1px solid #ddd; border-radius:6px; resize:vertical; line-height:1.5;"></textarea>
@@ -3998,6 +4035,9 @@ Now please start generating questions. Output question content directly without 
             setRagPromptMode('zh');
             // Load DS docs for default DeepSeek mode
             loadDsDocs();
+            // 初始化提示词选择器（渲染已保存的自定义提示词）
+            renderRagPromptSelector();
+            renderImportPromptSelector();
         });
 
         // ========== AI 智能出题 ==========
@@ -5413,6 +5453,211 @@ Now please start generating questions. Output question content directly without 
                     btn.style.color = (m === mode) ? 'white' : '';
                 }
             });
+
+            // 同步更新提示词选择器
+            const sel = document.getElementById('rag-prompt-selector');
+            if (sel) sel.value = 'default_' + mode;
+            const deleteBtn = document.getElementById('rag-delete-prompt-btn');
+            if (deleteBtn) deleteBtn.style.display = 'none';
+        }
+
+        // ── 提示词保存/加载系统 ───────────────────────────────────────────────────
+
+        const _PROMPT_KEY_KG = 'saved_prompts_kg';
+        const _PROMPT_KEY_IMPORT = 'saved_prompts_import';
+
+        function _getSavedPrompts(storeKey) {
+            try { return JSON.parse(localStorage.getItem(storeKey) || '[]'); } catch(e) { return []; }
+        }
+
+        function _setSavedPrompts(storeKey, prompts) {
+            localStorage.setItem(storeKey, JSON.stringify(prompts));
+        }
+
+        function _savePromptToStore(storeKey, name, content) {
+            const prompts = _getSavedPrompts(storeKey);
+            const id = 'custom_' + Date.now();
+            prompts.push({ id, name, content, createdAt: new Date().toISOString() });
+            _setSavedPrompts(storeKey, prompts);
+            return id;
+        }
+
+        function _overwritePromptInStore(storeKey, existingId, content) {
+            const prompts = _getSavedPrompts(storeKey);
+            const idx = prompts.findIndex(p => p.id === existingId);
+            if (idx >= 0) {
+                prompts[idx].content = content;
+                prompts[idx].updatedAt = new Date().toISOString();
+                _setSavedPrompts(storeKey, prompts);
+            }
+            return existingId;
+        }
+
+        // 处理重名逻辑，返回 {id, isNew} 或 null（用户取消）
+        function _resolveAndSavePrompt(storeKey, inputName, content) {
+            const prompts = _getSavedPrompts(storeKey);
+            const existing = prompts.find(p => p.name === inputName);
+            if (!existing) {
+                return { id: _savePromptToStore(storeKey, inputName, content), isNew: true };
+            }
+            // 重名：询问是否覆盖
+            if (confirm(`"${inputName}" 已存在，是否覆盖？\n\n点击"确定"覆盖，点击"取消"自动改名。`)) {
+                return { id: _overwritePromptInStore(storeKey, existing.id, content), isNew: false };
+            }
+            // 不覆盖：自动追加今天日期
+            const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
+            const autoName = `${inputName} ${today}`;
+            const autoExists = prompts.find(p => p.name === autoName);
+            if (!autoExists) {
+                return { id: _savePromptToStore(storeKey, autoName, content), name: autoName, isNew: true };
+            }
+            // 自动命名也冲突，让用户再输入一次
+            const fallback = prompt(`"${autoName}" 也已存在，请输入新名称：`, autoName + '_2');
+            if (!fallback || !fallback.trim()) return null;
+            const fallbackName = fallback.trim();
+            const fallbackExists = prompts.find(p => p.name === fallbackName);
+            if (fallbackExists) {
+                if (confirm(`"${fallbackName}" 仍已存在，是否覆盖？`)) {
+                    return { id: _overwritePromptInStore(storeKey, fallbackExists.id, content), isNew: false };
+                }
+                return null;
+            }
+            return { id: _savePromptToStore(storeKey, fallbackName, content), name: fallbackName, isNew: true };
+        }
+
+        function _deletePromptFromStore(storeKey, id) {
+            _setSavedPrompts(storeKey, _getSavedPrompts(storeKey).filter(p => p.id !== id));
+        }
+
+        function _showPromptSaveStatus(elId, msg) {
+            const el = document.getElementById(elId);
+            if (!el) return;
+            el.textContent = msg;
+            setTimeout(() => { el.textContent = ''; }, 3000);
+        }
+
+        // ── 知识图谱页面：提示词选择器 ──────────────────────────────────────────
+
+        function renderRagPromptSelector() {
+            const group = document.getElementById('rag-custom-prompt-group');
+            if (!group) return;
+            const prompts = _getSavedPrompts(_PROMPT_KEY_KG);
+            group.innerHTML = prompts.map(p =>
+                `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`
+            ).join('');
+        }
+
+        function loadRagPromptFromSelector() {
+            const sel = document.getElementById('rag-prompt-selector');
+            if (!sel) return;
+            const val = sel.value;
+            const deleteBtn = document.getElementById('rag-delete-prompt-btn');
+            if (val.startsWith('default_')) {
+                setRagPromptMode(val.replace('default_', ''));
+                // setRagPromptMode 已经把 selector 重置，需要再次设置避免循环
+                if (sel) sel.value = val;
+                if (deleteBtn) deleteBtn.style.display = 'none';
+            } else {
+                const p = _getSavedPrompts(_PROMPT_KEY_KG).find(x => x.id === val);
+                if (p) {
+                    const editor = document.getElementById('rag-prompt-editor');
+                    if (editor) editor.value = p.content;
+                }
+                if (deleteBtn) deleteBtn.style.display = '';
+            }
+        }
+
+        function saveRagPromptTemplate() {
+            const editor = document.getElementById('rag-prompt-editor');
+            if (!editor || !editor.value.trim()) {
+                alert('提示词内容为空，请先填写提示词。');
+                return;
+            }
+            const name = prompt('请输入保存名称：', '自定义提示词');
+            if (!name || !name.trim()) return;
+            const result = _resolveAndSavePrompt(_PROMPT_KEY_KG, name.trim(), editor.value);
+            if (!result) return;
+            renderRagPromptSelector();
+            const sel = document.getElementById('rag-prompt-selector');
+            if (sel) sel.value = result.id;
+            const deleteBtn = document.getElementById('rag-delete-prompt-btn');
+            if (deleteBtn) deleteBtn.style.display = '';
+            const savedName = result.name || name.trim();
+            _showPromptSaveStatus('rag-prompt-save-status', result.isNew ? `✓ 已保存为"${savedName}"` : `✓ 已覆盖"${savedName}"`);
+        }
+
+        function deleteRagPromptTemplate() {
+            const sel = document.getElementById('rag-prompt-selector');
+            if (!sel || sel.value.startsWith('default_')) return;
+            const p = _getSavedPrompts(_PROMPT_KEY_KG).find(x => x.id === sel.value);
+            if (!p || !confirm(`确定删除"${p.name}"？`)) return;
+            _deletePromptFromStore(_PROMPT_KEY_KG, sel.value);
+            renderRagPromptSelector();
+            sel.value = 'default_zh';
+            loadRagPromptFromSelector();
+            _showPromptSaveStatus('rag-prompt-save-status', '已删除');
+        }
+
+        // ── 题库导入页面：提示词选择器 ──────────────────────────────────────────
+
+        function renderImportPromptSelector() {
+            const group = document.getElementById('import-custom-prompt-group');
+            if (!group) return;
+            const prompts = _getSavedPrompts(_PROMPT_KEY_IMPORT);
+            group.innerHTML = prompts.map(p =>
+                `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`
+            ).join('');
+        }
+
+        function loadImportPromptFromSelector() {
+            const sel = document.getElementById('import-prompt-selector');
+            if (!sel) return;
+            const val = sel.value;
+            const deleteBtn = document.getElementById('import-delete-prompt-btn');
+            if (val.startsWith('default_')) {
+                const mode = val.replace('default_', '');
+                const modeSelect = document.getElementById('prompt-mode-select');
+                if (modeSelect) { modeSelect.value = mode; modeSelect.dispatchEvent(new Event('change')); }
+                if (deleteBtn) deleteBtn.style.display = 'none';
+            } else {
+                const p = _getSavedPrompts(_PROMPT_KEY_IMPORT).find(x => x.id === val);
+                if (p) {
+                    const ta = document.getElementById('prompt-display');
+                    if (ta) ta.value = p.content;
+                }
+                if (deleteBtn) deleteBtn.style.display = '';
+            }
+        }
+
+        function saveImportPromptTemplate() {
+            const ta = document.getElementById('prompt-display');
+            if (!ta || !ta.value.trim()) {
+                alert('提示词内容为空，请先选择或填写提示词。');
+                return;
+            }
+            const name = prompt('请输入保存名称：', '自定义提示词');
+            if (!name || !name.trim()) return;
+            const result = _resolveAndSavePrompt(_PROMPT_KEY_IMPORT, name.trim(), ta.value);
+            if (!result) return;
+            renderImportPromptSelector();
+            const sel = document.getElementById('import-prompt-selector');
+            if (sel) sel.value = result.id;
+            const deleteBtn = document.getElementById('import-delete-prompt-btn');
+            if (deleteBtn) deleteBtn.style.display = '';
+            const savedName = result.name || name.trim();
+            _showPromptSaveStatus('import-prompt-save-status', result.isNew ? `✓ 已保存为"${savedName}"` : `✓ 已覆盖"${savedName}"`);
+        }
+
+        function deleteImportPromptTemplate() {
+            const sel = document.getElementById('import-prompt-selector');
+            if (!sel || sel.value.startsWith('default_')) return;
+            const p = _getSavedPrompts(_PROMPT_KEY_IMPORT).find(x => x.id === sel.value);
+            if (!p || !confirm(`确定删除"${p.name}"？`)) return;
+            _deletePromptFromStore(_PROMPT_KEY_IMPORT, sel.value);
+            renderImportPromptSelector();
+            sel.value = 'default_zh';
+            loadImportPromptFromSelector();
+            _showPromptSaveStatus('import-prompt-save-status', '已删除');
         }
 
         // ── 题型元数据 ────────────────────────────────────────────────────────────
