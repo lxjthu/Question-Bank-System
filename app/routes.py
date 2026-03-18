@@ -640,7 +640,7 @@ def generate_exam():
         )
         if subject_filter:
             q_query = q_query.filter(QuestionModel.subject == subject_filter)
-        available = q_query.limit(count).all()
+        available = q_query.order_by(db.func.random()).limit(count).all()
 
         for q in available:
             db.session.execute(exam_questions.insert().values(
