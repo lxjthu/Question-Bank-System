@@ -9,6 +9,7 @@ venv/
 
 # Database & runtime data
 exam_system.db
+ds_knowledge.db
 uploads/
 exports/
 temp/
@@ -31,6 +32,17 @@ nul
 rag_pipeline/kg.db
 rag_pipeline/progress.json
 rag_pipeline/output/
+rag_pipeline/qdrant_storage/
+rag_pipeline/bm25_index/
+
+# Test runtime artifacts
+test/
+test_results.json
+test_advanced_results.json
+test_slide1_result.md
+
+# Local Claude settings
+.claude/settings.local.json
 
 # Large model weight files (downloaded at runtime, not for git)
 models/
