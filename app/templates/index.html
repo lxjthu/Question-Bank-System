@@ -1166,7 +1166,7 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="settings-institution-name">学校/机构名称</label>
-                            <input type="text" id="settings-institution-name" placeholder="如: 中南财经政法大学">
+                            <input type="text" id="settings-institution-name" placeholder="">
                         </div>
                         <div class="form-group">
                             <label for="settings-semester-info">学期信息</label>
@@ -3255,7 +3255,7 @@
             const subtitleEl = document.getElementById('site-subtitle');
 
             if (settings.course_name) {
-                const titleText = `${settings.course_name} 试题管理系统`;
+                const titleText = `"${settings.course_name}"试题管理系统`;
                 titleEl.innerHTML = `<i class="fas fa-graduation-cap"></i> ${escapeHtml(titleText)}`;
                 document.title = titleText;
             } else {
@@ -4572,9 +4572,18 @@ Now please start generating questions. Output question content directly without 
                 tt.innerHTML =
                     `<div style="font-weight:600;color:#2c3e50;margin-bottom:4px;font-size:0.83rem;">${escapeHtml(d.name)}</div>` +
                     `<div style="color:#8e44ad;font-size:0.71rem;margin-bottom:5px;"><i class="fas fa-book-open" style="font-size:0.65rem;"></i> ${escapeHtml(d.chapter || '')}</div>` +
-                    `<div style="color:#555;max-height:110px;overflow:hidden;">${escapeHtml((d.content || '').slice(0, 220))}${(d.content||'').length > 220 ? '…' : ''}</div>`;
+                    `<div style="color:#555;max-height:110px;overflow:hidden;">${escapeHtml((d.content || '').slice(0, 220))}${(d.content||'').length > 220 ? '…' : ''}</div>` +
+                    `<div style="margin-top:5px;font-size:0.68rem;color:#aaa;">点击查看完整详情并编辑</div>`;
                 _moveDsKgTt(e);
-            }).on('mousemove', _moveDsKgTt).on('mouseleave', () => { if (tt) tt.style.display = 'none'; });
+            }).on('mousemove', _moveDsKgTt).on('mouseleave', () => { if (tt) tt.style.display = 'none'; })
+            .on('click', (e, d) => {
+                e.stopPropagation();
+                if (tt) tt.style.display = 'none';
+                _openKpPanel(d);
+            });
+
+            // 点击画布空白区域关闭面板
+            svg.on('click', () => { _closeKpPanel(); });
 
             sim.on('tick', () => {
                 edgeLine
@@ -4595,11 +4604,325 @@ Now please start generating questions. Output question content directly without 
             tt.style.top  = (y + tt.offsetHeight > window.innerHeight - 10 ? y - tt.offsetHeight - 20 : y) + 'px';
         }
 
-        // ESC 关闭图谱 modal
+        // ── 知识点详情面板 ────────────────────────────────────────────────────────
+
+        // 当前面板状态
+        let _kpPanelData = null;   // 当前显示的节点数据 (D3 datum)
+        let _kpPanelEditing = false;
+
+        const _KP_REL_TYPES = ['从属', '比较', '并列', '交叉', '前提'];
+
+        function _openKpPanel(d) {
+            // 编辑中切换节点：二次确认
+            if (_kpPanelEditing && _kpPanelData && _kpPanelData.id !== d.id) {
+                if (!confirm('当前有未保存的修改，切换节点将丢弃修改，是否继续？')) return;
+                _kpPanelEditing = false;
+            }
+            _kpPanelData = d;
+            _kpPanelEditing = false;
+            _renderKpPanel(d);
+            document.getElementById('ds-kp-panel').style.width = '340px';
+            _syncKpGenBtn();
+        }
+
+        function _closeKpPanel() {
+            if (_kpPanelEditing) {
+                if (!confirm('有未保存的修改，关闭将丢弃，是否继续？')) return;
+            }
+            _kpPanelEditing = false;
+            _kpPanelData = null;
+            document.getElementById('ds-kp-panel').style.width = '0';
+        }
+
+        function _renderKpPanel(d) {
+            // 解析关系（d.content 和关系在 _dsKgAllNodes 里，但关系在 _dsKgAllLinks）
+            const kpId = d.id.replace('kp_', '');  // 'kp_123' → '123'
+
+            // 从全量 links 中找以该节点为 source 的关系
+            const myRels = (_dsKgAllLinks || [])
+                .filter(lk => {
+                    const srcId = typeof lk.source === 'object' ? lk.source.id : lk.source;
+                    return srcId === d.id;
+                })
+                .map(lk => ({
+                    type: lk.type || '',
+                    target: (() => {
+                        const tId = typeof lk.target === 'object' ? lk.target.id : lk.target;
+                        const tNode = (_dsKgAllNodes || []).find(n => n.id === tId);
+                        return tNode ? tNode.name : tId;
+                    })(),
+                }));
+
+            // 把解析到的关系挂在 d 上，供保存时使用
+            d._parsedRels = myRels;
+
+            // 渲染只读内容
+            _setKpPanelReadonly(d, myRels);
+        }
+
+        function _setKpPanelReadonly(d, rels) {
+            // 名称
+            const nameView = document.getElementById('ds-kp-panel-name-view');
+            const nameEdit = document.getElementById('ds-kp-panel-name-edit');
+            nameView.textContent = d.name;
+            nameView.style.display = '';
+            nameEdit.style.display = 'none';
+
+            // 章节
+            document.getElementById('ds-kp-panel-chapter').innerHTML =
+                `<i class="fas fa-book-open" style="font-size:0.65rem;margin-right:4px;"></i>${escapeHtml(d.chapter || '')}`;
+
+            // 内容
+            const contentView = document.getElementById('ds-kp-panel-content-view');
+            const contentEdit = document.getElementById('ds-kp-panel-content-edit');
+            contentView.textContent = d.content || '（暂无内容）';
+            contentView.style.display = '';
+            contentEdit.style.display = 'none';
+
+            // 关系
+            const relsEl = document.getElementById('ds-kp-panel-rels');
+            document.getElementById('ds-kp-add-rel-btn').style.display = 'none';
+            if (rels.length === 0) {
+                relsEl.innerHTML = '<div style="color:#bbb;font-size:0.78rem;">（暂无关联关系）</div>';
+            } else {
+                relsEl.innerHTML = rels.map(r =>
+                    `<div style="display:flex;align-items:center;gap:5px;font-size:0.78rem;">
+                        <span style="background:#f0e6fa;color:#6c3483;padding:2px 7px;
+                                     border-radius:10px;font-size:0.71rem;white-space:nowrap;">${escapeHtml(r.type)}</span>
+                        <span style="color:#2c3e50;">→</span>
+                        <span style="color:#333;word-break:break-all;">${escapeHtml(r.target)}</span>
+                    </div>`
+                ).join('');
+            }
+
+            // 按钮状态
+            document.getElementById('ds-kp-edit-btn').style.display = '';
+            document.getElementById('ds-kp-save-btn').style.display = 'none';
+            document.getElementById('ds-kp-cancel-btn').style.display = 'none';
+            document.getElementById('ds-kp-panel-msg').textContent = '';
+        }
+
+        function _enterKpEdit() {
+            if (!_kpPanelData) return;
+            _kpPanelEditing = true;
+            const d = _kpPanelData;
+            const rels = d._parsedRels || [];
+
+            // 切换名称到编辑态
+            const nameView = document.getElementById('ds-kp-panel-name-view');
+            const nameEdit = document.getElementById('ds-kp-panel-name-edit');
+            nameEdit.value = d.name;
+            nameEdit.style.display = '';
+            nameEdit.style.width = '100%';
+            nameView.style.display = 'none';
+
+            // 切换内容到编辑态
+            const contentView = document.getElementById('ds-kp-panel-content-view');
+            const contentEdit = document.getElementById('ds-kp-panel-content-edit');
+            contentEdit.value = d.content || '';
+            contentEdit.style.display = '';
+            contentView.style.display = 'none';
+
+            // 关系可编辑行
+            document.getElementById('ds-kp-add-rel-btn').style.display = '';
+            _renderKpRelEditRows(rels);
+
+            // 按钮状态
+            document.getElementById('ds-kp-edit-btn').style.display = 'none';
+            document.getElementById('ds-kp-save-btn').style.display = '';
+            document.getElementById('ds-kp-cancel-btn').style.display = '';
+            document.getElementById('ds-kp-panel-msg').textContent = '';
+        }
+
+        function _renderKpRelEditRows(rels) {
+            const relsEl = document.getElementById('ds-kp-panel-rels');
+            relsEl.innerHTML = '';
+            rels.forEach((r, i) => _appendKpRelRow(r.type, r.target));
+        }
+
+        function _appendKpRelRow(type, target) {
+            const relsEl = document.getElementById('ds-kp-panel-rels');
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:4px;';
+            const typeOpts = _KP_REL_TYPES.map(t =>
+                `<option value="${t}" ${t === type ? 'selected' : ''}>${t}</option>`
+            ).join('');
+            row.innerHTML =
+                `<select style="font-size:0.75rem;padding:2px 4px;border:1px solid #ccc;
+                                border-radius:4px;color:#555;background:#fff;flex-shrink:0;">
+                    ${typeOpts}
+                 </select>
+                 <span style="color:#888;font-size:0.8rem;">→</span>
+                 <input type="text" value="${escapeHtml(target)}" placeholder="目标知识点名称"
+                        style="flex:1;font-size:0.78rem;padding:2px 6px;border:1px solid #ccc;
+                               border-radius:4px;outline:none;min-width:0;">
+                 <button onclick="this.parentElement.remove()"
+                         style="background:none;border:none;color:#e74c3c;cursor:pointer;
+                                font-size:0.9rem;padding:0 2px;flex-shrink:0;" title="删除">×</button>`;
+            relsEl.appendChild(row);
+        }
+
+        function _addKpRelRow() {
+            _appendKpRelRow('从属', '');
+        }
+
+        function _collectKpRelRows() {
+            const rows = document.querySelectorAll('#ds-kp-panel-rels > div');
+            const rels = [];
+            rows.forEach(row => {
+                const sel = row.querySelector('select');
+                const inp = row.querySelector('input');
+                if (sel && inp && inp.value.trim()) {
+                    rels.push({ type: sel.value, target: inp.value.trim() });
+                }
+            });
+            return rels;
+        }
+
+        async function _saveKpEdit() {
+            if (!_kpPanelData) return;
+            const d = _kpPanelData;
+            const kpId = d.id.replace('kp_', '');
+
+            const name = document.getElementById('ds-kp-panel-name-edit').value.trim();
+            const content = document.getElementById('ds-kp-panel-content-edit').value.trim();
+            const relations = _collectKpRelRows();
+
+            if (!name) {
+                _setKpPanelMsg('名称不能为空', 'error');
+                return;
+            }
+
+            const saveBtn = document.getElementById('ds-kp-save-btn');
+            saveBtn.disabled = true;
+            saveBtn.textContent = '保存中…';
+            _setKpPanelMsg('', '');
+
+            try {
+                const resp = await fetch(`/api/rag/ds-kps/${kpId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, content, relations }),
+                });
+                const data = await resp.json();
+                if (!resp.ok || !data.success) {
+                    throw new Error(data.error || `HTTP ${resp.status}`);
+                }
+
+                // 同步更新内存中的节点数据
+                d.name    = name;
+                d.content = content;
+                d._parsedRels = relations;
+
+                // 同步更新 _dsKgAllNodes 中对应节点
+                const allNode = (_dsKgAllNodes || []).find(n => n.id === d.id);
+                if (allNode) { allNode.name = name; allNode.content = content; }
+
+                _kpPanelEditing = false;
+                _setKpPanelReadonly(d, relations);
+                _setKpPanelMsg('已保存', 'ok');
+
+                // 刷新图谱中节点文字（不重新请求，直接更新 SVG text）
+                const svg = document.querySelector('#ds-kg-container svg');
+                if (svg) {
+                    svg.querySelectorAll('g > g > g text').forEach(t => {
+                        // 找到显示该节点名称的 text（通过对比截断后文字）
+                        if (t.textContent && t.getAttribute('pointer-events') === 'none') {
+                            // 只能重渲染来完全同步，这里简单提示
+                        }
+                    });
+                    // 重新渲染图谱（保持当前节点位置）
+                    if (window._dsKgSimulation) {
+                        window._dsKgSimulation.nodes().forEach(n => {
+                            if (n.id === d.id) { n.name = name; n.content = content; }
+                        });
+                        // 更新 SVG 中的文字
+                        d3.select('#ds-kg-container svg').selectAll('g g g text')
+                            .filter(nd => nd && nd.id === d.id)
+                            .text(nd => nd.name.length > 7 ? nd.name.slice(0, 7) + '…' : nd.name);
+                    }
+                }
+            } catch (err) {
+                _setKpPanelMsg('保存失败：' + err.message, 'error');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="fas fa-save" style="font-size:0.7rem;margin-right:3px;"></i>保存';
+            }
+        }
+
+        function _cancelKpEdit() {
+            if (!_kpPanelData) return;
+            _kpPanelEditing = false;
+            _setKpPanelReadonly(_kpPanelData, _kpPanelData._parsedRels || []);
+        }
+
+        function _setKpPanelMsg(msg, type) {
+            const el = document.getElementById('ds-kp-panel-msg');
+            if (!el) return;
+            el.textContent = msg;
+            el.style.color = type === 'error' ? '#e74c3c' : type === 'ok' ? '#27ae60' : '#aaa';
+        }
+
+        // ── 知识点"选中出题"按钮 ──────────────────────────────────────────────────
+
+        /** 根据 selected 状态刷新按钮外观 */
+        function _setKpGenBtnState(selected) {
+            const btn = document.getElementById('ds-kp-gen-btn');
+            if (!btn) return;
+            if (selected) {
+                btn.style.background = '#27ae60';
+                btn.style.color = '#fff';
+                btn.style.border = '1px solid #27ae60';
+                btn.innerHTML = '<i class="fas fa-check" style="font-size:0.7rem;margin-right:3px;"></i>已选出题';
+            } else {
+                btn.style.background = '#fff';
+                btn.style.color = '#27ae60';
+                btn.style.border = '1px solid #27ae60';
+                btn.innerHTML = '<i class="fas fa-check-square" style="font-size:0.7rem;margin-right:3px;"></i>选中出题';
+            }
+        }
+
+        /** 面板打开/切换时，从出题配置的 checkbox 同步按钮状态 */
+        function _syncKpGenBtn() {
+            if (!_kpPanelData) return;
+            const name = _kpPanelData.name;
+            const cb = [...document.querySelectorAll('.rag-section-cb')]
+                .find(c => c.value === name);
+            _setKpGenBtnState(cb ? cb.checked : false);
+        }
+
+        /** 点击"选中出题"按钮 — 切换该知识点在出题配置中的勾选状态 */
+        function _toggleKpForGen() {
+            if (!_kpPanelData) return;
+            const name = _kpPanelData.name;
+            const cbs = [...document.querySelectorAll('.rag-section-cb')]
+                .filter(c => c.value === name);
+
+            if (cbs.length === 0) {
+                _setKpPanelMsg('请先在出题配置中选择文档并加载知识点', 'error');
+                setTimeout(() => _setKpPanelMsg('', ''), 2500);
+                return;
+            }
+
+            // 取第一个（通常只有一个）；若已全部勾选则取消，否则全部勾选
+            const anyChecked = cbs.some(c => c.checked);
+            cbs.forEach(c => { c.checked = !anyChecked; });
+            _setKpGenBtnState(!anyChecked);
+            _setKpPanelMsg(!anyChecked ? '已加入出题范围' : '已从出题范围移除', 'ok');
+            setTimeout(() => _setKpPanelMsg('', ''), 1500);
+        }
+
+        // ESC：先收起详情面板，面板已关闭时关闭 Modal
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape') {
                 const m = document.getElementById('ds-kg-modal');
-                if (m && m.style.display !== 'none') closeDsKgModal();
+                if (!m || m.style.display === 'none') return;
+                const panel = document.getElementById('ds-kp-panel');
+                if (panel && panel.style.width !== '0px' && panel.style.width !== '0') {
+                    _closeKpPanel();
+                } else {
+                    closeDsKgModal();
+                }
             }
         });
 
@@ -5674,11 +5997,97 @@ Reference answer integrating theory and case.
                 <!-- 右侧图谱画布 -->
                 <div id="ds-kg-container"
                      style="flex:1;position:relative;overflow:hidden;background:#f4f6fb;"></div>
+                <!-- 右侧知识点详情面板 -->
+                <div id="ds-kp-panel" style="width:0;flex-shrink:0;border-left:1px solid #e8eaf0;
+                     background:#fff;overflow:hidden;transition:width 0.22s ease;
+                     display:flex;flex-direction:column;">
+                    <div style="width:340px;height:100%;display:flex;flex-direction:column;overflow:hidden;">
+                        <!-- 面板标题 -->
+                        <div style="padding:10px 14px 8px;border-bottom:1px solid #f0f0f0;
+                                    display:flex;align-items:flex-start;gap:6px;flex-shrink:0;background:#fafbff;">
+                            <div id="ds-kp-panel-name-view"
+                                 style="flex:1;font-weight:700;font-size:0.88rem;color:#2c3e50;
+                                        line-height:1.4;word-break:break-all;"></div>
+                            <input id="ds-kp-panel-name-edit" type="text"
+                                   style="display:none;flex:1;font-weight:700;font-size:0.88rem;
+                                          color:#2c3e50;border:1px solid #a0b0d0;border-radius:5px;
+                                          padding:3px 6px;outline:none;line-height:1.4;width:0;min-width:0;">
+                            <button onclick="_closeKpPanel()"
+                                    style="flex-shrink:0;background:none;border:none;cursor:pointer;
+                                           color:#aaa;font-size:1rem;line-height:1;padding:1px 3px;"
+                                    title="关闭详情">✕</button>
+                        </div>
+                        <!-- 章节标签 -->
+                        <div id="ds-kp-panel-chapter"
+                             style="padding:5px 14px;font-size:0.74rem;color:#8e44ad;flex-shrink:0;
+                                    border-bottom:1px solid #f5f5f5;background:#fafbff;">
+                        </div>
+                        <!-- 内容区（可滚动） -->
+                        <div style="flex:1;overflow-y:auto;padding:10px 14px 6px;display:flex;flex-direction:column;gap:10px;">
+                            <!-- 知识点内容 -->
+                            <div>
+                                <div style="font-size:0.72rem;font-weight:600;color:#555;margin-bottom:4px;
+                                            text-transform:uppercase;letter-spacing:.03em;">
+                                    <i class="fas fa-file-alt" style="font-size:0.65rem;margin-right:3px;"></i>内容
+                                </div>
+                                <div id="ds-kp-panel-content-view"
+                                     style="font-size:0.82rem;color:#333;line-height:1.7;
+                                            white-space:pre-wrap;word-break:break-all;"></div>
+                                <textarea id="ds-kp-panel-content-edit"
+                                          style="display:none;width:100%;box-sizing:border-box;
+                                                 font-size:0.82rem;color:#333;line-height:1.7;
+                                                 border:1px solid #a0b0d0;border-radius:5px;
+                                                 padding:6px 8px;resize:vertical;min-height:120px;
+                                                 outline:none;font-family:inherit;"></textarea>
+                            </div>
+                            <!-- 关联关系 -->
+                            <div>
+                                <div style="font-size:0.72rem;font-weight:600;color:#555;margin-bottom:4px;
+                                            display:flex;align-items:center;justify-content:space-between;">
+                                    <span><i class="fas fa-link" style="font-size:0.65rem;margin-right:3px;"></i>关联关系</span>
+                                    <button id="ds-kp-add-rel-btn" onclick="_addKpRelRow()"
+                                            style="display:none;padding:2px 8px;font-size:0.7rem;
+                                                   border:1px solid #2980b9;color:#2980b9;background:none;
+                                                   border-radius:4px;cursor:pointer;">
+                                        + 添加
+                                    </button>
+                                </div>
+                                <div id="ds-kp-panel-rels" style="display:flex;flex-direction:column;gap:5px;"></div>
+                            </div>
+                        </div>
+                        <!-- 底部操作栏 -->
+                        <div id="ds-kp-panel-actions"
+                             style="padding:8px 14px;border-top:1px solid #f0f0f0;flex-shrink:0;
+                                    display:flex;gap:6px;align-items:center;background:#fafbff;">
+                            <button id="ds-kp-edit-btn" onclick="_enterKpEdit()"
+                                    style="padding:5px 14px;font-size:0.8rem;border-radius:5px;cursor:pointer;
+                                           border:1px solid #2980b9;color:#2980b9;background:#fff;">
+                                <i class="fas fa-pen" style="font-size:0.7rem;margin-right:3px;"></i>编辑
+                            </button>
+                            <button id="ds-kp-gen-btn" onclick="_toggleKpForGen()"
+                                    style="padding:5px 12px;font-size:0.8rem;border-radius:5px;cursor:pointer;
+                                           border:1px solid #27ae60;color:#27ae60;background:#fff;">
+                                <i class="fas fa-check-square" style="font-size:0.7rem;margin-right:3px;"></i>选中出题
+                            </button>
+                            <button id="ds-kp-save-btn" onclick="_saveKpEdit()" style="display:none;
+                                    padding:5px 14px;font-size:0.8rem;border-radius:5px;cursor:pointer;
+                                    border:none;background:#2980b9;color:#fff;">
+                                <i class="fas fa-save" style="font-size:0.7rem;margin-right:3px;"></i>保存
+                            </button>
+                            <button id="ds-kp-cancel-btn" onclick="_cancelKpEdit()" style="display:none;
+                                    padding:5px 14px;font-size:0.8rem;border-radius:5px;cursor:pointer;
+                                    border:1px solid #bbb;background:#fff;color:#666;">
+                                取消
+                            </button>
+                            <span id="ds-kp-panel-msg" style="font-size:0.76rem;flex:1;text-align:right;"></span>
+                        </div>
+                    </div>
+                </div>
             </div>
             <!-- 底部提示 -->
             <div style="padding:5px 16px;font-size:0.7rem;color:#bbb;border-top:1px solid #f0f0f0;
                         background:#fafafa;flex-shrink:0;">
-                悬停节点查看知识点详情 &nbsp;·&nbsp; 滚轮缩放 &nbsp;·&nbsp; 拖拽平移 &nbsp;·&nbsp; 拖动节点调整布局
+                点击节点查看/编辑知识点 &nbsp;·&nbsp; 悬停预览 &nbsp;·&nbsp; 滚轮缩放 &nbsp;·&nbsp; 拖拽平移 &nbsp;·&nbsp; 拖动节点调整布局
             </div>
         </div>
     </div>
