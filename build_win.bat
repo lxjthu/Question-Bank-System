@@ -9,7 +9,7 @@ setlocal EnableDelayedExpansion
 ::   build_win.bat
 ::
 :: 产物：
-::   dist\试题管理系统_v<VERSION>_win64.zip
+::   dist\exam-system_v<VERSION>_win64.zip
 ::
 :: 要求：
 ::   - Windows 10/11 x64
@@ -22,7 +22,7 @@ set APP_NAME=试题管理系统
 
 :: ── 读取版本号 ────────────────────────────────────────────────────────────────
 set /p VERSION=<VERSION
-set ZIP_NAME=%APP_NAME%_v%VERSION%_win64.zip
+set ZIP_NAME=exam-system_v%VERSION%_win64.zip
 
 echo.
 echo ===========================================================
