@@ -2228,14 +2228,24 @@ def ds_doc_kps(doc_id):
     """获取文档的章节列表和知识点列表（用于前端三级联动筛选）。"""
     _init_ds_db()
     with _ds_db_conn() as conn:
-        # 返回父章去重列表（用于 UI 章节筛选）
-        chapters = conn.execute(
-            "SELECT DISTINCT parent_chapter_num as chapter_num, parent_chapter_name as chapter_name "
-            "FROM ds_chapters WHERE doc_id=? GROUP BY parent_chapter_num ORDER BY parent_chapter_num",
+        # 返回 (章, 节) 两级去重列表（从 ds_kps 按 chapter_name + section_name 分组）
+        chapters_raw = conn.execute(
+            "SELECT chapter_name, chapter_num, COALESCE(section_name,'') as section_name "
+            "FROM ds_kps WHERE doc_id=? ORDER BY chapter_num, id",
             (doc_id,),
         ).fetchall()
+        seen_ch: dict = {}
+        for r in chapters_raw:
+            key = (r['chapter_name'], r['section_name'])
+            if key not in seen_ch:
+                seen_ch[key] = r['chapter_num']
+        chapters_list = sorted(
+            [{'name': ch, 'section_name': sec, 'num': num} for (ch, sec), num in seen_ch.items()],
+            key=lambda x: (x['num'], x['section_name'])
+        )
         kps = conn.execute(
-            "SELECT id, chapter_name, chapter_num, kp_name, kp_content, relations_json, "
+            "SELECT id, chapter_name, chapter_num, COALESCE(section_name,'') as section_name, "
+            "kp_name, kp_content, relations_json, "
             "teaching_focus, knowledge_type, cognitive_dimension "
             "FROM ds_kps WHERE doc_id=? ORDER BY chapter_num, id",
             (doc_id,),
@@ -2253,12 +2263,13 @@ def ds_doc_kps(doc_id):
 
     return jsonify({
         'architecture': architecture,
-        'chapters': [{'num': c['chapter_num'], 'name': c['chapter_name']} for c in chapters],
+        'chapters': chapters_list,
         'kps': [
             {
                 'id': k['id'],
                 'chapter_name': k['chapter_name'],
                 'chapter_num': k['chapter_num'],
+                'section_name': k['section_name'],
                 'name': k['kp_name'],
                 'content': k['kp_content'],
                 'relations': k['relations_json'],
@@ -2397,9 +2408,23 @@ def ds_generate():
                 )
                 params: list = [doc_id]
                 if chapters:
-                    placeholders = ','.join(['?' for _ in chapters])
-                    query += f" AND chapter_name IN ({placeholders})"
-                    params.extend(chapters)
+                    # 解析 chapters 参数，支持 "章名|||节名" 和纯 "章名" 两种格式
+                    chapter_filters = []
+                    for ch_val in chapters:
+                        if '|||' in ch_val:
+                            ch_name, sec_name = ch_val.split('|||', 1)
+                            chapter_filters.append((ch_name.strip(), sec_name.strip()))
+                        else:
+                            chapter_filters.append((ch_val.strip(), None))
+                    parts = []
+                    for ch_name, sec_name in chapter_filters:
+                        if sec_name:
+                            parts.append("(chapter_name=? AND COALESCE(section_name,'')=?)")
+                            params.extend([ch_name, sec_name])
+                        else:
+                            parts.append("chapter_name=?")
+                            params.append(ch_name)
+                    query += " AND (" + " OR ".join(parts) + ")"
                 if kp_names:
                     placeholders = ','.join(['?' for _ in kp_names])
                     query += f" AND kp_name IN ({placeholders})"

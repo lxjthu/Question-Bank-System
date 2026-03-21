@@ -1412,10 +1412,10 @@
                                         <span style="color:#bbb;">选择文档后加载章节</span>
                                     </div>
                                 </div>
-                                <!-- 知识点/节名 -->
+                                <!-- 知识点 -->
                                 <div style="flex:1; min-width:0;">
                                     <label style="display:block; margin-bottom:5px; font-weight:500; color:var(--primary-color);">
-                                        知识点/节名 <span style="font-weight:normal; font-size:0.78rem; color:#888;">（留空则全部）</span>
+                                        知识点 <span style="font-weight:normal; font-size:0.78rem; color:#888;">（留空则全部）</span>
                                     </label>
                                     <input type="text" id="rag-section-search" placeholder="搜索知识点..."
                                         style="width:100%; padding:7px 10px; border:1px solid #ddd; border-radius:6px; font-size:0.88rem; margin-bottom:4px;"
@@ -4343,6 +4343,7 @@ Now please start generating questions. Output question content directly without 
         let _dsKgAllNodes    = [];
         let _dsKgAllLinks    = [];
         let _dsKgAllChapters = [];
+        let _dsKgSelectedNodeId = null;  // 当前在详情面板中打开的节点 id
 
         // 稳定的章节颜色（以全量章节列表为基准，避免筛选后颜色跳变）
         function _dsKgColorOf(chName) {
@@ -4352,19 +4353,28 @@ Now please start generating questions. Output question content directly without 
 
         // ── 构建左侧筛选面板 ──────────────────────────────────────────────────
         function _buildDsKgFilterPanel() {
-            // 章节复选框
+            // 章节复选框：显示"章名 > 节名"（section_name 为空时只显示章名）
             const chPanel = document.getElementById('ds-kg-chapter-checks');
             if (chPanel) {
-                chPanel.innerHTML = _dsKgAllChapters.map(ch => `
+                chPanel.innerHTML = _dsKgAllChapters.map(ch => {
+                    const secName = ch.section_name || '';
+                    // value 编码：章名 + '|||' + 节名（三竖线分隔，避免歧义）
+                    const val = ch.name + '|||' + secName;
+                    const displayLabel = secName
+                        ? `${escapeHtml(ch.name)} <span style="color:#aaa;font-size:0.72rem;">›</span> <span style="color:#555;">${escapeHtml(secName)}</span>`
+                        : escapeHtml(ch.name);
+                    const titleText = secName ? `${ch.name} > ${secName}` : ch.name;
+                    return `
                     <label style="display:flex;align-items:center;gap:5px;padding:2px 0;
                                   cursor:pointer;font-size:0.78rem;overflow:hidden;min-width:0;">
-                        <input type="checkbox" class="ds-kg-ch-cb" value="${escapeHtml(ch.name)}"
+                        <input type="checkbox" class="ds-kg-ch-cb" value="${escapeHtml(val)}"
                                checked onchange="_applyDsKgFilter()" style="flex-shrink:0;">
                         <span style="width:8px;height:8px;border-radius:50%;
-                                     background:${_dsKgColorOf(ch.name)};flex-shrink:0;"></span>
-                        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
-                              title="${escapeHtml(ch.name)}">${escapeHtml(ch.name)}</span>
-                    </label>`).join('');
+                                     background:${_dsKgColorOf(ch.name)};flex-shrink:0;${secName ? 'opacity:0.6' : ''}"></span>
+                        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${secName ? 'padding-left:4px;' : ''}"
+                              title="${escapeHtml(titleText)}">${displayLabel}</span>
+                    </label>`;
+                }).join('');
             }
             // 关系类型复选框
             const relPanel = document.getElementById('ds-kg-rel-checks');
@@ -4388,8 +4398,12 @@ Now please start generating questions. Output question content directly without 
             const selectedRel = new Set([...document.querySelectorAll('.ds-kg-rel-cb:checked')].map(cb => cb.value));
             const searchText  = (document.getElementById('ds-kg-kp-search')?.value || '').trim().toLowerCase();
 
-            // 筛选节点：按章节 + 知识点关键词
-            let filteredNodes = _dsKgAllNodes.filter(n => selectedCh.has(n.chapter));
+            // 筛选节点：按章节（章名+节名联合键）+ 知识点关键词
+            // value 格式：章名 + '|||' + 节名
+            let filteredNodes = _dsKgAllNodes.filter(n => {
+                const nodeKey = n.chapter + '|||' + (n.section_name || '');
+                return selectedCh.has(nodeKey);
+            });
             if (searchText) {
                 filteredNodes = filteredNodes.filter(n =>
                     n.name.toLowerCase().includes(searchText) ||
@@ -4480,6 +4494,156 @@ Now please start generating questions. Output question content directly without 
                     container.innerHTML = `<div style="padding:40px;text-align:center;color:#e74c3c;">加载失败：${escapeHtml(e.message)}</div>`;
                 }
             });
+        }
+
+        // ── 批量AI标注知识类型/认知维度 ─────────────────────────────────────────
+        let _classifyPollTimer = null;
+
+        async function _startBatchClassify() {
+            const subtitle = document.getElementById('ds-kg-subtitle');
+            const match = subtitle && subtitle.textContent.match(/^\（(.+)\）$/);
+            const docId = match ? match[1] : null;
+
+            const onlyFiltered = document.getElementById('ds-classify-only-filtered').checked;
+            const overwrite    = document.getElementById('ds-classify-overwrite').checked;
+
+            // 收集要处理的 kp_ids
+            let kpIds = null;
+            if (onlyFiltered) {
+                // 从当前图谱可见节点取 id（格式 'kp_123' → 123）
+                const visibleNodes = (_dsKgAllNodes || []).filter(n => {
+                    const selectedCh  = new Set([...document.querySelectorAll('.ds-kg-ch-cb:checked')].map(cb => cb.value));
+                    const searchText  = (document.getElementById('ds-kg-kp-search')?.value || '').trim().toLowerCase();
+                    const nodeKey = n.chapter + '|||' + (n.section_name || '');
+                    if (!selectedCh.has(nodeKey)) return false;
+                    if (searchText && !n.name.toLowerCase().includes(searchText) &&
+                        !(n.content || '').toLowerCase().includes(searchText)) return false;
+                    return true;
+                });
+                kpIds = visibleNodes.map(n => parseInt(n.id.replace('kp_', ''))).filter(Boolean);
+                if (kpIds.length === 0) { alert('当前筛选下没有知识点。'); return; }
+            }
+
+            const btn = document.getElementById('ds-classify-btn');
+            btn.disabled = true;
+            const prog = document.getElementById('ds-classify-progress');
+            prog.style.display = '';
+            document.getElementById('ds-classify-bar').style.width = '0%';
+            document.getElementById('ds-classify-msg').textContent = '提交任务…';
+
+            try {
+                const body = { overwrite };
+                if (kpIds) body.kp_ids = kpIds;
+                else if (docId) body.doc_id = docId;
+                else { alert('无法确定文档，请在单文档视图下使用。'); return; }
+
+                const resp = await fetch('/api/rag/ds-batch-classify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+
+                if (!data.task_id) {
+                    // 立即完成（没有需要处理的）
+                    document.getElementById('ds-classify-msg').textContent = data.message || '没有需要处理的知识点';
+                    document.getElementById('ds-classify-bar').style.width = '100%';
+                    btn.disabled = false;
+                    return;
+                }
+
+                const total = data.total;
+                document.getElementById('ds-classify-msg').textContent = `0 / ${total}`;
+
+                // 轮询
+                _classifyPollTimer = setInterval(async () => {
+                    try {
+                        const pr = await fetch(`/api/rag/ds-classify-tasks/${data.task_id}`);
+                        const ps = await pr.json();
+                        const pct = total > 0 ? Math.round(ps.progress / total * 100) : 0;
+                        document.getElementById('ds-classify-bar').style.width = pct + '%';
+
+                        if (ps.status === 'running') {
+                            document.getElementById('ds-classify-msg').textContent =
+                                `处理中 ${ps.progress} / ${total}`;
+                        } else if (ps.status === 'done') {
+                            clearInterval(_classifyPollTimer);
+                            document.getElementById('ds-classify-bar').style.width = '100%';
+                            document.getElementById('ds-classify-msg').textContent =
+                                `✓ 完成，已标注 ${ps.progress} 个知识点`;
+                            btn.disabled = false;
+                            // 刷新图谱数据（重新加载以反映新属性）
+                            _refreshDsKgAfterClassify(ps.done_ids || []);
+                        } else if (ps.status === 'error') {
+                            clearInterval(_classifyPollTimer);
+                            document.getElementById('ds-classify-msg').textContent = '错误：' + (ps.error || '未知');
+                            document.getElementById('ds-classify-bar').style.background = '#e74c3c';
+                            btn.disabled = false;
+                        }
+                    } catch(e) {
+                        clearInterval(_classifyPollTimer);
+                        document.getElementById('ds-classify-msg').textContent = '轮询失败：' + e.message;
+                        btn.disabled = false;
+                    }
+                }, 1200);
+
+            } catch(e) {
+                document.getElementById('ds-classify-msg').textContent = '失败：' + e.message;
+                btn.disabled = false;
+            }
+        }
+
+        function _refreshDsKgAfterClassify(doneIds) {
+            // 从后端重新拉取节点数据，更新内存中对应节点的 teaching_focus/knowledge_type/cognitive_dimension
+            // 简单方案：如果右侧面板当前显示的节点在 doneIds 里，重新拉取该节点信息
+            if (_kpPanelData && doneIds.includes(parseInt((_kpPanelData.id || '').replace('kp_', '')))) {
+                const kpId = parseInt(_kpPanelData.id.replace('kp_', ''));
+                fetch(`/api/rag/ds-kps/${kpId}`)
+                    .then(r => r.json())
+                    .then(d => {
+                        if (d.id) {
+                            _kpPanelData.teaching_focus    = d.teaching_focus    || '';
+                            _kpPanelData.knowledge_type    = d.knowledge_type    || '';
+                            _kpPanelData.cognitive_dimension = d.cognitive_dimension || '';
+                            if (!_kpPanelEditing) _setKpPanelReadonly(_kpPanelData, _kpPanelData._parsedRels || []);
+                        }
+                    }).catch(() => {});
+            }
+        }
+
+        async function _exportDsKgXlsx() {
+            // 从 subtitle 中提取当前 doc_id（格式：（doc_id））
+            const subtitle = document.getElementById('ds-kg-subtitle');
+            const match = subtitle && subtitle.textContent.match(/^\（(.+)\）$/);
+            const docId = match ? match[1] : null;
+            if (!docId) {
+                alert('请先打开单个文档的知识图谱再导出（当前为多文档或无文档视图）。');
+                return;
+            }
+            const btn = document.getElementById('ds-kg-export-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:4px;"></i>导出中…';
+            try {
+                const url = `/api/rag/ds-export-xlsx?doc_id=${encodeURIComponent(docId)}`;
+                const resp = await fetch(url);
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.error || `HTTP ${resp.status}`);
+                }
+                const blob = await resp.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                const cd = resp.headers.get('Content-Disposition') || '';
+                const fnMatch = cd.match(/filename\*?=['"]?([^'";\n]+)/);
+                a.download = fnMatch ? decodeURIComponent(fnMatch[1]) : `${docId}_知识点导出.xlsx`;
+                a.click();
+            } catch (e) {
+                alert('导出失败：' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-file-excel" style="margin-right:4px;"></i>导出 Excel';
+            }
         }
 
         function closeDsKgModal() {
@@ -4592,15 +4756,18 @@ Now please start generating questions. Output question content directly without 
                 );
 
             nodeG.append('circle')
-                .attr('r', 22)
+                .attr('r', d => d.id === _dsKgSelectedNodeId ? 30 : 22)
                 .attr('fill', d => colorOf(d.chapter))
-                .attr('fill-opacity', 0.82)
-                .attr('stroke', d => colorOf(d.chapter))
-                .attr('stroke-width', 2.5).attr('stroke-opacity', 0.4);
+                .attr('fill-opacity', d => d.id === _dsKgSelectedNodeId ? 1 : 0.82)
+                .attr('stroke', d => d.id === _dsKgSelectedNodeId ? '#ffe000' : colorOf(d.chapter))
+                .attr('stroke-width', d => d.id === _dsKgSelectedNodeId ? 5 : 2.5)
+                .attr('stroke-opacity', d => d.id === _dsKgSelectedNodeId ? 1 : 0.4);
 
             nodeG.append('text')
                 .attr('text-anchor', 'middle').attr('dy', '0.35em')
-                .attr('font-size', 9).attr('fill', '#fff').attr('font-weight', '600')
+                .attr('font-size', 9).attr('fill', '#1a1a1a').attr('font-weight', '700')
+                .attr('stroke', 'rgba(255,255,255,0.75)').attr('stroke-width', 2.5)
+                .style('paint-order', 'stroke')
                 .attr('pointer-events', 'none')
                 .text(d => d.name.length > 7 ? d.name.slice(0, 7) + '…' : d.name);
 
@@ -4619,6 +4786,13 @@ Now please start generating questions. Output question content directly without 
             .on('click', (e, d) => {
                 e.stopPropagation();
                 if (tt) tt.style.display = 'none';
+                _dsKgSelectedNodeId = d.id;
+                d3.selectAll('#ds-kg-container circle')
+                    .attr('r', n => n.id === _dsKgSelectedNodeId ? 30 : 22)
+                    .attr('fill-opacity', n => n.id === _dsKgSelectedNodeId ? 1 : 0.82)
+                    .attr('stroke', n => n.id === _dsKgSelectedNodeId ? '#ffe000' : _dsKgColorOf(n.chapter))
+                    .attr('stroke-width', n => n.id === _dsKgSelectedNodeId ? 5 : 2.5)
+                    .attr('stroke-opacity', n => n.id === _dsKgSelectedNodeId ? 1 : 0.4);
                 _openKpPanel(d);
             });
 
@@ -4672,6 +4846,12 @@ Now please start generating questions. Output question content directly without 
             _kpPanelEditing = false;
             _kpPanelData = null;
             document.getElementById('ds-kp-panel').style.width = '0';
+            // 清除节点高亮，恢复默认样式
+            _dsKgSelectedNodeId = null;
+            d3.selectAll('#ds-kg-container circle')
+                .attr('r', 22).attr('fill-opacity', 0.82)
+                .attr('stroke', d => _dsKgColorOf(d.chapter))
+                .attr('stroke-width', 2.5).attr('stroke-opacity', 0.4);
         }
 
         function _renderKpPanel(d) {
@@ -4719,6 +4899,24 @@ Now please start generating questions. Output question content directly without 
             contentView.style.display = '';
             contentEdit.style.display = 'none';
 
+            // 教学属性只读视图
+            const attrsView = document.getElementById('ds-kp-attrs-view');
+            const attrsEdit = document.getElementById('ds-kp-attrs-edit');
+            attrsEdit.style.display = 'none';
+            attrsView.style.display = '';
+            const tags = [];
+            const tf = d.teaching_focus || '';
+            const kt = d.knowledge_type || '';
+            const cd = d.cognitive_dimension || '';
+            if (tf) tf.split(';').forEach(t => t.trim() && tags.push(
+                `<span style="background:#fef9e7;color:#d35400;padding:1px 7px;border-radius:10px;">${escapeHtml(t.trim())}</span>`));
+            if (kt) tags.push(
+                `<span style="background:#eaf4fb;color:#2471a3;padding:1px 7px;border-radius:10px;">${escapeHtml(kt)}</span>`);
+            if (cd) tags.push(
+                `<span style="background:#eafaf1;color:#1e8449;padding:1px 7px;border-radius:10px;">${escapeHtml(cd)}</span>`);
+            attrsView.innerHTML = tags.length ? tags.join('') :
+                '<span style="color:#bbb;font-size:0.76rem;">（未设置）</span>';
+
             // 关系
             const relsEl = document.getElementById('ds-kp-panel-rels');
             document.getElementById('ds-kp-add-rel-btn').style.display = 'none';
@@ -4762,6 +4960,19 @@ Now please start generating questions. Output question content directly without 
             contentEdit.value = d.content || '';
             contentEdit.style.display = '';
             contentView.style.display = 'none';
+
+            // 切换教学属性到编辑态
+            document.getElementById('ds-kp-attrs-view').style.display = 'none';
+            const attrsEditEl = document.getElementById('ds-kp-attrs-edit');
+            attrsEditEl.style.display = '';
+            // 设置教学要点复选框
+            const tf2 = (d.teaching_focus || '').split(';').map(s => s.trim());
+            document.getElementById('ds-kp-focus-key').checked = tf2.includes('重点');
+            document.getElementById('ds-kp-focus-hard').checked = tf2.includes('难点');
+            document.getElementById('ds-kp-focus-exam').checked = tf2.includes('考点');
+            // 设置下拉
+            document.getElementById('ds-kp-knowledge-type').value = d.knowledge_type || '';
+            document.getElementById('ds-kp-cognitive-dim').value = d.cognitive_dimension || '';
 
             // 关系可编辑行
             document.getElementById('ds-kp-add-rel-btn').style.display = '';
@@ -4828,6 +5039,15 @@ Now please start generating questions. Output question content directly without 
             const content = document.getElementById('ds-kp-panel-content-edit').value.trim();
             const relations = _collectKpRelRows();
 
+            // 收集教学属性
+            const focusParts = [];
+            if (document.getElementById('ds-kp-focus-key').checked) focusParts.push('重点');
+            if (document.getElementById('ds-kp-focus-hard').checked) focusParts.push('难点');
+            if (document.getElementById('ds-kp-focus-exam').checked) focusParts.push('考点');
+            const teaching_focus = focusParts.join(';');
+            const knowledge_type = document.getElementById('ds-kp-knowledge-type').value;
+            const cognitive_dimension = document.getElementById('ds-kp-cognitive-dim').value;
+
             if (!name) {
                 _setKpPanelMsg('名称不能为空', 'error');
                 return;
@@ -4842,7 +5062,8 @@ Now please start generating questions. Output question content directly without 
                 const resp = await fetch(`/api/rag/ds-kps/${kpId}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, content, relations }),
+                    body: JSON.stringify({ name, content, relations,
+                        teaching_focus, knowledge_type, cognitive_dimension }),
                 });
                 const data = await resp.json();
                 if (!resp.ok || !data.success) {
@@ -4853,6 +5074,9 @@ Now please start generating questions. Output question content directly without 
                 d.name    = name;
                 d.content = content;
                 d._parsedRels = relations;
+                d.teaching_focus = teaching_focus;
+                d.knowledge_type = knowledge_type;
+                d.cognitive_dimension = cognitive_dimension;
 
                 // 同步更新 _dsKgAllNodes 中对应节点
                 const allNode = (_dsKgAllNodes || []).find(n => n.id === d.id);
@@ -5219,7 +5443,9 @@ Now please start generating questions. Output question content directly without 
                     if (!resp.ok) continue;
                     const meta = await resp.json();
                     for (const ch of (meta.chapters || [])) {
-                        allChapters.set(ch.name, ch);
+                        // 按 (章名 + 节名) 联合键去重
+                        const key = ch.name + '|||' + (ch.section_name || '');
+                        allChapters.set(key, ch);
                     }
                     for (const kp of (meta.kps || [])) {
                         allKps.push(kp);
@@ -5234,6 +5460,7 @@ Now please start generating questions. Output question content directly without 
                 name: kp.name,
                 chapter_name: kp.chapter_name,
                 chapter_num: kp.chapter_num,
+                section_name: kp.section_name || '',
                 display_name: kp.name,
             }));
             filterRagChapters();
@@ -5391,7 +5618,11 @@ Now please start generating questions. Output question content directly without 
             const checkedChapters = [...document.querySelectorAll('.rag-chapter-cb:checked')].map(cb => cb.value);
             let filtered = _ragAllSections;
             if (checkedChapters.length > 0 && _ragAllChapters.length > 0) {
-                filtered = filtered.filter(s => checkedChapters.includes(s.chapter_name));
+                // checkbox value 格式为 "章名|||节名"，需用联合键比对
+                filtered = filtered.filter(s => {
+                    const key = s.chapter_name + '|||' + (s.section_name || '');
+                    return checkedChapters.includes(key);
+                });
             }
             if (q) {
                 filtered = filtered.filter(s => (s.display_name || s.name).toLowerCase().includes(q));
@@ -5405,13 +5636,19 @@ Now please start generating questions. Output question content directly without 
                 el.innerHTML = '<span style="color:#bbb;">' + (_ragAllChapters.length === 0 ? '选择文档后加载章节' : '无匹配结果') + '</span>';
                 return;
             }
-            el.innerHTML = items.map(c => `
-                <label style="display:flex;align-items:flex-start;gap:6px;padding:2px 0;cursor:pointer;">
-                    <input type="checkbox" class="rag-chapter-cb" value="${escapeHtml(c.name)}" style="margin-top:2px;"
+            el.innerHTML = items.map(c => {
+                const secName = c.section_name || '';
+                // value 编码为 "章名|||节名"，与 filterRagSections 比对逻辑一致
+                const val = c.name + '|||' + secName;
+                const display = secName
+                    ? `${escapeHtml(c.name)} <span style="color:#aaa">›</span> <span style="color:#555">${escapeHtml(secName)}</span>`
+                    : escapeHtml(c.name);
+                return `<label style="display:flex;align-items:flex-start;gap:6px;padding:2px 0;cursor:pointer;">
+                    <input type="checkbox" class="rag-chapter-cb" value="${escapeHtml(val)}" style="margin-top:2px;"
                         onchange="filterRagSections()">
-                    <span style="font-size:0.82rem;">${escapeHtml(c.name)}</span>
-                </label>
-            `).join('');
+                    <span style="font-size:0.82rem;${secName ? 'padding-left:4px;' : ''}">${display}</span>
+                </label>`;
+            }).join('');
         }
 
         function renderRagSectionList(items) {
@@ -5421,11 +5658,94 @@ Now please start generating questions. Output question content directly without 
                 return;
             }
             el.innerHTML = items.map(s => `
-                <label style="display:flex;align-items:flex-start;gap:6px;padding:2px 0;cursor:pointer;">
-                    <input type="checkbox" class="rag-section-cb" value="${escapeHtml(s.name)}" style="margin-top:2px;">
-                    <span style="font-size:0.82rem;" title="${escapeHtml(s.display_name || s.name)}">${escapeHtml(s.display_name || s.name)}</span>
-                </label>
+                <div style="display:flex;align-items:flex-start;gap:4px;padding:2px 0;">
+                    <label style="display:flex;align-items:flex-start;gap:6px;flex:1;min-width:0;cursor:pointer;">
+                        <input type="checkbox" class="rag-section-cb" value="${escapeHtml(s.name)}" style="margin-top:2px;flex-shrink:0;">
+                        <span style="font-size:0.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                              title="${escapeHtml(s.display_name || s.name)}">${escapeHtml(s.display_name || s.name)}</span>
+                    </label>
+                    <button onclick="_jumpToKpInGraph(${s.num},'${escapeHtml(s.name).replace(/'/g, "\\'")}')"
+                        title="在知识图谱中查看"
+                        style="flex-shrink:0;padding:1px 5px;font-size:0.68rem;border:1px solid #c39;
+                               color:#c39;background:none;border-radius:3px;cursor:pointer;white-space:nowrap;"
+                        onmouseover="this.style.background='#f9f'" onmouseout="this.style.background='none'">
+                        <i class="fas fa-project-diagram" style="font-size:0.62rem;"></i>
+                    </button>
+                </div>
             `).join('');
+        }
+
+        async function _jumpToKpInGraph(kpId, kpName) {
+            // 节点 id 格式为 "kp_<整数>"，kpId 传入的是整数
+            const nodeId = 'kp_' + kpId;
+
+            // 1. 若图谱模态未打开或数据未加载，先调用 showDsKgModal()
+            if (_dsKgAllNodes.length === 0) {
+                showDsKgModal();
+            }
+
+            // 2. 等待图谱数据加载完成（showDsKgModal 内部异步 fetch）
+            try {
+                await _waitForKgLoaded();
+            } catch (e) {
+                alert('知识图谱加载超时，请先点击"知识图谱"按钮确认图谱已加载后再试。');
+                return;
+            }
+
+            // 3. 查找对应节点（按 id 精确匹配，或按名称模糊匹配兜底）
+            const node = _dsKgAllNodes.find(n => n.id === nodeId || n.name === kpName);
+            if (!node) {
+                alert(`知识图谱中未找到知识点「${kpName}」，请确认已完成知识点提取。`);
+                return;
+            }
+
+            // 4. 确保该节点在当前筛选下可见（勾选其对应章节）
+            const nodeKey = (node.chapter || '') + '|||' + (node.section_name || '');
+            const cb = document.querySelector(`.ds-kg-ch-cb[value="${CSS.escape(nodeKey)}"]`);
+            if (cb && !cb.checked) {
+                cb.checked = true;
+                if (typeof _applyDsKgFilter === 'function') _applyDsKgFilter();
+                await new Promise(r => setTimeout(r, 300));
+            }
+
+            // 5. 设置持久选中高亮并打开详情面板
+            _dsKgSelectedNodeId = nodeId;
+            d3.selectAll('#ds-kg-container circle')
+                .attr('r', n => n.id === _dsKgSelectedNodeId ? 30 : 22)
+                .attr('fill-opacity', n => n.id === _dsKgSelectedNodeId ? 1 : 0.82)
+                .attr('stroke', n => n.id === _dsKgSelectedNodeId ? '#ffe000' : _dsKgColorOf(n.chapter))
+                .attr('stroke-width', n => n.id === _dsKgSelectedNodeId ? 5 : 2.5)
+                .attr('stroke-opacity', n => n.id === _dsKgSelectedNodeId ? 1 : 0.4);
+            if (typeof _openKpPanel === 'function') _openKpPanel(node);
+        }
+
+        function _highlightKgNode(nodeId) {
+            if (typeof d3 === 'undefined') return;
+            d3.selectAll('#ds-kg-container circle')
+                .filter(d => d.id === nodeId)
+                .attr('r', 30)
+                .attr('stroke-width', 4)
+                .attr('stroke-opacity', 1);
+            d3.selectAll('#ds-kg-container circle')
+                .filter(d => d.id !== nodeId)
+                .attr('fill-opacity', 0.3);
+            setTimeout(() => {
+                d3.selectAll('#ds-kg-container circle')
+                    .attr('r', 22).attr('stroke-width', 2.5)
+                    .attr('stroke-opacity', 0.4).attr('fill-opacity', 0.82);
+            }, 3000);
+        }
+
+        function _waitForKgLoaded(maxWait = 8000, interval = 200) {
+            return new Promise((resolve, reject) => {
+                const start = Date.now();
+                const check = () => {
+                    if (typeof _dsKgAllNodes !== 'undefined' && _dsKgAllNodes.length > 0) return resolve();
+                    if (Date.now() - start > maxWait) return reject(new Error('图谱加载超时'));
+                    setTimeout(check, interval);
+                };
+                check();
+            });
         }
 
         // ── 提示词模式切换 ────────────────────────────────────────────────────────
@@ -6179,11 +6499,18 @@ Reference answer integrating theory and case.
                     <span>DS 知识图谱</span>
                     <span id="ds-kg-subtitle" style="font-size:0.76rem;opacity:0.8;font-weight:400;"></span>
                 </div>
-                <button onclick="closeDsKgModal()"
-                    style="background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);
-                           color:#fff;cursor:pointer;padding:4px 12px;border-radius:6px;font-size:0.82rem;">
-                    ✕ 关闭
-                </button>
+                <div style="display:flex;gap:7px;align-items:center;">
+                    <button id="ds-kg-export-btn" onclick="_exportDsKgXlsx()"
+                        style="background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);
+                               color:#fff;cursor:pointer;padding:4px 12px;border-radius:6px;font-size:0.82rem;">
+                        <i class="fas fa-file-excel" style="margin-right:4px;"></i>导出 Excel
+                    </button>
+                    <button onclick="closeDsKgModal()"
+                        style="background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);
+                               color:#fff;cursor:pointer;padding:4px 12px;border-radius:6px;font-size:0.82rem;">
+                        ✕ 关闭
+                    </button>
+                </div>
             </div>
             <!-- 图例栏 -->
             <div id="ds-kg-legend"
@@ -6234,10 +6561,42 @@ Reference answer integrating theory and case.
                          style="font-size:0.72rem;color:#aaa;margin-bottom:8px;text-align:center;"></div>
                     <button onclick="_resetDsKgFilter()"
                         style="width:100%;padding:5px 0;font-size:0.78rem;border:1px solid #ddd;
-                               border-radius:5px;background:#f8f8f8;cursor:pointer;color:#666;margin-top:auto;"
+                               border-radius:5px;background:#f8f8f8;cursor:pointer;color:#666;"
                         onmouseover="this.style.background='#eee'" onmouseout="this.style.background='#f8f8f8'">
                         <i class="fas fa-undo" style="font-size:0.7rem;margin-right:3px;"></i>重置筛选
                     </button>
+
+                    <!-- AI批量标注 -->
+                    <div style="border-top:1px solid #eee;margin-top:10px;padding-top:10px;">
+                        <div style="font-size:0.76rem;font-weight:600;color:#8e44ad;margin-bottom:6px;">
+                            <i class="fas fa-magic" style="margin-right:3px;font-size:0.7rem;"></i>AI批量标注
+                        </div>
+                        <div style="font-size:0.72rem;color:#888;margin-bottom:5px;">
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+                                <input type="checkbox" id="ds-classify-only-filtered" checked>
+                                <span>仅标注当前筛选的节点</span>
+                            </label>
+                        </div>
+                        <div style="font-size:0.72rem;color:#888;margin-bottom:7px;">
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+                                <input type="checkbox" id="ds-classify-overwrite">
+                                <span>覆盖已有标注</span>
+                            </label>
+                        </div>
+                        <button id="ds-classify-btn" onclick="_startBatchClassify()"
+                            style="width:100%;padding:5px 0;font-size:0.78rem;border:none;
+                                   border-radius:5px;background:#8e44ad;cursor:pointer;color:#fff;"
+                            onmouseover="this.style.background='#7d3c98'" onmouseout="this.style.background='#8e44ad'">
+                            <i class="fas fa-brain" style="font-size:0.7rem;margin-right:3px;"></i>开始标注
+                        </button>
+                        <!-- 进度区域 -->
+                        <div id="ds-classify-progress" style="display:none;margin-top:7px;">
+                            <div style="height:4px;background:#e0d0f0;border-radius:2px;overflow:hidden;margin-bottom:5px;">
+                                <div id="ds-classify-bar" style="height:100%;background:#8e44ad;width:0%;transition:width 0.3s;"></div>
+                            </div>
+                            <div id="ds-classify-msg" style="font-size:0.7rem;color:#888;text-align:center;"></div>
+                        </div>
+                    </div>
                 </div>
                 <!-- 右侧图谱画布 -->
                 <div id="ds-kg-container"
@@ -6284,6 +6643,58 @@ Reference answer integrating theory and case.
                                                  border:1px solid #a0b0d0;border-radius:5px;
                                                  padding:6px 8px;resize:vertical;min-height:120px;
                                                  outline:none;font-family:inherit;"></textarea>
+                            </div>
+                            <!-- 教学属性 -->
+                            <div id="ds-kp-panel-attrs">
+                                <div style="font-size:0.72rem;font-weight:600;color:#555;margin-bottom:6px;">
+                                    <i class="fas fa-tags" style="font-size:0.65rem;margin-right:3px;"></i>教学属性
+                                </div>
+                                <!-- 只读视图 -->
+                                <div id="ds-kp-attrs-view" style="display:flex;flex-wrap:wrap;gap:5px;font-size:0.76rem;">
+                                </div>
+                                <!-- 编辑视图 -->
+                                <div id="ds-kp-attrs-edit" style="display:none;display:flex;flex-direction:column;gap:6px;">
+                                    <div style="display:flex;align-items:center;gap:6px;">
+                                        <span style="width:64px;color:#666;font-size:0.76rem;flex-shrink:0;">教学要点</span>
+                                        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                                            <label style="font-size:0.76rem;cursor:pointer;">
+                                                <input type="checkbox" id="ds-kp-focus-key" value="重点"> 重点
+                                            </label>
+                                            <label style="font-size:0.76rem;cursor:pointer;">
+                                                <input type="checkbox" id="ds-kp-focus-hard" value="难点"> 难点
+                                            </label>
+                                            <label style="font-size:0.76rem;cursor:pointer;">
+                                                <input type="checkbox" id="ds-kp-focus-exam" value="考点"> 考点
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex;align-items:center;gap:6px;">
+                                        <span style="width:64px;color:#666;font-size:0.76rem;flex-shrink:0;">知识类型</span>
+                                        <select id="ds-kp-knowledge-type"
+                                                style="font-size:0.76rem;padding:2px 4px;border:1px solid #ccc;
+                                                       border-radius:4px;background:#fff;color:#333;">
+                                            <option value="">— 未设置 —</option>
+                                            <option value="事实性">事实性</option>
+                                            <option value="概念性">概念性</option>
+                                            <option value="程序性">程序性</option>
+                                            <option value="元认知">元认知</option>
+                                        </select>
+                                    </div>
+                                    <div style="display:flex;align-items:center;gap:6px;">
+                                        <span style="width:64px;color:#666;font-size:0.76rem;flex-shrink:0;">认知维度</span>
+                                        <select id="ds-kp-cognitive-dim"
+                                                style="font-size:0.76rem;padding:2px 4px;border:1px solid #ccc;
+                                                       border-radius:4px;background:#fff;color:#333;">
+                                            <option value="">— 未设置 —</option>
+                                            <option value="记忆">记忆</option>
+                                            <option value="理解">理解</option>
+                                            <option value="应用">应用</option>
+                                            <option value="分析">分析</option>
+                                            <option value="评价">评价</option>
+                                            <option value="创造">创造</option>
+                                        </select>
+                                    </div>
+                                </div>
                             </div>
                             <!-- 关联关系 -->
                             <div>
