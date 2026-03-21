@@ -166,18 +166,64 @@ def _init_ds_db():
                 relations_json TEXT DEFAULT '[]'
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ds_doc_refs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                doc_id      TEXT NOT NULL,
+                chapter_num INTEGER,
+                ref_text    TEXT
+            )
+        """)
         conn.commit()
         # 迁移：旧库自动补充缺失列
         for migration_sql in [
             "ALTER TABLE ds_docs ADD COLUMN architecture_json TEXT DEFAULT '{}'",
             "ALTER TABLE ds_chapters ADD COLUMN parent_chapter_num INTEGER DEFAULT 0",
             "ALTER TABLE ds_chapters ADD COLUMN parent_chapter_name TEXT DEFAULT ''",
+            "ALTER TABLE ds_kps ADD COLUMN teaching_focus TEXT DEFAULT ''",
+            "ALTER TABLE ds_kps ADD COLUMN knowledge_type TEXT DEFAULT ''",
+            "ALTER TABLE ds_kps ADD COLUMN cognitive_dimension TEXT DEFAULT ''",
+            "ALTER TABLE ds_chapters ADD COLUMN section_name TEXT DEFAULT ''",
+            "ALTER TABLE ds_kps ADD COLUMN section_name TEXT DEFAULT ''",
         ]:
             try:
                 conn.execute(migration_sql)
                 conn.commit()
             except Exception:
                 pass  # 列已存在，忽略
+        # 迁移：将旧库中已有的主要参考文献章节迁移到 ds_doc_refs
+        try:
+            ref_rows = conn.execute(
+                "SELECT doc_id, chapter_num, raw_text FROM ds_chapters "
+                "WHERE chapter_name LIKE '%参考文献%'"
+            ).fetchall()
+            for r in ref_rows:
+                exists = conn.execute(
+                    "SELECT 1 FROM ds_doc_refs WHERE doc_id=? AND chapter_num=?",
+                    (r['doc_id'], r['chapter_num']),
+                ).fetchone()
+                if not exists:
+                    conn.execute(
+                        "INSERT INTO ds_doc_refs (doc_id, chapter_num, ref_text) VALUES (?,?,?)",
+                        (r['doc_id'], r['chapter_num'], r['raw_text']),
+                    )
+            conn.commit()
+        except Exception:
+            pass
+
+
+# ── 非内容章节过滤 ────────────────────────────────────────────────────────────
+# 教材中常见的结构性章节——不是实质知识内容，不导出到知识点 Excel
+# 这些章节保留在 ds_chapters 中供 DeepSeek 提取时参考
+_NON_CONTENT_KEYWORDS = ('学习目标', '小结', '关键词', '复习思考题', '思考题', '参考文献', '练习题')
+
+
+def _is_non_content(name: str) -> bool:
+    """判断章节名称是否为非内容性结构节（学习目标/小结/关键词/复习思考题/参考文献等）。"""
+    if not name:
+        return False
+    cleaned = name.strip().strip('【】').strip()
+    return any(kw in cleaned for kw in _NON_CONTENT_KEYWORDS)
 
 
 # ── 文档解析工具 ──────────────────────────────────────────────────────────────
@@ -249,6 +295,574 @@ def _analyze_doc_structure(text: str) -> tuple:
             break
 
     return chapter_level, section_level
+
+
+def _extract_all_headings(text: str) -> list:
+    """从文档文本中提取所有 h1-h6 标题，返回列表。
+
+    返回: [{'level': int, 'text': str}, ...]  按出现顺序排列
+    """
+    import re
+    headings = []
+    for level in range(1, 7):
+        pat = re.compile(r'^#{' + str(level) + r'}(?!#)\s+(.+)', re.MULTILINE)
+        for m in pat.finditer(text):
+            headings.append({'level': level, 'text': m.group(1).strip(), 'pos': m.start()})
+    # 按文档位置排序
+    headings.sort(key=lambda h: h['pos'])
+    return headings
+
+
+def _detect_doc_type(headings: list) -> str:
+    """根据标题层级分布启发式判断文档类型。
+
+    返回: 'ppt'（演示文稿型）或 'textbook'（教材/讲义型）
+
+    PPT 型特征：
+    - H1 出现 >= 3 次（多张幻灯片标题），且 H1 数量占所有标题的 >= 20%
+    - 总层级数 <= 3 且最深层级 <= 3（通常只有 H1+H2，最多 H1+H2+H3）
+    教材型：其余所有情况。
+    """
+    if not headings:
+        return 'textbook'
+    from collections import Counter as _C
+    level_counts = _C(h['level'] for h in headings)
+    total = len(headings)
+    h1_count = level_counts.get(1, 0)
+    max_level = max(level_counts.keys())
+    distinct_levels = len(level_counts)
+    is_ppt = (
+        h1_count >= 3
+        and h1_count / total >= 0.20
+        and distinct_levels <= 3
+        and max_level <= 3
+    )
+    return 'ppt' if is_ppt else 'textbook'
+
+
+def _clean_headings_with_ai(headings: list, subject: str, ds_client) -> dict:
+    """调用 DeepSeek 对标题列表进行清洗，返回层级映射、无效标题集合和提取节点列表。
+
+    返回:
+    {
+        'chapter_level': int,          # 代表"章"的 h 级别 (1-4)
+        'section_level': int | None,   # 代表"节"的 h 级别
+        'non_content_texts': set,      # 应排除的标题文本（模糊匹配）
+        'extraction_nodes': list,      # 适合提取知识点的标题文本列表（有序）
+    }
+    失败时返回 None（调用方降级到本地分析）。
+    """
+    import json as _json
+
+    if not headings:
+        return None
+
+    # 只用前 60 个标题（防止 prompt 过长）
+    sample = headings[:60]
+    heading_list = '\n'.join(f"H{h['level']}: {h['text']}" for h in sample)
+
+    # 自动检测文档类型，生成差异化 prompt
+    doc_type = _detect_doc_type(headings)
+
+    if doc_type == 'ppt':
+        prompt = (
+            '你是演示文稿结构分析专家。以下是一份 PPT 课件转换后的 Markdown 文件的所有标题：\n\n'
+            f'【学科/科目】：{subject or "（未指定）"}\n\n'
+            '【文档类型】：演示文稿（PPT）转换文档，H1 为幻灯片主标题，H2 为幻灯片内子项。\n\n'
+            '【标题列表】：\n'
+            f'{heading_list}\n\n'
+            '请完成以下分析，直接输出纯 JSON（不加代码块）：\n'
+            '{\n'
+            '  "chapter_level": 1,\n'
+            '  "section_level": 2,\n'
+            '  "non_content_texts": ["仅限H1级别的过渡/封面幻灯片标题"],\n'
+            '  "extraction_nodes": ["有实质知识内容的H1幻灯片标题，按文档顺序"]\n'
+            '}\n\n'
+            '【重要规则】：non_content_texts 和 extraction_nodes 中，只放 H1 级别的标题。\n'
+            'H2 级别子项无论内容如何，都不放入这两个列表。\n\n'
+            'non_content_texts（仅限H1）判断标准——将以下类型的H1标题放入此列表：\n'
+            '- 课程封面/总标题页：课程名称本身（无任何实质讲授内容的总封面幻灯片）\n'
+            '- 固定过渡套语：目录/引言/学习目标/本章小结/本章回顾/谢谢/再见/'
+            '思考与讨论/课堂讨论/课程结束 等\n'
+            '- 以 ? 或 ？ 结尾的 H1 标题（纯引导性提问页，该幻灯片本身不讲授知识）\n'
+            '- 与学科完全无关的网络内容/新闻标题/生活故事\n'
+            '- 完全重复的 H1 标题（某H1文本与前面已出现的H1完全相同，则将重复的放入此列表）\n\n'
+            '【注意】：凡是描述课程内容、阶段工作、分析方法、知识点的H1标题，\n'
+            '哪怕带有疑问词（如"为什么...""什么是...但不以?结尾"），只要本身是知识点描述，\n'
+            '就应放入 extraction_nodes 而非 non_content_texts。\n\n'
+            'extraction_nodes（仅限H1）选取原则：\n'
+            '- 选取有实质学科知识内容的H1幻灯片标题（有H2子项说明，或标题本身描述知识点）\n'
+            '- non_content_texts 中的H1不放入此列表\n'
+            '- 标题文本请原样复制，不要修改'
+        )
+    else:
+        prompt = (
+            '你是教材文档结构分析专家。以下是一份教材的所有 Markdown 标题（含层级）：\n\n'
+            f'【学科/科目】：{subject or "（未指定）"}\n\n'
+            '【标题列表】：\n'
+            f'{heading_list}\n\n'
+            '请完成以下分析，直接输出纯 JSON（不加代码块）：\n'
+            '{\n'
+            '  "chapter_level": 章标题的H级别数字,\n'
+            '  "section_level": 节标题的H级别数字（若无节则与chapter_level相同）,\n'
+            '  "non_content_texts": ["不是章节内容的标题：页码/结构性标题/正文误标/正文句子等"],\n'
+            '  "extraction_nodes": ["适合提取知识点的标题文本，按文档顺序"]\n'
+            '}\n\n'
+            'extraction_nodes 选取原则：\n'
+            '- 粒度目标：每个节点对应1-3个知识点的内容（通常100-500字）\n'
+            '- 若某节（H3）包含多个子节（H4），应以H4子节为节点，而非选整个H3节\n'
+            '- H5/H6 的细碎列表项（如"1. 完善土地流转..."）通常太细，不单独列为节点\n'
+            '- 若某节没有子节，该节标题本身就是节点\n'
+            '- non_content_texts 中的标题不放入 extraction_nodes\n'
+            '- 标题文本请原样复制，不要修改\n\n'
+            'non_content_texts 包含：\n'
+            '- 结构性标题：小结/关键词/复习思考题/参考文献/学习目标/章/编 等\n'
+            '- 误标的正文句子：明显是句子、定义引导语（如"这一框架的内涵是："）\n'
+            '- 页码、图表编号等非章节标题'
+        )
+
+    try:
+        resp = ds_client.chat.completions.create(
+            model='deepseek-chat',
+            messages=[
+                {'role': 'system', 'content': '你是文档结构分析专家，善于识别章节层级与无效标题。'},
+                {'role': 'user', 'content': prompt},
+            ],
+            max_tokens=1200 if doc_type == 'ppt' else 800,
+            temperature=0,
+        )
+        raw = resp.choices[0].message.content.strip()
+        if raw.startswith('```'):
+            raw = '\n'.join(raw.split('\n')[1:])
+        if raw.endswith('```'):
+            raw = '\n'.join(raw.split('\n')[:-1])
+        parsed = _json.loads(raw.strip())
+
+        chapter_level = int(parsed.get('chapter_level', 2))
+        section_level_val = parsed.get('section_level')
+        section_level = int(section_level_val) if section_level_val else chapter_level
+        if section_level < chapter_level:
+            section_level = chapter_level
+
+        # PPT 文档：强制覆盖层级（防止 AI 未遵循 prompt 中的约定）
+        if doc_type == 'ppt':
+            chapter_level = 1
+            section_level = 2
+
+        non_texts = set(str(t).strip() for t in parsed.get('non_content_texts', []) if t)
+        extraction_nodes = [str(n).strip() for n in parsed.get('extraction_nodes', []) if n]
+
+        # extraction_nodes 不能为空（否则降级）
+        if not extraction_nodes:
+            return None
+
+        # 合法性校验
+        if chapter_level not in range(1, 5):
+            chapter_level = 2
+
+        # 后处理：收集被展开/归并时遗漏的节点，确保完整性
+        heading_level_map = {h['text']: h['level'] for h in headings}
+        child_level = section_level + 1  # H4（若 section=H3）
+
+        def _collect_children(node_text):
+            """返回某 section_level 节点的所有 child_level 子节点文本列表。
+            跳过 non_content_texts 标题（不视其为边界），直到遇到真正的同级或更高级标题。"""
+            pos = next((i for i, h in enumerate(headings) if h['text'] == node_text), None)
+            if pos is None:
+                return []
+            kids = []
+            for j in range(pos + 1, len(headings)):
+                h = headings[j]
+                if h['text'] in non_texts:
+                    continue  # 非内容标题不形成边界
+                if h['level'] <= section_level:
+                    break
+                if h['level'] == child_level:
+                    kids.append(h['text'])
+            return kids
+
+        # 1) 若所有节点均在 section_level，展开为 child_level 子节点
+        node_levels = [heading_level_map.get(n, 0) for n in extraction_nodes]
+        all_at_section = all(lv == section_level for lv in node_levels if lv > 0)
+        if all_at_section and child_level <= 6:
+            expanded = []
+            for node in extraction_nodes:
+                kids = _collect_children(node)
+                expanded.extend(kids) if kids else expanded.append(node)
+            extraction_nodes = expanded
+
+        # 2) 去除父子重复：若某 section_level 父节点的子节点也在列表中，删除父节点
+        node_set_final = set(extraction_nodes)
+        filtered = []
+        removed_parents = []  # 记录被删除的 H3 父节点，用于完整性补充
+        for node in extraction_nodes:
+            nlv = heading_level_map.get(node, 0)
+            if nlv == section_level:
+                kids = _collect_children(node)
+                if any(k in node_set_final for k in kids):
+                    removed_parents.append(node)
+                    continue  # 跳过父节点
+            filtered.append(node)
+        extraction_nodes = filtered
+
+        # 3) 完整性补充：对每个被删除的父节点，补上其在文档中但未被 DeepSeek 返回的子节点
+        existing_set = set(extraction_nodes)
+        extras = []
+        for parent in removed_parents:
+            for kid in _collect_children(parent):
+                if kid not in existing_set and kid not in non_texts:
+                    extras.append((parent, kid))
+        # 按文档顺序将缺失子节点插入正确位置
+        if extras:
+            # 重建有序列表（按 headings 中的顺序）
+            all_valid = set(extraction_nodes) | {kid for _, kid in extras}
+            ordered = []
+            for h in headings:
+                if h['text'] in all_valid:
+                    ordered.append(h['text'])
+                    all_valid.discard(h['text'])
+            extraction_nodes = ordered
+
+        if not extraction_nodes:
+            return None
+
+        return {
+            'chapter_level':     chapter_level,
+            'section_level':     section_level,
+            'non_content_texts': non_texts,
+            'extraction_nodes':  extraction_nodes,  # 有序列表
+        }
+    except Exception:
+        return None
+
+
+def _parse_md_multilevel(text: str, hierarchy: dict) -> list:
+    """将 Markdown 文本按最多3层（章/节/小节）切分，返回叶子级别条目列表。
+
+    hierarchy 来自 _clean_headings_with_ai 或本地分析结果：
+    {
+        'chapter_level': int,
+        'section_level': int | None,
+        'leaf_level': int,             # 提取单元级别
+        'non_content_texts': set,      # 要过滤掉的标题文本
+    }
+
+    返回格式（与 _parse_md_to_sections 兼容 + 新增 section_name）：
+    [
+        {
+            'parent_chapter_num':  int,   # L1 章序号
+            'parent_chapter_name': str,   # L1 章名
+            'chapter_name':        str,   # L2 节名（若无节则等于章名）
+            'section_name':        str,   # L3 小节名（叶子；2级文档为空）
+            'num':                 int,   # 全局叶子序号
+            'text':                str,   # 叶子原文
+        }, ...
+    ]
+    """
+    import re
+
+    chapter_level = hierarchy.get('chapter_level', 2)
+    section_level = hierarchy.get('section_level')
+    leaf_level = hierarchy.get('leaf_level', section_level or chapter_level)
+    non_content = hierarchy.get('non_content_texts', set())
+
+    # 过滤非内容标题：
+    #   - 章级别（<= chapter_level）的假标题：只删除标题行，保留其后内容
+    #     （正文句子被误标为章标题，删标题行即可，其下内容仍属前面的章节）
+    #   - 节级别（> chapter_level）的结构性标题（小结/关键词等）：删除标题行 + 内容
+    if non_content:
+        lines_out = []
+        skip_until_level = None
+        for line in text.split('\n'):
+            m = re.match(r'^(#{1,6})(?!#)\s+(.+)', line)
+            if m:
+                lvl = len(m.group(1))
+                heading_text = m.group(2).strip()
+                is_non = heading_text in non_content or any(
+                    kw in heading_text for kw in _NON_CONTENT_KEYWORDS
+                )
+                if is_non:
+                    if lvl <= chapter_level:
+                        # 章级别的假标题：只跳过这一行，不跳过后续内容
+                        continue
+                    else:
+                        # 节级别的结构性标题：跳过标题行 + 其后内容
+                        skip_until_level = lvl
+                        continue
+                else:
+                    if skip_until_level is not None and lvl <= skip_until_level:
+                        skip_until_level = None
+            if skip_until_level is not None:
+                continue
+            lines_out.append(line)
+        text = '\n'.join(lines_out)
+
+    ch_pat = re.compile(r'^#{' + str(chapter_level) + r'}(?!#)\s+(.+)', re.MULTILINE)
+    sec_pat = (
+        re.compile(r'^#{' + str(section_level) + r'}(?!#)\s+(.+)', re.MULTILINE)
+        if section_level and section_level > chapter_level else None
+    )
+    leaf_pat = (
+        re.compile(r'^#{' + str(leaf_level) + r'}(?!#)\s+(.+)', re.MULTILINE)
+        if leaf_level and leaf_level > (section_level or chapter_level) else None
+    )
+
+    ch_matches = list(ch_pat.finditer(text))
+    if not ch_matches:
+        body = text.strip()
+        return [
+            {'parent_chapter_num': 1, 'parent_chapter_name': '全文',
+             'chapter_name': '全文', 'section_name': '',
+             'num': 1, 'text': body}
+        ] if body else []
+
+    result = []
+    global_num = 0
+
+    def _add_leaf(parent_ch_num, parent_ch_name, sec_name, leaf_name, body):
+        nonlocal global_num
+        body = body.strip()
+        if not body:
+            return
+        global_num += 1
+        result.append({
+            'parent_chapter_num':  parent_ch_num,
+            'parent_chapter_name': parent_ch_name,
+            'chapter_name':        sec_name,    # L2 节名（存入 ds_chapters.chapter_name）
+            'section_name':        leaf_name,   # L3 小节名（存入 ds_chapters.section_name）
+            'num':                 global_num,
+            'text':                body,
+        })
+
+    for ch_idx, ch_m in enumerate(ch_matches):
+        ch_name = ch_m.group(1).strip()
+        ch_num = ch_idx + 1
+        ch_start = ch_m.end()
+        ch_end = ch_matches[ch_idx + 1].start() if ch_idx + 1 < len(ch_matches) else len(text)
+        ch_body = text[ch_start:ch_end]
+
+        if sec_pat is None:
+            # 单级文档：章即叶子
+            _add_leaf(ch_num, ch_name, ch_name, '', ch_body)
+            continue
+
+        sec_matches = list(sec_pat.finditer(ch_body))
+        if not sec_matches:
+            # 章内无节 → 章整体作为叶子
+            _add_leaf(ch_num, ch_name, ch_name, '', ch_body)
+            continue
+
+        # 章导言（第一个节之前的内容）
+        intro = ch_body[:sec_matches[0].start()].strip()
+        if intro:
+            _add_leaf(ch_num, ch_name, ch_name, '', intro)
+
+        for s_idx, sm in enumerate(sec_matches):
+            sec_name = sm.group(1).strip()
+            s_start = sm.end()
+            s_end = sec_matches[s_idx + 1].start() if s_idx + 1 < len(sec_matches) else len(ch_body)
+            sec_body = ch_body[s_start:s_end]
+
+            if leaf_pat is None:
+                # 两级文档：节即叶子
+                _add_leaf(ch_num, ch_name, sec_name, '', sec_body)
+                continue
+
+            leaf_matches = list(leaf_pat.finditer(sec_body))
+            if not leaf_matches:
+                # 节内无小节 → 节整体作为叶子
+                _add_leaf(ch_num, ch_name, sec_name, '', sec_body)
+                continue
+
+            # 节导言
+            node_intro = sec_body[:leaf_matches[0].start()].strip()
+            if node_intro:
+                _add_leaf(ch_num, ch_name, sec_name, '', node_intro)
+
+            for l_idx, lm in enumerate(leaf_matches):
+                leaf_name = lm.group(1).strip()
+                l_start = lm.end()
+                l_end = leaf_matches[l_idx + 1].start() if l_idx + 1 < len(leaf_matches) else len(sec_body)
+                leaf_body = sec_body[l_start:l_end]
+                _add_leaf(ch_num, ch_name, sec_name, leaf_name, leaf_body)
+
+    return result
+
+
+def _parse_md_by_nodes(text: str, hierarchy: dict) -> list:
+    """按 extraction_nodes 列表切分文档，返回叶子节点列表。
+
+    hierarchy 必须包含 extraction_nodes 字段（来自 Layer 0）。
+    若不含该字段，自动降级到 _parse_md_multilevel。
+
+    返回格式与 _parse_md_multilevel 相同：
+    [
+        {
+            'parent_chapter_num':  int,
+            'parent_chapter_name': str,
+            'chapter_name':        str,
+            'section_name':        str,
+            'num':                 int,
+            'text':                str,
+        }, ...
+    ]
+    """
+    import re
+
+    extraction_nodes = hierarchy.get('extraction_nodes')
+    if not extraction_nodes:
+        return _parse_md_multilevel(text, hierarchy)
+
+    chapter_level = hierarchy.get('chapter_level', 2)
+    section_level = hierarchy.get('section_level') or chapter_level
+    non_content = hierarchy.get('non_content_texts', set())
+
+    # Step 1: 过滤 non_content_texts（复用 _parse_md_multilevel 相同逻辑）
+    if non_content:
+        lines_out = []
+        skip_until_level = None
+        for line in text.split('\n'):
+            m = re.match(r'^(#{1,6})(?!#)\s+(.+)', line)
+            if m:
+                lvl = len(m.group(1))
+                heading_text = m.group(2).strip()
+                is_non = heading_text in non_content or any(
+                    kw in heading_text for kw in _NON_CONTENT_KEYWORDS
+                )
+                if is_non:
+                    if lvl <= chapter_level:
+                        continue
+                    else:
+                        skip_until_level = lvl
+                        continue
+                else:
+                    if skip_until_level is not None and lvl <= skip_until_level:
+                        skip_until_level = None
+            if skip_until_level is not None:
+                continue
+            lines_out.append(line)
+        text = '\n'.join(lines_out)
+
+    # Step 2: 提取所有标题及其在文本中的位置
+    all_headings = []
+    for m in re.finditer(r'^(#{1,6})(?!#)\s+(.+)', text, re.MULTILINE):
+        all_headings.append({
+            'level': len(m.group(1)),
+            'text':  m.group(2).strip(),
+            'start': m.start(),
+            'end':   m.end(),
+        })
+
+    if not all_headings:
+        body = text.strip()
+        return [
+            {'parent_chapter_num': 1, 'parent_chapter_name': '全文',
+             'chapter_name': '全文', 'section_name': '',
+             'num': 1, 'text': body}
+        ] if body else []
+
+    # Step 3: 建立节点集合
+    node_set = set(extraction_nodes)
+
+    # Step 4: 按文档顺序追踪当前章/节
+    result = []
+    global_num = 0
+    current_chapter_name = ''
+    current_chapter_num = 0
+    current_section_name = ''
+
+    # 标记每个标题是否为提取节点
+    for h in all_headings:
+        h['is_node'] = h['text'] in node_set
+
+    # 找出所有节点标题（保持文档顺序）
+    node_headings = [h for h in all_headings if h['is_node']]
+
+    # 预先更新章/节上下文：遍历一次记录每个 node 对应的章/节
+    def _get_context_at(node_idx_in_all):
+        """返回该标题之前最近的章名和节名"""
+        ch_name = ''
+        ch_num = 0
+        sec_name = ''
+        for i in range(node_idx_in_all):
+            h = all_headings[i]
+            if h['level'] == chapter_level:
+                ch_name = h['text']
+                ch_num += 1
+                sec_name = ''
+            elif section_level > chapter_level and h['level'] == section_level:
+                sec_name = h['text']
+        return ch_name, ch_num, sec_name
+
+    # 重新统计章序号（只计非 non_content 的章标题）
+    ch_counter = 0
+    ch_map = {}  # heading start → chapter_num
+    for h in all_headings:
+        if h['level'] == chapter_level and h['text'] not in non_content:
+            ch_counter += 1
+            ch_map[h['start']] = ch_counter
+
+    # Step 5: 对每个 is_node=True 的标题提取内容
+    for ni, node_h in enumerate(node_headings):
+        # 找该标题在 all_headings 中的索引，用于上下文追踪
+        node_all_idx = next(i for i, h in enumerate(all_headings) if h['start'] == node_h['start'])
+
+        # 更新章/节上下文（跳过 non_content 标题，避免误标标题污染章名）
+        # 注意：节点本身若在 section_level 不更新 current_section_name，
+        # 避免 chapter_name = section_name = 节点自身（层级关系丢失）
+        for i in range(node_all_idx + 1):
+            h = all_headings[i]
+            if h['text'] in non_content:
+                continue
+            if h['level'] == chapter_level:
+                current_chapter_name = h['text']
+                current_chapter_num = ch_map.get(h['start'], current_chapter_num)
+                current_section_name = ''
+            elif section_level > chapter_level and h['level'] == section_level and i < node_all_idx:
+                # 若当前节点(node_h)与 h 处于相同 level 且 h 也是提取节点
+                # 则二者为同级兄弟节点，h 不应作为 node_h 的节父
+                is_sibling_node = (node_h['level'] == section_level and h['text'] in node_set)
+                if not is_sibling_node:
+                    current_section_name = h['text']
+
+        # 计算内容边界
+        content_start = node_h['end']
+
+        # end 候选：下一个 is_node 标题 OR 下一个 level <= section_level 的标题 OR 文档末尾
+        end_candidates = [len(text)]
+
+        # 下一个 node 标题
+        if ni + 1 < len(node_headings):
+            end_candidates.append(node_headings[ni + 1]['start'])
+
+        # 下一个 level <= node_h['level'] 的非节点标题（同级或更高层级才作为边界）
+        # 用 node_h['level'] 而非 section_level，确保 PPT H1 节点的内容包含其下所有 H2 子项，
+        # 同时对教材 H4 节点仍正确地在非节点 H3/H4 处截止
+        for h in all_headings:
+            if h['start'] > node_h['start'] and h['level'] <= node_h['level'] and not h['is_node']:
+                end_candidates.append(h['start'])
+                break
+
+        content_end = min(end_candidates)
+        body = text[content_start:content_end].strip()
+        if not body:
+            continue
+
+        global_num += 1
+        result.append({
+            'parent_chapter_num':  current_chapter_num,
+            'parent_chapter_name': current_chapter_name,
+            'chapter_name':        current_section_name or current_chapter_name,
+            'section_name':        node_h['text'],
+            'num':                 global_num,
+            'text':                body,
+        })
+
+    # Step 6: 节内导言处理（section 第一个 extraction_node 之前有实质文本）
+    # 在每个节（section_level）下，若第一个节点前有 >50 字的内容，作为额外叶子
+    # 此逻辑已通过上方的 end 候选边界隐式处理；若需要显式导言可在此扩展
+
+    return result
 
 
 def _parse_md_to_sections(text: str, chapter_level: int, section_level) -> list:
@@ -646,35 +1260,71 @@ def ds_upload():
 
     try:
         # 读取并清理文本
+        # ── 1. 读取并清理文本 ──────────────────────────────────────────────────
         if suffix in ('.md', '.txt'):
             raw_text = save_path.read_text(encoding='utf-8', errors='replace')
-            cleaned_text, had_markers = _clean_ocr_md(raw_text)
+            cleaned_text, _ = _clean_ocr_md(raw_text)
+        elif suffix == '.docx':
+            try:
+                from docx import Document as DocxDocument
+                doc = DocxDocument(str(save_path))
+                md_lines: list = []
+                for para in doc.paragraphs:
+                    t = para.text.strip()
+                    if not t:
+                        continue
+                    style = para.style.name if para.style else ''
+                    sl = style.lower()
+                    if 'heading 1' in sl:
+                        md_lines.append(f'# {t}')
+                    elif 'heading 2' in sl:
+                        md_lines.append(f'## {t}')
+                    elif 'heading 3' in sl:
+                        md_lines.append(f'### {t}')
+                    elif 'heading 4' in sl:
+                        md_lines.append(f'#### {t}')
+                    else:
+                        md_lines.append(t)
+                cleaned_text, _ = _clean_ocr_md('\n'.join(md_lines))
+            except Exception:
+                cleaned_text = None
         else:
-            cleaned_text, had_markers = None, False
+            cleaned_text = None
 
-        # 分析标题层级：先用本地扫描，OCR 文件额外用 DeepSeek 精确判断章级别
-        if cleaned_text is not None:
-            chapter_level, section_level = _analyze_doc_structure(cleaned_text)
-            if had_markers:
-                api_key = _get_deepseek_key()
-                if api_key:
-                    try:
-                        from openai import OpenAI as _OAI
-                        _ds_client = _OAI(api_key=api_key, base_url='https://api.deepseek.com')
-                        ds_chapter_level = _detect_chapter_level(cleaned_text, subject, _ds_client)
-                        if ds_chapter_level != chapter_level:
-                            # DeepSeek 给出了不同的章级别，重新推断节级别
-                            chapter_level = ds_chapter_level
-                            _, section_level = _analyze_doc_structure(cleaned_text)
-                            # 节级别必须比章级别深
-                            if section_level is not None and section_level <= chapter_level:
-                                section_level = None
-                    except Exception:
-                        pass  # 保留本地分析结果
+        if not cleaned_text:
+            return jsonify({'error': '未能从文件中提取文本内容'}), 400
 
-            sections = _parse_md_to_sections(cleaned_text, chapter_level, section_level)
+        # ── 2. 提取所有标题 + Layer 0 AI 清洗 ────────────────────────────────
+        all_headings = _extract_all_headings(cleaned_text)
+
+        # 默认降级方案：使用本地分析
+        chapter_level_local, section_level_local = _analyze_doc_structure(cleaned_text)
+        fallback_hierarchy = {
+            'chapter_level': chapter_level_local,
+            'section_level': section_level_local,
+            'non_content_texts': set(),
+        }
+
+        hierarchy = None
+        api_key = _get_deepseek_key()
+        if api_key and all_headings:
+            try:
+                from openai import OpenAI as _OAI
+                _ds_client = _OAI(api_key=api_key, base_url='https://api.deepseek.com', timeout=60)
+                hierarchy = _clean_headings_with_ai(all_headings, subject, _ds_client)
+            except Exception as _e:
+                import logging
+                logging.warning('Layer 0 heading clean failed, fallback to local: %s', _e)
+                hierarchy = None
+
+        if hierarchy is None:
+            hierarchy = fallback_hierarchy
+
+        # ── 3. 按节点列表切分（有 extraction_nodes）或降级到多层级切分 ──────────
+        if hierarchy.get('extraction_nodes'):
+            sections = _parse_md_by_nodes(cleaned_text, hierarchy)
         else:
-            sections = _parse_file_to_sections(save_path, suffix)
+            sections = _parse_md_multilevel(cleaned_text, hierarchy)
 
         if not sections:
             return jsonify({'error': '未能从文件中解析出章节内容，请确认文件含有标题结构（如 # 第一章）'}), 400
@@ -692,10 +1342,12 @@ def ds_upload():
             for sec in sections:
                 conn.execute(
                     "INSERT INTO ds_chapters "
-                    "(doc_id, chapter_num, chapter_name, parent_chapter_num, parent_chapter_name, raw_text) "
-                    "VALUES (?,?,?,?,?,?)",
-                    (doc_id, sec['num'], sec['name'],
+                    "(doc_id, chapter_num, chapter_name, parent_chapter_num, parent_chapter_name, "
+                    "section_name, raw_text) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (doc_id, sec['num'], sec['chapter_name'],
                      sec['parent_chapter_num'], sec['parent_chapter_name'],
+                     sec.get('section_name', ''),
                      sec['text']),
                 )
             conn.commit()
@@ -749,7 +1401,8 @@ def ds_extract(doc_id):
 
         # all_sections：知识点提取单元（节级别），包含父章信息
         all_sections = conn.execute(
-            "SELECT chapter_num, chapter_name, parent_chapter_num, parent_chapter_name, raw_text "
+            "SELECT chapter_num, chapter_name, parent_chapter_num, parent_chapter_name, "
+            "COALESCE(section_name, '') as section_name, raw_text "
             "FROM ds_chapters WHERE doc_id=? ORDER BY chapter_num",
             (doc_id,),
         ).fetchall()
@@ -884,12 +1537,16 @@ def ds_extract(doc_id):
                     ch_text = ch_text[:8000] + '\n\n[（内容过长，已截断）]'
                 # 用父章序号查找架构主题（架构按父章组织）
                 chapter_themes = _get_chapter_themes(architecture, ch['parent_chapter_num'])
-                # 提示词中的 chapter_name 展示节名，让 DS 知道当前处理的是哪一节
-                display_name = (
-                    f"{ch['parent_chapter_name']} > {ch['chapter_name']}"
-                    if ch['chapter_name'] != ch['parent_chapter_name']
-                    else ch['chapter_name']
-                )
+                # 提示词中的 chapter_name 展示完整路径，让 DS 知道当前处理的是哪一节
+                sec_name = ch['section_name'] if ch['section_name'] else ''
+                if sec_name and sec_name != ch['chapter_name']:
+                    display_name = (
+                        f"{ch['parent_chapter_name']} > {ch['chapter_name']} > {sec_name}"
+                    )
+                elif ch['chapter_name'] != ch['parent_chapter_name']:
+                    display_name = f"{ch['parent_chapter_name']} > {ch['chapter_name']}"
+                else:
+                    display_name = ch['chapter_name']
                 prompt = _DS_EXTRACT_PROMPT.format(
                     subject=subject or '（未指定）',
                     document_summary=architecture.get('document_summary', ''),
@@ -928,14 +1585,16 @@ def ds_extract(doc_id):
                                     for kp in kps:
                                         conn.execute(
                                             "INSERT INTO ds_kps "
-                                            "(doc_id, chapter_name, chapter_num, "
+                                            "(doc_id, chapter_name, chapter_num, section_name, "
                                             "kp_name, kp_content, relations_json) "
-                                            "VALUES (?,?,?,?,?,?)",
+                                            "VALUES (?,?,?,?,?,?,?)",
                                             (
                                                 doc_id,
-                                                # chapter_name 存父章名，供 UI 分组
+                                                # chapter_name 存父章名（L1），供 UI 分组
                                                 ch['parent_chapter_name'],
                                                 ch['parent_chapter_num'],
+                                                # section_name 存节名（L2），供更细粒度展示
+                                                ch['chapter_name'],
                                                 kp.get('name', ''),
                                                 kp.get('content', ''),
                                                 _json_mod.dumps(
@@ -1037,7 +1696,8 @@ def ds_kp_get(kp_id):
     _init_ds_db()
     with _ds_db_conn() as conn:
         row = conn.execute(
-            "SELECT id, doc_id, chapter_name, chapter_num, kp_name, kp_content, relations_json "
+            "SELECT id, doc_id, chapter_name, chapter_num, kp_name, kp_content, relations_json, "
+            "teaching_focus, knowledge_type, cognitive_dimension "
             "FROM ds_kps WHERE id=?",
             (kp_id,),
         ).fetchone()
@@ -1055,6 +1715,9 @@ def ds_kp_get(kp_id):
         'name': row['kp_name'],
         'content': row['kp_content'],
         'relations': relations,
+        'teaching_focus': row['teaching_focus'] or '',
+        'knowledge_type': row['knowledge_type'] or '',
+        'cognitive_dimension': row['cognitive_dimension'] or '',
     })
 
 
@@ -1067,6 +1730,9 @@ def ds_kp_update(kp_id):
     name = data.get('name', '').strip()
     content = data.get('content', '').strip()
     relations = data.get('relations', [])
+    teaching_focus = data.get('teaching_focus', '').strip()
+    knowledge_type = data.get('knowledge_type', '').strip()
+    cognitive_dimension = data.get('cognitive_dimension', '').strip()
 
     if not name:
         return jsonify({'error': '知识点名称不能为空'}), 400
@@ -1081,14 +1747,459 @@ def ds_kp_update(kp_id):
 
     with _ds_db_conn() as conn:
         cur = conn.execute(
-            "UPDATE ds_kps SET kp_name=?, kp_content=?, relations_json=? WHERE id=?",
-            (name, content, _json_mod.dumps(clean_relations, ensure_ascii=False), kp_id),
+            "UPDATE ds_kps SET kp_name=?, kp_content=?, relations_json=?, "
+            "teaching_focus=?, knowledge_type=?, cognitive_dimension=? WHERE id=?",
+            (name, content, _json_mod.dumps(clean_relations, ensure_ascii=False),
+             teaching_focus, knowledge_type, cognitive_dimension, kp_id),
         )
         conn.commit()
         if cur.rowcount == 0:
             return jsonify({'error': f'知识点 {kp_id} 不存在'}), 404
 
     return jsonify({'success': True, 'id': kp_id})
+
+
+# ── 批量分类：知识类型 + 认知维度 ──────────────────────────────────────────────
+
+_CLASSIFY_SYSTEM = "你是一名教育学专家，熟悉布鲁姆教育目标分类理论。"
+
+_CLASSIFY_PROMPT = """\
+请根据布鲁姆分类法，对下列知识点逐一判断其【知识类型】和【认知维度】。
+
+## 知识类型（四选一）
+- 事实性：指客观存在的事实、数据、事件等，不涉及推理或解释。
+- 概念性：涉及定义、原理、理论等，是对事物本质和规律的描述。
+- 程序性：关于如何做事的知识，包括方法、步骤、算法等。
+- 元认知：关于认知的认知，涉及对思维过程、学习策略、自我监控等的理解和运用。
+
+## 认知维度（六选一，由低到高）
+- 记忆：最低层次，认识和记忆名词、事实、规则、原理。行动动词：指出、写出、界定、说明、举例、命名。
+- 理解：把握知识或概念的意义，包括转译、解释、推论。行动动词：解释、说明、区别、摘要、归纳。
+- 应用：将规则、方法、步骤应用到新情境。行动动词：预测、证明、解决、修改、应用。
+- 分析：将概念分析为各构成部分，找出相互关系。行动动词：选出、分析、判断、区分、指出关系。
+- 评价：依据标准做价值的判断。行动动词：评鉴、判断、评论、比较、批判。
+- 创造：将各元素组装形成完整且具功能的整体。行动动词：设计、创造、发展、建立、提出假设。
+
+## 待分类知识点
+{kp_list}
+
+## 输出要求
+直接输出纯 JSON 数组，不要加代码块标记，格式如下：
+[
+  {{"seq": 1, "knowledge_type": "概念性", "cognitive_dimension": "理解"}},
+  ...
+]
+"""
+
+
+def _classify_batch(client, kps_batch: list) -> list:
+    """调用 DeepSeek 对一批知识点分类，返回与输入等长的结果列表。
+
+    kps_batch: [{"seq": 1, "name": "...", "content": "..."}, ...]
+    返回: [{"seq": 1, "knowledge_type": "...", "cognitive_dimension": "..."}, ...]
+    """
+    lines = []
+    for kp in kps_batch:
+        content_preview = (kp.get('content') or '')[:200]
+        lines.append(f"序号{kp['seq']}. 名称：{kp['name']}\n   内容：{content_preview}")
+    kp_list_text = '\n'.join(lines)
+
+    resp = client.chat.completions.create(
+        model='deepseek-chat',
+        messages=[
+            {'role': 'system', 'content': _CLASSIFY_SYSTEM},
+            {'role': 'user', 'content': _CLASSIFY_PROMPT.format(kp_list=kp_list_text)},
+        ],
+        max_tokens=1000,
+        temperature=0.1,
+    )
+    raw = resp.choices[0].message.content or ''
+    # 去掉可能的代码块包裹
+    raw = raw.strip()
+    if raw.startswith('```'):
+        raw = raw.split('\n', 1)[-1].rsplit('```', 1)[0].strip()
+    try:
+        results = _json_mod.loads(raw)
+        if isinstance(results, list):
+            return results
+    except Exception:
+        pass
+    return []
+
+
+_classify_tasks: dict = {}
+_VALID_KT = {'事实性', '概念性', '程序性', '元认知'}
+_VALID_CD = {'记忆', '理解', '应用', '分析', '评价', '创造'}
+
+
+@rag_bp.route('/api/rag/ds-batch-classify', methods=['POST'])
+def ds_batch_classify():
+    """异步批量提取知识点的知识类型和认知维度。
+
+    请求体：
+      {
+        "doc_id": "...",          # 可选，不传则 kp_ids 必须提供
+        "kp_ids": [1, 2, 3],     # 可选，不传则处理 doc_id 下所有知识点
+        "overwrite": false        # false=仅补全空白, true=全部覆盖
+      }
+    """
+    _init_ds_db()
+    data = request.json or {}
+    doc_id = data.get('doc_id', '').strip()
+    kp_ids = data.get('kp_ids')  # None 或 list
+    overwrite = bool(data.get('overwrite', False))
+
+    if not doc_id and not kp_ids:
+        return jsonify({'error': 'doc_id 或 kp_ids 至少提供一项'}), 400
+
+    api_key = _get_deepseek_key()
+    if not api_key:
+        return jsonify({'error': '未配置 DeepSeek API Key'}), 400
+
+    # 查询要处理的知识点
+    with _ds_db_conn() as conn:
+        if kp_ids:
+            ph = ','.join('?' * len(kp_ids))
+            rows = conn.execute(
+                f"SELECT id, kp_name, kp_content, knowledge_type, cognitive_dimension "
+                f"FROM ds_kps WHERE id IN ({ph})",
+                list(kp_ids),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, kp_name, kp_content, knowledge_type, cognitive_dimension "
+                "FROM ds_kps WHERE doc_id=?",
+                (doc_id,),
+            ).fetchall()
+
+    if not overwrite:
+        rows = [r for r in rows if not (r['knowledge_type'] and r['cognitive_dimension'])]
+
+    if not rows:
+        return jsonify({'success': True, 'task_id': None, 'message': '没有需要处理的知识点', 'total': 0})
+
+    import uuid, threading
+    task_id = uuid.uuid4().hex[:8]
+    _classify_tasks[task_id] = {
+        'status': 'running',
+        'progress': 0,
+        'total': len(rows),
+        'done_ids': [],
+        'error': None,
+    }
+
+    def _run():
+        try:
+            from openai import OpenAI as _OAI
+            client = _OAI(api_key=api_key, base_url='https://api.deepseek.com')
+            batch_size = 15
+            kp_list = [dict(r) for r in rows]
+            done = 0
+
+            for start in range(0, len(kp_list), batch_size):
+                batch = kp_list[start:start + batch_size]
+                # 给每个加序号（1-based）
+                for i, kp in enumerate(batch):
+                    kp['seq'] = i + 1
+
+                results = _classify_batch(client, batch)
+
+                # 将结果写回 DB（按 seq 对齐）
+                seq_map = {kp['seq']: kp for kp in batch}
+                with _ds_db_conn() as conn:
+                    for res in results:
+                        seq = res.get('seq')
+                        kt  = res.get('knowledge_type', '')
+                        cd  = res.get('cognitive_dimension', '')
+                        if seq not in seq_map:
+                            continue
+                        kp = seq_map[seq]
+                        # 校验合法值
+                        kt = kt if kt in _VALID_KT else ''
+                        cd = cd if cd in _VALID_CD else ''
+                        conn.execute(
+                            "UPDATE ds_kps SET knowledge_type=?, cognitive_dimension=? WHERE id=?",
+                            (kt, cd, kp['id']),
+                        )
+                        _classify_tasks[task_id]['done_ids'].append(kp['id'])
+                        done += 1
+                    conn.commit()
+
+                _classify_tasks[task_id]['progress'] = done
+
+            _classify_tasks[task_id].update({'status': 'done', 'progress': done})
+
+        except Exception as e:
+            _classify_tasks[task_id].update({'status': 'error', 'error': str(e)})
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jsonify({'success': True, 'task_id': task_id, 'total': len(rows)})
+
+
+@rag_bp.route('/api/rag/ds-classify-tasks/<task_id>', methods=['GET'])
+def ds_classify_task_status(task_id):
+    """轮询批量分类任务状态。"""
+    task = _classify_tasks.get(task_id)
+    if task is None:
+        return jsonify({'error': '任务不存在'}), 404
+    return jsonify(task)
+
+
+@rag_bp.route('/api/rag/ds-export-xlsx', methods=['GET'])
+def ds_export_xlsx():
+    """将指定文档的知识图谱导出为《批量导入知识点模板》格式的 Excel 文件。
+
+    Query params:
+        doc_id  — 文档 ID（必填）
+    """
+    import io
+    try:
+        import openpyxl
+        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        return jsonify({'error': '请先安装 openpyxl：pip install openpyxl'}), 500
+
+    _init_ds_db()
+    doc_id = request.args.get('doc_id', '').strip()
+    if not doc_id:
+        return jsonify({'error': 'doc_id 不能为空'}), 400
+
+    with _ds_db_conn() as conn:
+        # 校验文档存在
+        doc_row = conn.execute(
+            "SELECT doc_id FROM ds_docs WHERE doc_id=?", (doc_id,)
+        ).fetchone()
+        if doc_row is None:
+            return jsonify({'error': f'文档 {doc_id} 不存在'}), 404
+
+        # 获取章节层级
+        chapters = conn.execute(
+            "SELECT chapter_num, chapter_name, parent_chapter_num, parent_chapter_name "
+            "FROM ds_chapters WHERE doc_id=? ORDER BY chapter_num",
+            (doc_id,),
+        ).fetchall()
+
+        # 获取知识点（含 section_name）
+        kps = conn.execute(
+            "SELECT id, chapter_num, chapter_name, "
+            "COALESCE(section_name, '') as section_name, "
+            "kp_name, teaching_focus, knowledge_type, cognitive_dimension, relations_json "
+            "FROM ds_kps WHERE doc_id=? ORDER BY chapter_num, id",
+            (doc_id,),
+        ).fetchall()
+
+    # ── 1. 从 ds_kps 重建层级（按出现顺序去重） ──────────────────────────────
+    import re as _re
+    doc_label = _re.sub(r'^\d+_', '', doc_id).replace('_', ' ')
+
+    # 遍历 kps，按 (chapter_name, section_name) 分组并保持出现顺序
+    chapter_order: list = []          # [chapter_name]
+    chapter_seen: dict = {}           # chapter_name → chapter_num
+    chapter_sections: dict = {}       # chapter_name → [section_name, ...]（有序去重）
+    section_seen: dict = {}           # chapter_name → set(section_name)
+    section_kps: dict = {}            # (chapter_name, section_name) → [kp, ...]
+
+    for kp in kps:
+        ch  = kp['chapter_name'] or ''
+        sec = kp['section_name'] or ''
+        if _is_non_content(ch):
+            continue
+        if ch not in chapter_seen:
+            chapter_seen[ch] = kp['chapter_num']
+            chapter_order.append(ch)
+            chapter_sections[ch] = []
+            section_seen[ch] = set()
+        if sec not in section_seen[ch]:
+            if not _is_non_content(sec):
+                section_seen[ch].add(sec)
+                chapter_sections[ch].append(sec)
+        key = (ch, sec)
+        section_kps.setdefault(key, []).append(kp)
+
+    # 按顺序构建 rows_data
+    rows_data = []
+
+    def _add_row(level, name, node_type, tf='', kt='', cd='', db_id=None):
+        rows_data.append({
+            'level': level, 'name': name, 'node_type': node_type,
+            'teaching_focus': tf, 'knowledge_type': kt,
+            'cognitive_dimension': cd, 'db_id': db_id,
+        })
+
+    # L1: 文档
+    _add_row(1, doc_label, '知识单元')
+
+    # L2（章） → L3（节 or KP直接） → L4（KP，若有节）
+    for ch_name in chapter_order:
+        _add_row(2, ch_name, '知识单元')
+        for sec_name in chapter_sections[ch_name]:
+            kp_list = section_kps.get((ch_name, sec_name), [])
+            if sec_name:
+                # 有节名：L3=节（知识单元），L4=KP
+                _add_row(3, sec_name, '知识单元')
+                for kp in kp_list:
+                    _add_row(4, kp['kp_name'], '知识点',
+                             tf=kp['teaching_focus'] or '',
+                             kt=kp['knowledge_type'] or '',
+                             cd=kp['cognitive_dimension'] or '',
+                             db_id=kp['id'])
+            else:
+                # 无节名：KP 直接挂在章下，放 L3
+                for kp in kp_list:
+                    _add_row(3, kp['kp_name'], '知识点',
+                             tf=kp['teaching_focus'] or '',
+                             kt=kp['knowledge_type'] or '',
+                             cd=kp['cognitive_dimension'] or '',
+                             db_id=kp['id'])
+
+    # 分配导出 ID（1-based）
+    for i, r in enumerate(rows_data):
+        r['export_id'] = i + 1
+
+    # ── 2. 解析关系，建立 name→export_id 映射 ─────────────────────────────
+    # 合并：所有节点名 → export_id
+    all_name_to_id: dict = {}
+    for r in rows_data:
+        all_name_to_id[r['name']] = r['export_id']
+
+    def resolve_ids(names_str: str) -> str:
+        """将分号分隔的名称解析为分号分隔的 export_id。"""
+        parts = [p.strip() for p in names_str.split(';') if p.strip()]
+        ids = []
+        for p in parts:
+            # 支持 "章节名>kp名" 格式
+            kp_name = p.split('>')[-1].strip() if '>' in p else p
+            eid = all_name_to_id.get(kp_name)
+            if eid:
+                ids.append(str(eid))
+        return ';'.join(ids)
+
+    # 为每个知识点建立前序/关联 ID
+    kp_prereqs: dict[int, str] = {}   # export_id → 前序IDs字符串
+    kp_related: dict[int, str] = {}   # export_id → 关联IDs字符串
+
+    kp_export_id_map = {kp['id']: all_name_to_id.get(kp['kp_name'], '') for kp in kps}
+
+    for kp in kps:
+        eid = all_name_to_id.get(kp['kp_name'])
+        if not eid:
+            continue
+        try:
+            relations = _json_mod.loads(kp['relations_json'] or '[]')
+        except Exception:
+            relations = []
+        prereq_names = []
+        related_names = []
+        for rel in relations:
+            rtype = rel.get('type', '')
+            target = rel.get('target', '')
+            if rtype == '前提':
+                prereq_names.append(target)
+            elif rtype in ('并列', '交叉', '比较'):
+                related_names.append(target)
+        kp_prereqs[eid] = resolve_ids(';'.join(prereq_names))
+        kp_related[eid] = resolve_ids(';'.join(related_names))
+
+    # ── 3. 生成 Excel（在模板基础上写入，保留前两行不变） ────────────────────
+    template_path = _project_root() / '批量导入知识点模板.xlsx'
+    if template_path.exists():
+        wb = openpyxl.load_workbook(str(template_path))
+        ws = wb['知识点'] if '知识点' in wb.sheetnames else wb.active
+        # 清空第3行及以后的旧数据（保留第1行说明、第2行表头）
+        if ws.max_row >= 3:
+            ws.delete_rows(3, ws.max_row - 2)
+    else:
+        # 模板不存在时降级：自建表头（保证格式兼容）
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = '知识点'
+        HEADERS = ['ID', '一级知识点', '二级知识点', '三级知识点',
+                   '四级知识点', '五级知识点', '六级知识点',
+                   '节点类型', '教学要点', '知识类型', '认知维度',
+                   '前序知识点ID', '关联知识点ID']
+        header_fill = PatternFill('solid', start_color='4472C4')
+        header_font = Font(bold=True, color='FFFFFF', name='微软雅黑', size=10)
+        header_align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        thin = Side(style='thin', color='FFFFFF')
+        header_border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        ws.row_dimensions[2].height = 20
+        for col_idx, header in enumerate(HEADERS, 1):
+            cell = ws.cell(row=2, column=col_idx, value=header)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = header_align
+            cell.border = header_border
+
+    # 数据从第3行开始写入（第1行=说明，第2行=表头）
+    data_align = Alignment(vertical='center', wrap_text=False)
+    for r in rows_data:
+        row_idx = r['export_id'] + 2  # +2：跳过说明行+表头行
+        level = r['level']
+        eid   = r['export_id']
+
+        ws.cell(row=row_idx, column=1, value=eid).alignment = data_align
+
+        # 填写对应级别列（B=level1, C=level2, ...）
+        level_col = level  # 1→col2(B), 2→col3(C)...
+        ws.cell(row=row_idx, column=level_col + 1, value=r['name']).alignment = data_align
+
+        ws.cell(row=row_idx, column=8, value=r['node_type']).alignment = data_align
+
+        if r['teaching_focus']:
+            ws.cell(row=row_idx, column=9, value=r['teaching_focus']).alignment = data_align
+        if r['knowledge_type']:
+            ws.cell(row=row_idx, column=10, value=r['knowledge_type']).alignment = data_align
+        if r['cognitive_dimension']:
+            ws.cell(row=row_idx, column=11, value=r['cognitive_dimension']).alignment = data_align
+
+        if eid in kp_prereqs and kp_prereqs[eid]:
+            ws.cell(row=row_idx, column=12, value=kp_prereqs[eid]).alignment = data_align
+        if eid in kp_related and kp_related[eid]:
+            ws.cell(row=row_idx, column=13, value=kp_related[eid]).alignment = data_align
+
+    # 列宽
+    col_widths = [8, 20, 22, 22, 22, 22, 22, 12, 16, 14, 14, 14, 14]
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    # 字典 sheet（模板中已有则跳过，仅在自建模式下补充）
+    if '字典' not in wb.sheetnames:
+        ws2 = wb.create_sheet('字典')
+    else:
+        ws2 = None  # 模板自带字典，不覆盖
+    if ws2 is not None:
+        dict_data = [
+        (None, '知识类型', None),
+        (None, '事实性', '指客观存在的事实、数据、事件等，不涉及推理或解释。'),
+        (None, '概念性', '涉及定义、原理、理论等，是对事物本质和规律的描述。'),
+        (None, '程序性', '关于如何做事的知识，包括方法、步骤、算法等。'),
+        (None, '元认知', '关于认知的认知，涉及对思维过程、学习策略、自我监控等的理解和运用。'),
+        (None, '认知维度', None),
+        (None, '记忆', '在认知目标中知识是最低层次的能力，包括名词、事实、规则和原理原则等的认识和记忆。'),
+        (None, '理解', '理解是指能把握所学过知识或概念的意义，包括转译、解释、推论等能力。'),
+        (None, '应用', '应用是指将所学到的规则、方法、步骤、原理、原则和概念，应用到新情境的能力。'),
+        (None, '分析', '分析是指将学到的概念或原则，分析为各个构成的部分，找出各部分之间的相互关系。'),
+        (None, '评价', '指依据某项标准做价值的判断的能力。'),
+        (None, '创造', '涉及将各个元素组装在一起，形成一个完整且具功能的整体。'),
+        ]
+        for row in dict_data:
+            ws2.append(row)
+
+    # ── 4. 返回文件 ───────────────────────────────────────────────────────
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    from flask import send_file
+    import urllib.parse
+    safe_name = urllib.parse.quote(f'{doc_label}_知识点导出.xlsx')
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'{doc_label}_知识点导出.xlsx',
+    )
 
 
 @rag_bp.route('/api/rag/ds-tasks/<task_id>', methods=['GET'])
@@ -1124,7 +2235,8 @@ def ds_doc_kps(doc_id):
             (doc_id,),
         ).fetchall()
         kps = conn.execute(
-            "SELECT id, chapter_name, chapter_num, kp_name, kp_content, relations_json "
+            "SELECT id, chapter_name, chapter_num, kp_name, kp_content, relations_json, "
+            "teaching_focus, knowledge_type, cognitive_dimension "
             "FROM ds_kps WHERE doc_id=? ORDER BY chapter_num, id",
             (doc_id,),
         ).fetchall()
@@ -1150,6 +2262,9 @@ def ds_doc_kps(doc_id):
                 'name': k['kp_name'],
                 'content': k['kp_content'],
                 'relations': k['relations_json'],
+                'teaching_focus': k['teaching_focus'] or '',
+                'knowledge_type': k['knowledge_type'] or '',
+                'cognitive_dimension': k['cognitive_dimension'] or '',
             }
             for k in kps
         ],
@@ -1183,6 +2298,7 @@ def ds_graph():
         ph = ','.join('?' for _ in doc_ids)
         query = (
             "SELECT id, doc_id, chapter_name, chapter_num, "
+            "COALESCE(section_name, '') as section_name, "
             "kp_name, kp_content, relations_json "
             f"FROM ds_kps WHERE doc_id IN ({ph})"
         )
@@ -1199,21 +2315,26 @@ def ds_graph():
 
     nodes: list = []
     name_to_id: dict = {}
-    chapters_map: dict = {}
+    # 用 (chapter_name, section_name) 元组去重，保留 chapter_num
+    sections_seen: dict = {}  # (chapter_name, section_name) -> chapter_num
 
     for row in rows:
         nid = f"kp_{row['id']}"
         name_to_id[(row['doc_id'], row['kp_name'])] = nid
         name_to_id.setdefault(row['kp_name'], nid)
+        sec_name = row['section_name'] or ''
         nodes.append({
             'id': nid,
             'name': row['kp_name'],
             'chapter': row['chapter_name'],
             'chapter_num': row['chapter_num'],
+            'section_name': sec_name,
             'doc_id': row['doc_id'],
             'content': row['kp_content'],
         })
-        chapters_map.setdefault(row['chapter_name'], row['chapter_num'])
+        key = (row['chapter_name'], sec_name)
+        if key not in sections_seen:
+            sections_seen[key] = row['chapter_num']
 
     links: list = []
     for row in rows:
@@ -1232,9 +2353,11 @@ def ds_graph():
         except Exception:
             pass
 
+    # 按 chapter_num 排序，section_name 空字符在前（章级别条目先显示）
     chapters = sorted(
-        [{'name': k, 'num': v} for k, v in chapters_map.items()],
-        key=lambda c: c['num'],
+        [{'name': ch, 'num': num, 'section_name': sec}
+         for (ch, sec), num in sections_seen.items()],
+        key=lambda c: (c['num'], c['section_name']),
     )
     return jsonify({
         'nodes': nodes,
