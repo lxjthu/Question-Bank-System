@@ -107,7 +107,7 @@ def main():
 
     # ── Step 2：安装依赖（三镜像回退）────────────────────────────────────────
     step(2, 4, '安装构建依赖...')
-    run([str(venv_pip), 'install', '--upgrade', 'pip', '--quiet'])
+    run([str(venv_python), '-m', 'pip', 'install', '--upgrade', 'pip', '--quiet'])
 
     installed = False
     for mirror in MIRRORS:
