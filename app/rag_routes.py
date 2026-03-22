@@ -1791,26 +1791,85 @@ _CLASSIFY_PROMPT = """\
 ]
 """
 
+_CLASSIFY_PROMPT_WITH_FOCUS = """\
+请根据布鲁姆分类法，对下列知识点逐一判断其【知识类型】、【认知维度】和【教学属性】。
 
-def _classify_batch(client, kps_batch: list) -> list:
+## 知识类型（四选一）
+- 事实性：指客观存在的事实、数据、事件等，不涉及推理或解释。
+- 概念性：涉及定义、原理、理论等，是对事物本质和规律的描述。
+- 程序性：关于如何做事的知识，包括方法、步骤、算法等。
+- 元认知：关于认知的认知，涉及对思维过程、学习策略、自我监控等的理解和运用。
+
+## 认知维度（六选一，由低到高）
+- 记忆：最低层次，认识和记忆名词、事实、规则、原理。行动动词：指出、写出、界定、说明、举例、命名。
+- 理解：把握知识或概念的意义，包括转译、解释、推论。行动动词：解释、说明、区别、摘要、归纳。
+- 应用：将规则、方法、步骤应用到新情境。行动动词：预测、证明、解决、修改、应用。
+- 分析：将概念分析为各构成部分，找出相互关系。行动动词：选出、分析、判断、区分、指出关系。
+- 评价：依据标准做价值的判断。行动动词：评鉴、判断、评论、比较、批判。
+- 创造：将各元素组装形成完整且具功能的整体。行动动词：设计、创造、发展、建立、提出假设。
+
+## 教学属性（可多选，用逗号分隔，也可为空）
+- 重点：本课程重点掌握的核心概念或方法
+- 难点：学生普遍感到理解困难的内容
+- 考点：历年考试频繁出现的内容
+
+{focus_section}## 待分类知识点
+{kp_list}
+
+## 输出要求
+直接输出纯 JSON 数组，不要加代码块标记，格式如下：
+[
+  {{"seq": 1, "knowledge_type": "概念性", "cognitive_dimension": "理解", "teaching_focus": "重点,考点"}},
+  ...
+]
+"""
+
+
+def _classify_batch(
+    client,
+    kps_batch: list,
+    system_prompt: str = None,
+    user_prompt: str = None,
+    classify_focus: bool = False,
+) -> list:
     """调用 DeepSeek 对一批知识点分类，返回与输入等长的结果列表。
 
-    kps_batch: [{"seq": 1, "name": "...", "content": "..."}, ...]
-    返回: [{"seq": 1, "knowledge_type": "...", "cognitive_dimension": "..."}, ...]
+    kps_batch: [{"seq": 1, "kp_name": "...", "kp_content": "..."}, ...]
+    返回: [{"seq": 1, "knowledge_type": "...", "cognitive_dimension": "...", "teaching_focus": "..."}, ...]
+
+    system_prompt / user_prompt 为 None 时使用模块级默认常量。
+    user_prompt 须含 {kp_list} 占位符。
+    classify_focus=True 时输出中包含 teaching_focus 字段并写回。
     """
     lines = []
     for kp in kps_batch:
-        content_preview = (kp.get('content') or '')[:200]
-        lines.append(f"序号{kp['seq']}. 名称：{kp['name']}\n   内容：{content_preview}")
+        content_preview = (kp.get('kp_content') or '')[:200]
+        lines.append(f"序号{kp['seq']}. 名称：{kp['kp_name']}\n   内容：{content_preview}")
     kp_list_text = '\n'.join(lines)
+
+    sys_msg = system_prompt if system_prompt else _CLASSIFY_SYSTEM
+
+    if user_prompt:
+        # 前端传来的提示词，{focus_section} 已被替换，只需填 {kp_list}
+        if '{kp_list}' in user_prompt:
+            user_msg = user_prompt.format(kp_list=kp_list_text)
+        else:
+            user_msg = user_prompt + '\n\n## 待分类知识点\n' + kp_list_text
+    else:
+        if classify_focus:
+            user_msg = _CLASSIFY_PROMPT_WITH_FOCUS.format(kp_list=kp_list_text, focus_section='')
+        else:
+            user_msg = _CLASSIFY_PROMPT.format(kp_list=kp_list_text)
+
+    max_tokens = 1200 if classify_focus else 1000
 
     resp = client.chat.completions.create(
         model='deepseek-chat',
         messages=[
-            {'role': 'system', 'content': _CLASSIFY_SYSTEM},
-            {'role': 'user', 'content': _CLASSIFY_PROMPT.format(kp_list=kp_list_text)},
+            {'role': 'system', 'content': sys_msg},
+            {'role': 'user', 'content': user_msg},
         ],
-        max_tokens=1000,
+        max_tokens=max_tokens,
         temperature=0.1,
     )
     raw = resp.choices[0].message.content or ''
@@ -1830,24 +1889,31 @@ def _classify_batch(client, kps_batch: list) -> list:
 _classify_tasks: dict = {}
 _VALID_KT = {'事实性', '概念性', '程序性', '元认知'}
 _VALID_CD = {'记忆', '理解', '应用', '分析', '评价', '创造'}
+_VALID_TF = {'重点', '难点', '考点'}
 
 
 @rag_bp.route('/api/rag/ds-batch-classify', methods=['POST'])
 def ds_batch_classify():
-    """异步批量提取知识点的知识类型和认知维度。
+    """异步批量提取知识点的知识类型、认知维度，可选标注教学属性。
 
     请求体：
       {
         "doc_id": "...",          # 可选，不传则 kp_ids 必须提供
         "kp_ids": [1, 2, 3],     # 可选，不传则处理 doc_id 下所有知识点
-        "overwrite": false        # false=仅补全空白, true=全部覆盖
+        "overwrite": false,       # false=仅补全空白, true=全部覆盖
+        "system_prompt": "...",   # 可选，覆盖默认系统提示
+        "user_prompt": "...",     # 可选，须含 {kp_list} 占位符；覆盖默认用户提示
+        "classify_focus": false   # true=同时标注 teaching_focus
       }
     """
     _init_ds_db()
     data = request.json or {}
-    doc_id = data.get('doc_id', '').strip()
-    kp_ids = data.get('kp_ids')  # None 或 list
-    overwrite = bool(data.get('overwrite', False))
+    doc_id          = data.get('doc_id', '').strip()
+    kp_ids          = data.get('kp_ids')
+    overwrite       = bool(data.get('overwrite', False))
+    system_prompt   = data.get('system_prompt') or None
+    user_prompt     = data.get('user_prompt') or None
+    classify_focus  = bool(data.get('classify_focus', False))
 
     if not doc_id and not kp_ids:
         return jsonify({'error': 'doc_id 或 kp_ids 至少提供一项'}), 400
@@ -1902,7 +1968,12 @@ def ds_batch_classify():
                 for i, kp in enumerate(batch):
                     kp['seq'] = i + 1
 
-                results = _classify_batch(client, batch)
+                results = _classify_batch(
+                    client, batch,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    classify_focus=classify_focus,
+                )
 
                 # 将结果写回 DB（按 seq 对齐）
                 seq_map = {kp['seq']: kp for kp in batch}
@@ -1917,10 +1988,20 @@ def ds_batch_classify():
                         # 校验合法值
                         kt = kt if kt in _VALID_KT else ''
                         cd = cd if cd in _VALID_CD else ''
-                        conn.execute(
-                            "UPDATE ds_kps SET knowledge_type=?, cognitive_dimension=? WHERE id=?",
-                            (kt, cd, kp['id']),
-                        )
+                        if classify_focus:
+                            raw_tf = res.get('teaching_focus', '')
+                            # 支持逗号分隔多值，过滤非法项
+                            tf_parts = [p.strip() for p in raw_tf.split(',') if p.strip() in _VALID_TF]
+                            tf = ','.join(tf_parts)
+                            conn.execute(
+                                "UPDATE ds_kps SET knowledge_type=?, cognitive_dimension=?, teaching_focus=? WHERE id=?",
+                                (kt, cd, tf, kp['id']),
+                            )
+                        else:
+                            conn.execute(
+                                "UPDATE ds_kps SET knowledge_type=?, cognitive_dimension=? WHERE id=?",
+                                (kt, cd, kp['id']),
+                            )
                         _classify_tasks[task_id]['done_ids'].append(kp['id'])
                         done += 1
                     conn.commit()

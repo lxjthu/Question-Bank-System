@@ -4587,6 +4587,128 @@ Now please start generating questions. Output question content directly without 
         // ── 批量AI标注知识类型/认知维度 ─────────────────────────────────────────
         let _classifyPollTimer = null;
 
+        // ── 默认提示词常量（与 rag_routes.py 保持一致）────────────────────────
+        const _CLASSIFY_DEFAULT_SYS = `你是一名教育学专家，熟悉布鲁姆教育目标分类理论。`;
+        const _CLASSIFY_DEFAULT_USER = `请根据布鲁姆分类法，对下列知识点逐一判断其【知识类型】和【认知维度】。
+
+## 知识类型（四选一）
+- 事实性：指客观存在的事实、数据、事件等，不涉及推理或解释。
+- 概念性：涉及定义、原理、理论等，是对事物本质和规律的描述。
+- 程序性：关于如何做事的知识，包括方法、步骤、算法等。
+- 元认知：关于认知的认知，涉及对思维过程、学习策略、自我监控等的理解和运用。
+
+## 认知维度（六选一，由低到高）
+- 记忆：最低层次，认识和记忆名词、事实、规则、原理。行动动词：指出、写出、界定、说明、举例、命名。
+- 理解：把握知识或概念的意义，包括转译、解释、推论。行动动词：解释、说明、区别、摘要、归纳。
+- 应用：将规则、方法、步骤应用到新情境。行动动词：预测、证明、解决、修改、应用。
+- 分析：将概念分析为各构成部分，找出相互关系。行动动词：选出、分析、判断、区分、指出关系。
+- 评价：依据标准做价值的判断。行动动词：评鉴、判断、评论、比较、批判。
+- 创造：将各元素组装形成完整且具功能的整体。行动动词：设计、创造、发展、建立、提出假设。
+
+## 待分类知识点
+{kp_list}
+
+## 输出要求
+直接输出纯 JSON 数组，不要加代码块标记，格式如下：
+[
+  {"seq": 1, "knowledge_type": "概念性", "cognitive_dimension": "理解"},
+  ...
+]`;
+
+        const _CLASSIFY_DEFAULT_USER_WITH_FOCUS = `请根据布鲁姆分类法，对下列知识点逐一判断其【知识类型】、【认知维度】和【教学属性】。
+
+## 知识类型（四选一）
+- 事实性：指客观存在的事实、数据、事件等，不涉及推理或解释。
+- 概念性：涉及定义、原理、理论等，是对事物本质和规律的描述。
+- 程序性：关于如何做事的知识，包括方法、步骤、算法等。
+- 元认知：关于认知的认知，涉及对思维过程、学习策略、自我监控等的理解和运用。
+
+## 认知维度（六选一，由低到高）
+- 记忆：最低层次，认识和记忆名词、事实、规则、原理。行动动词：指出、写出、界定、说明、举例、命名。
+- 理解：把握知识或概念的意义，包括转译、解释、推论。行动动词：解释、说明、区别、摘要、归纳。
+- 应用：将规则、方法、步骤应用到新情境。行动动词：预测、证明、解决、修改、应用。
+- 分析：将概念分析为各构成部分，找出相互关系。行动动词：选出、分析、判断、区分、指出关系。
+- 评价：依据标准做价值的判断。行动动词：评鉴、判断、评论、比较、批判。
+- 创造：将各元素组装形成完整且具功能的整体。行动动词：设计、创造、发展、建立、提出假设。
+
+## 教学属性（可多选，用逗号分隔，也可为空）
+- 重点：本课程重点掌握的核心概念或方法
+- 难点：学生普遍感到理解困难的内容
+- 考点：历年考试频繁出现的内容
+
+{focus_section}## 待分类知识点
+{kp_list}
+
+## 输出要求
+直接输出纯 JSON 数组，不要加代码块标记，格式如下：
+[
+  {"seq": 1, "knowledge_type": "概念性", "cognitive_dimension": "理解", "teaching_focus": "重点,考点"},
+  ...
+]`;
+
+        function _resetClassifyPrompt() {
+            const focusCb = document.getElementById('ds-classify-focus-cb');
+            const useWithFocus = focusCb && focusCb.checked;
+            const base = useWithFocus ? _CLASSIFY_DEFAULT_USER_WITH_FOCUS : _CLASSIFY_DEFAULT_USER;
+            document.getElementById('ds-classify-sys-prompt').value  = _CLASSIFY_DEFAULT_SYS;
+            document.getElementById('ds-classify-user-prompt').value = base;
+            document.getElementById('ds-classify-focus-filename').textContent = '';
+        }
+
+        function _toggleClassifyFocusCb() {
+            const cb = document.getElementById('ds-classify-focus-cb');
+            const sysTA  = document.getElementById('ds-classify-sys-prompt');
+            const userTA = document.getElementById('ds-classify-user-prompt');
+            // 只在内容仍是默认时自动切换模板；已自定义则不动
+            const curUser = userTA.value.trim();
+            const isDefaultSimple      = curUser === _CLASSIFY_DEFAULT_USER.trim();
+            const isDefaultWithFocus   = curUser === _CLASSIFY_DEFAULT_USER_WITH_FOCUS.trim();
+            if (cb.checked && isDefaultSimple) {
+                userTA.value = _CLASSIFY_DEFAULT_USER_WITH_FOCUS;
+            } else if (!cb.checked && isDefaultWithFocus) {
+                userTA.value = _CLASSIFY_DEFAULT_USER;
+            }
+        }
+
+        function _loadClassifyFocusFile(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                const content = e.target.result.trim();
+                document.getElementById('ds-classify-focus-filename').textContent = file.name;
+                // 自动勾选 classify_focus
+                const cb = document.getElementById('ds-classify-focus-cb');
+                cb.checked = true;
+                // 切换到含 focus 的提示词模板（若还是默认）
+                const userTA = document.getElementById('ds-classify-user-prompt');
+                const curUser = userTA.value.trim();
+                if (curUser === _CLASSIFY_DEFAULT_USER.trim() || curUser === _CLASSIFY_DEFAULT_USER_WITH_FOCUS.trim()) {
+                    userTA.value = _CLASSIFY_DEFAULT_USER_WITH_FOCUS;
+                }
+                // 替换 {focus_section} 占位符 → 实际内容
+                const focusBlock = `## 重难点参考列表（来自文件：${file.name}）\n${content}\n\n`;
+                userTA.value = userTA.value.replace('{focus_section}', focusBlock);
+            };
+            reader.readAsText(file, 'UTF-8');
+            input.value = ''; // 允许重复选同一文件
+        }
+
+        function _toggleClassifyPromptPanel() {
+            const panel = document.getElementById('ds-classify-prompt-panel');
+            const arrow = document.getElementById('ds-classify-prompt-arrow');
+            const open = panel.style.display !== 'none';
+            panel.style.display = open ? 'none' : '';
+            arrow.textContent = open ? '▶' : '▼';
+            if (!open) {
+                // 首次展开：初始化默认内容
+                const sysTA  = document.getElementById('ds-classify-sys-prompt');
+                const userTA = document.getElementById('ds-classify-user-prompt');
+                if (!sysTA.value) sysTA.value = _CLASSIFY_DEFAULT_SYS;
+                if (!userTA.value) userTA.value = _CLASSIFY_DEFAULT_USER;
+            }
+        }
+
         async function _startBatchClassify() {
             const subtitle = document.getElementById('ds-kg-subtitle');
             const match = subtitle && subtitle.textContent.match(/^\（(.+)\）$/);
@@ -4594,6 +4716,7 @@ Now please start generating questions. Output question content directly without 
 
             const onlyFiltered = document.getElementById('ds-classify-only-filtered').checked;
             const overwrite    = document.getElementById('ds-classify-overwrite').checked;
+            const doFocus      = document.getElementById('ds-classify-focus-cb')?.checked || false;
 
             // 收集要处理的 kp_ids
             let kpIds = null;
@@ -4620,7 +4743,19 @@ Now please start generating questions. Output question content directly without 
             document.getElementById('ds-classify-msg').textContent = '提交任务…';
 
             try {
-                const body = { overwrite };
+                const body = { overwrite, classify_focus: doFocus };
+
+                // 读取自定义提示词（与默认相同则不传，后端使用内置默认）
+                const sysTA  = document.getElementById('ds-classify-sys-prompt');
+                const userTA = document.getElementById('ds-classify-user-prompt');
+                const sysVal  = sysTA  ? sysTA.value.trim()  : '';
+                const userVal = userTA ? userTA.value.trim() : '';
+                if (sysVal  && sysVal  !== _CLASSIFY_DEFAULT_SYS.trim())  body.system_prompt = sysVal;
+                if (userVal && userVal !== _CLASSIFY_DEFAULT_USER.trim()
+                            && userVal !== _CLASSIFY_DEFAULT_USER_WITH_FOCUS.trim()) {
+                    body.user_prompt = userVal;
+                }
+
                 if (kpIds) body.kp_ids = kpIds;
                 else if (docId) body.doc_id = docId;
                 else { alert('无法确定文档，请在单文档视图下使用。'); return; }
@@ -6714,12 +6849,73 @@ Reference answer integrating theory and case.
                                 <span>仅标注当前筛选的节点</span>
                             </label>
                         </div>
-                        <div style="font-size:0.72rem;color:#888;margin-bottom:7px;">
+                        <div style="font-size:0.72rem;color:#888;margin-bottom:5px;">
                             <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
                                 <input type="checkbox" id="ds-classify-overwrite">
                                 <span>覆盖已有标注</span>
                             </label>
                         </div>
+                        <div style="font-size:0.72rem;color:#888;margin-bottom:7px;">
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+                                <input type="checkbox" id="ds-classify-focus-cb" onchange="_toggleClassifyFocusCb()">
+                                <span>同时标注教学属性（重点/难点/考点）</span>
+                            </label>
+                        </div>
+
+                        <!-- 折叠式提示词编辑区 -->
+                        <div style="margin-bottom:7px;">
+                            <button onclick="_toggleClassifyPromptPanel()"
+                                style="width:100%;padding:4px 0;font-size:0.72rem;border:1px solid #d8c0f0;
+                                       border-radius:5px;background:#faf5ff;cursor:pointer;color:#8e44ad;
+                                       display:flex;align-items:center;justify-content:center;gap:4px;"
+                                onmouseover="this.style.background='#f3e5ff'" onmouseout="this.style.background='#faf5ff'">
+                                <span id="ds-classify-prompt-arrow">▶</span>
+                                <span>查看/编辑提示词</span>
+                            </button>
+                            <div id="ds-classify-prompt-panel" style="display:none;margin-top:6px;">
+                                <!-- 系统提示词 -->
+                                <div style="font-size:0.7rem;color:#888;margin-bottom:2px;display:flex;justify-content:space-between;align-items:center;">
+                                    <span>系统提示词</span>
+                                    <button onclick="_resetClassifyPrompt()"
+                                        style="font-size:0.65rem;padding:1px 6px;border:1px solid #ccc;
+                                               border-radius:3px;background:none;cursor:pointer;color:#888;"
+                                        onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='none'">
+                                        恢复默认
+                                    </button>
+                                </div>
+                                <textarea id="ds-classify-sys-prompt" rows="2"
+                                    style="width:100%;box-sizing:border-box;font-size:0.7rem;padding:5px;
+                                           border:1px solid #ddd;border-radius:4px;resize:vertical;
+                                           font-family:inherit;line-height:1.4;margin-bottom:6px;outline:none;"
+                                    onfocus="this.style.borderColor='#8e44ad'" onblur="this.style.borderColor='#ddd'"></textarea>
+                                <!-- 用户提示词 -->
+                                <div style="font-size:0.7rem;color:#888;margin-bottom:2px;">
+                                    用户提示词（<code style="font-size:0.65rem;">{kp_list}</code> 为知识点占位符）
+                                </div>
+                                <textarea id="ds-classify-user-prompt" rows="10"
+                                    style="width:100%;box-sizing:border-box;font-size:0.68rem;padding:5px;
+                                           border:1px solid #ddd;border-radius:4px;resize:vertical;
+                                           font-family:monospace;line-height:1.4;margin-bottom:6px;outline:none;"
+                                    onfocus="this.style.borderColor='#8e44ad'" onblur="this.style.borderColor='#ddd'"></textarea>
+                                <!-- 重难点列表文件上传 -->
+                                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                                    <button onclick="document.getElementById('ds-classify-focus-file').click()"
+                                        style="padding:3px 8px;font-size:0.7rem;border:1px solid #8e44ad;
+                                               border-radius:4px;background:none;cursor:pointer;color:#8e44ad;white-space:nowrap;"
+                                        onmouseover="this.style.background='#f3e5ff'" onmouseout="this.style.background='none'">
+                                        📄 导入重难点列表
+                                    </button>
+                                    <span id="ds-classify-focus-filename"
+                                        style="font-size:0.68rem;color:#888;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+                                </div>
+                                <input type="file" id="ds-classify-focus-file" accept=".txt,.md"
+                                    style="display:none;" onchange="_loadClassifyFocusFile(this)">
+                                <div style="font-size:0.65rem;color:#aaa;margin-top:4px;">
+                                    上传 .txt/.md 文件，系统自动将重难点列表写入提示词，并开启教学属性标注
+                                </div>
+                            </div>
+                        </div>
+
                         <button id="ds-classify-btn" onclick="_startBatchClassify()"
                             style="width:100%;padding:5px 0;font-size:0.78rem;border:none;
                                    border-radius:5px;background:#8e44ad;cursor:pointer;color:#fff;"
