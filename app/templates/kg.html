@@ -22,9 +22,10 @@
   --text-muted: #7f8c8d;
   --sidebar-w: 220px;
   --detail-w: 300px;
+  --font-scale: 1;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Segoe UI','Microsoft YaHei',sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+body { font-family: 'Segoe UI','Microsoft YaHei',sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; font-size: calc(14px * var(--font-scale)); }
 
 /* ── 顶栏 ── */
 .topbar {
@@ -179,6 +180,26 @@ body { font-family: 'Segoe UI','Microsoft YaHei',sans-serif; background: var(--b
 .arrow-leads_to { fill: var(--green); }
 .arrow-contrasts_with { fill: var(--orange); }
 
+/* ── 拖拽分隔条 ── */
+.resize-handle {
+  width: 5px; flex-shrink: 0; cursor: col-resize;
+  background: var(--border);
+  transition: background 0.15s;
+  position: relative; z-index: 5;
+}
+.resize-handle:hover, .resize-handle.active { background: var(--blue); }
+
+/* 字体大小控件 */
+.font-ctrl { display: flex; align-items: center; gap: 4px; margin-left: 10px; }
+.font-btn {
+  width: 26px; height: 26px; border-radius: 4px; border: 1px solid #446;
+  background: #3a4f60; color: #ddd; cursor: pointer; font-size: 0.8rem;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+  user-select: none;
+}
+.font-btn:hover { background: #4a6070; color: #fff; }
+.font-label { font-size: 0.75rem; color: #aaccee; min-width: 34px; text-align: center; }
+
 /* tooltip */
 .d3-tooltip {
   position: absolute; background: rgba(0,0,0,0.78); color: #fff;
@@ -197,6 +218,11 @@ body { font-family: 'Segoe UI','Microsoft YaHei',sans-serif; background: var(--b
   <span class="sep">|</span>
   <h1><i class="fas fa-project-diagram"></i> 知识图谱</h1>
   <span id="graph-stats" style="font-size:0.78rem;color:#aaccee;margin-left:8px;"></span>
+  <div class="font-ctrl">
+    <button class="font-btn" onclick="changeFontScale(-1)" title="缩小字体">A−</button>
+    <span class="font-label" id="font-label">100%</span>
+    <button class="font-btn" onclick="changeFontScale(1)" title="放大字体">A+</button>
+  </div>
   <div class="search-box">
     <span class="search-icon"><i class="fas fa-search"></i></span>
     <input type="text" id="search-input" placeholder="搜索节点..." oninput="onSearch(this.value)">
@@ -293,6 +319,9 @@ body { font-family: 'Segoe UI','Microsoft YaHei',sans-serif; background: var(--b
     </div>
   </div>
 
+  <!-- 左侧拖拽分隔条 -->
+  <div class="resize-handle" id="resize-left" title="拖动调整侧边栏宽度"></div>
+
   <!-- 图谱区 -->
   <div class="graph-area" id="graph-area">
     <div class="loading-overlay" id="loading-overlay">
@@ -313,6 +342,9 @@ body { font-family: 'Segoe UI','Microsoft YaHei',sans-serif; background: var(--b
     </div>
   </div>
 
+  <!-- 右侧拖拽分隔条 -->
+  <div class="resize-handle" id="resize-right" title="拖动调整详情面板宽度"></div>
+
   <!-- 右侧详情面板 -->
   <div class="detail-panel">
     <div class="detail-empty" id="detail-empty">
@@ -332,6 +364,58 @@ body { font-family: 'Segoe UI','Microsoft YaHei',sans-serif; background: var(--b
 <div class="d3-tooltip" id="tooltip" style="opacity:0;"></div>
 
 <script>
+// ═══════════════════════════════════════════════════════════
+// 字体大小控制
+// ═══════════════════════════════════════════════════════════
+const FONT_STEPS = [0.75, 0.85, 1, 1.15, 1.3, 1.5];
+let _fontIdx = 2; // 默认 100%
+function changeFontScale(dir) {
+  _fontIdx = Math.max(0, Math.min(FONT_STEPS.length - 1, _fontIdx + dir));
+  const scale = FONT_STEPS[_fontIdx];
+  document.documentElement.style.setProperty('--font-scale', scale);
+  document.getElementById('font-label').textContent = Math.round(scale * 100) + '%';
+}
+
+// ═══════════════════════════════════════════════════════════
+// 侧边栏拖拽调整宽度
+// ═══════════════════════════════════════════════════════════
+function initResize(handleId, panelSelector, side) {
+  const handle = document.getElementById(handleId);
+  const panel = document.querySelector(panelSelector);
+  let dragging = false, startX = 0, startW = 0;
+
+  handle.addEventListener('mousedown', e => {
+    dragging = true;
+    startX = e.clientX;
+    startW = panel.offsetWidth;
+    handle.classList.add('active');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const delta = side === 'left' ? e.clientX - startX : startX - e.clientX;
+    const newW = Math.max(140, Math.min(480, startW + delta));
+    panel.style.width = newW + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('active');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+}
+
+// 初始化（在 DOMContentLoaded 后执行）
+document.addEventListener('DOMContentLoaded', () => {
+  initResize('resize-left', '.sidebar', 'left');
+  initResize('resize-right', '.detail-panel', 'right');
+});
+
 // ═══════════════════════════════════════════════════════════
 // 状态
 // ═══════════════════════════════════════════════════════════

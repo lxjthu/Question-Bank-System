@@ -4486,6 +4486,89 @@ Now please start generating questions. Output question content directly without 
 
         // ── DS 知识图谱可视化 ──────────────────────────────────────────────────────
 
+        // 字体大小控制
+        const _dsKgFontSteps = [0.75, 0.85, 1, 1.15, 1.3, 1.5];
+        let _dsKgFontIdx = 2;
+        function _dsKgFontChange(dir) {
+            _dsKgFontIdx = Math.max(0, Math.min(_dsKgFontSteps.length - 1, _dsKgFontIdx + dir));
+            const scale = _dsKgFontSteps[_dsKgFontIdx];
+            // zoom 可正确缩放 rem/px 等所有单位；只缩文字区域，不影响 D3 画布
+            ['ds-kg-sidebar', 'ds-kg-legend', 'ds-kp-panel'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.zoom = scale;
+            });
+            const lbl = document.getElementById('ds-kg-font-label');
+            if (lbl) lbl.textContent = Math.round(scale * 100) + '%';
+        }
+
+        // 侧边栏拖拽调整宽度
+        (function() {
+            function initDsKgResize() {
+                const handle = document.getElementById('ds-kg-resize-handle');
+                const sidebar = document.getElementById('ds-kg-sidebar');
+                if (!handle || !sidebar) return;
+                let dragging = false, startX = 0, startW = 0;
+                handle.addEventListener('mousedown', e => {
+                    dragging = true; handle._dragging = true;
+                    startX = e.clientX; startW = sidebar.offsetWidth;
+                    handle.style.background = '#7b68ee';
+                    document.body.style.cursor = 'col-resize';
+                    document.body.style.userSelect = 'none';
+                    e.preventDefault();
+                });
+                document.addEventListener('mousemove', e => {
+                    if (!dragging) return;
+                    const newW = Math.max(120, Math.min(420, startW + e.clientX - startX));
+                    sidebar.style.width = newW + 'px';
+                });
+                document.addEventListener('mouseup', () => {
+                    if (!dragging) return;
+                    dragging = false; handle._dragging = false;
+                    handle.style.background = '#eee';
+                    document.body.style.cursor = '';
+                    document.body.style.userSelect = '';
+                });
+            }
+
+            // 右侧知识点详情面板拖拽
+            function initDsKpResize() {
+                const handle = document.getElementById('ds-kp-resize-handle');
+                const panel = document.getElementById('ds-kp-panel');
+                const inner = panel && panel.querySelector('div');
+                if (!handle || !panel) return;
+                let dragging = false, startX = 0, startW = 0;
+                handle.addEventListener('mousedown', e => {
+                    if (panel.offsetWidth === 0) return;
+                    dragging = true; handle._dragging = true;
+                    startX = e.clientX; startW = panel.offsetWidth;
+                    handle.style.background = '#7b68ee';
+                    document.body.style.cursor = 'col-resize';
+                    document.body.style.userSelect = 'none';
+                    e.preventDefault();
+                });
+                document.addEventListener('mousemove', e => {
+                    if (!dragging) return;
+                    const newW = Math.max(200, Math.min(600, startW - (e.clientX - startX)));
+                    panel.style.width = newW + 'px';
+                    panel._userW = newW;
+                    if (inner) inner.style.width = newW + 'px';
+                });
+                document.addEventListener('mouseup', () => {
+                    if (!dragging) return;
+                    dragging = false; handle._dragging = false;
+                    handle.style.background = '#eee';
+                    document.body.style.cursor = '';
+                    document.body.style.userSelect = '';
+                });
+            }
+
+            // modal 打开后初始化（避免元素不存在）
+            document.addEventListener('DOMContentLoaded', () => {
+                initDsKgResize();
+                initDsKpResize();
+            });
+        })();
+
         let _dsKgD3Ready = false;
 
         // 全局调色板 & 关系颜色（供渲染和筛选面板共用，颜色一致）
@@ -5130,7 +5213,11 @@ Now please start generating questions. Output question content directly without 
             _kpPanelData = d;
             _kpPanelEditing = false;
             _renderKpPanel(d);
-            document.getElementById('ds-kp-panel').style.width = '340px';
+            const _kpPanelEl = document.getElementById('ds-kp-panel');
+            if (!_kpPanelEl._userW) _kpPanelEl._userW = 340;
+            _kpPanelEl.style.width = _kpPanelEl._userW + 'px';
+            const _kpRh = document.getElementById('ds-kp-resize-handle');
+            if (_kpRh) _kpRh.style.width = '5px';
             _syncKpGenBtn();
         }
 
@@ -5141,6 +5228,8 @@ Now please start generating questions. Output question content directly without 
             _kpPanelEditing = false;
             _kpPanelData = null;
             document.getElementById('ds-kp-panel').style.width = '0';
+            const _kpRhClose = document.getElementById('ds-kp-resize-handle');
+            if (_kpRhClose) _kpRhClose.style.width = '0';
             // 清除节点高亮，恢复默认样式
             _dsKgSelectedNodeId = null;
             d3.selectAll('#ds-kg-container circle')
@@ -6883,6 +6972,18 @@ Reference answer integrating theory and case.
                     <span id="ds-kg-subtitle" style="font-size:0.76rem;opacity:0.8;font-weight:400;"></span>
                 </div>
                 <div style="display:flex;gap:7px;align-items:center;">
+                    <!-- 字体大小控制 -->
+                    <div style="display:flex;align-items:center;gap:3px;margin-right:4px;">
+                        <button onclick="_dsKgFontChange(-1)" title="缩小字体"
+                            style="width:24px;height:24px;border-radius:4px;border:1px solid rgba(255,255,255,0.35);
+                                   background:rgba(255,255,255,0.15);color:#fff;cursor:pointer;
+                                   font-size:0.8rem;display:flex;align-items:center;justify-content:center;">A−</button>
+                        <span id="ds-kg-font-label" style="font-size:0.72rem;min-width:30px;text-align:center;opacity:0.85;">100%</span>
+                        <button onclick="_dsKgFontChange(1)" title="放大字体"
+                            style="width:24px;height:24px;border-radius:4px;border:1px solid rgba(255,255,255,0.35);
+                                   background:rgba(255,255,255,0.15);color:#fff;cursor:pointer;
+                                   font-size:0.8rem;display:flex;align-items:center;justify-content:center;">A+</button>
+                    </div>
                     <button id="ds-kg-export-btn" onclick="_exportDsKgXlsx()"
                         style="background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);
                                color:#fff;cursor:pointer;padding:4px 12px;border-radius:6px;font-size:0.82rem;">
@@ -6903,7 +7004,7 @@ Reference answer integrating theory and case.
             <!-- 主体：左侧筛选面板 + 右侧画布 -->
             <div style="flex:1;display:flex;overflow:hidden;">
                 <!-- 左侧筛选面板 -->
-                <div style="width:195px;flex-shrink:0;border-right:1px solid #eee;
+                <div id="ds-kg-sidebar" style="width:195px;flex-shrink:0;border-right:1px solid #eee;
                             background:#fff;overflow-y:auto;padding:10px 11px;
                             display:flex;flex-direction:column;gap:0;">
                     <!-- 章节筛选 -->
@@ -7043,8 +7144,22 @@ Reference answer integrating theory and case.
                     </div>
                 </div>
                 <!-- 右侧图谱画布 -->
+                <!-- 拖拽分隔条 -->
+                <div id="ds-kg-resize-handle"
+                     style="width:5px;flex-shrink:0;cursor:col-resize;background:#eee;
+                            transition:background 0.15s;position:relative;z-index:5;"
+                     onmouseover="this.style.background='#7b68ee'"
+                     onmouseout="if(!this._dragging)this.style.background='#eee'"
+                     title="拖动调整侧边栏宽度"></div>
                 <div id="ds-kg-container"
                      style="flex:1;position:relative;overflow:hidden;background:#f4f6fb;"></div>
+                <!-- 右侧拖拽分隔条（面板关闭时隐藏） -->
+                <div id="ds-kp-resize-handle"
+                     style="width:0;flex-shrink:0;cursor:col-resize;background:#eee;
+                            transition:width 0.22s ease;position:relative;z-index:5;"
+                     onmouseover="if(this.offsetWidth>0)this.style.background='#7b68ee'"
+                     onmouseout="if(!this._dragging)this.style.background='#eee'"
+                     title="拖动调整详情面板宽度"></div>
                 <!-- 右侧知识点详情面板 -->
                 <div id="ds-kp-panel" style="width:0;flex-shrink:0;border-left:1px solid #e8eaf0;
                      background:#fff;overflow:hidden;transition:width 0.22s ease;
