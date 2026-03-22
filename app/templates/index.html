@@ -825,6 +825,9 @@
                     <button id="batch-type-btn" class="btn btn-primary btn-sm">
                         <i class="fas fa-exchange-alt"></i> 批量修改题型
                     </button>
+                    <button id="batch-export-xlsx-btn" class="btn btn-success btn-sm">
+                        <i class="fas fa-file-excel"></i> 导出xlsx
+                    </button>
                     <button id="batch-delete-btn" class="btn btn-danger btn-sm">
                         <i class="fas fa-trash"></i> 批量删除 (<span id="batch-count">0</span>)
                     </button>
@@ -1810,6 +1813,71 @@
             } catch (error) {
                 console.error('Error:', error);
                 alert('批量修改题型时发生错误！');
+            }
+        });
+
+        document.getElementById('batch-export-xlsx-btn').addEventListener('click', async () => {
+            if (selectedQuestionIds.size === 0) return;
+            const questionIds = Array.from(selectedQuestionIds);
+            const btn = document.getElementById('batch-export-xlsx-btn');
+            btn.disabled = true;
+            btn.textContent = '检查中...';
+            try {
+                // 第一步：检查是否有超500字符的字段
+                const checkResp = await fetch('/api/questions/check-export', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question_ids: questionIds })
+                });
+                if (!checkResp.ok) {
+                    alert('检查失败，请重试');
+                    return;
+                }
+                const { warnings } = await checkResp.json();
+                const skipIds = [];
+
+                // 第二步：逐题弹窗让用户决策
+                for (const w of warnings) {
+                    const fieldDesc = w.fields.map(f => `【${f.name}】${f.length}字符`).join('、');
+                    const preview = w.content_preview ? `「${w.content_preview}…」` : '';
+                    const msg = `题目 ${preview}（${w.question_type}）\n${fieldDesc} 超出500字符限制。\n\n点击「确定」→ 截断导出\n点击「取消」→ 跳过此题`;
+                    const keep = confirm(msg);
+                    if (!keep) {
+                        skipIds.push(w.question_id);
+                    }
+                }
+
+                // 第三步：导出
+                btn.textContent = '导出中...';
+                const exportResp = await fetch('/api/questions/export-xlsx', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question_ids: questionIds, skip_ids: skipIds })
+                });
+                if (!exportResp.ok) {
+                    const err = await exportResp.json().catch(() => null);
+                    alert(err?.error || '导出失败');
+                    return;
+                }
+                const blob = await exportResp.blob();
+                const disposition = exportResp.headers.get('Content-Disposition') || '';
+                const nameMatch = disposition.match(/filename[^;=\n]*=([^;\n]*)/);
+                const filename = nameMatch ? nameMatch[1].replace(/['"]/g, '').trim() : 'export.xlsx';
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                const exportedCount = questionIds.length - skipIds.length;
+                alert(`导出完成：${exportedCount} 道题${skipIds.length > 0 ? `，跳过 ${skipIds.length} 道` : ''}`);
+            } catch (error) {
+                console.error('Export error:', error);
+                alert('导出时发生错误！');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-file-excel"></i> 导出xlsx';
             }
         });
 
