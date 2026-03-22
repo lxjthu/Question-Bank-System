@@ -2466,11 +2466,14 @@ def ds_generate():
     import json as _json
     _init_ds_db()
     data = request.json or {}
-    doc_ids = data.get('doc_ids', [])
-    chapters = data.get('chapters', [])
-    kp_names = data.get('kp_names', [])
-    prompt_template = data.get('prompt', '')
-    question_list = data.get('question_list', '')
+    doc_ids                  = data.get('doc_ids', [])
+    chapters                 = data.get('chapters', [])
+    kp_names                 = data.get('kp_names', [])
+    teaching_focus_filter    = data.get('teaching_focus_filter', [])   # ['重点','难点','考点'] 子集
+    knowledge_type_filter    = data.get('knowledge_type_filter', [])   # ['概念性', ...] 子集
+    cognitive_dimension_filter = data.get('cognitive_dimension_filter', [])  # ['理解', ...] 子集
+    prompt_template          = data.get('prompt', '')
+    question_list            = data.get('question_list', '')
 
     if not prompt_template:
         return jsonify({'error': '未提供提示词模板'}), 400
@@ -2510,6 +2513,22 @@ def ds_generate():
                     placeholders = ','.join(['?' for _ in kp_names])
                     query += f" AND kp_name IN ({placeholders})"
                     params.extend(kp_names)
+                # 教学属性过滤：teaching_focus 可能是逗号分隔多值，用 INSTR 匹配
+                if teaching_focus_filter:
+                    tf_parts = [
+                        "INSTR(COALESCE(teaching_focus,''), ?) > 0"
+                        for _ in teaching_focus_filter
+                    ]
+                    query += " AND (" + " OR ".join(tf_parts) + ")"
+                    params.extend(teaching_focus_filter)
+                if knowledge_type_filter:
+                    ph = ','.join('?' * len(knowledge_type_filter))
+                    query += f" AND knowledge_type IN ({ph})"
+                    params.extend(knowledge_type_filter)
+                if cognitive_dimension_filter:
+                    ph = ','.join('?' * len(cognitive_dimension_filter))
+                    query += f" AND cognitive_dimension IN ({ph})"
+                    params.extend(cognitive_dimension_filter)
                 query += " ORDER BY chapter_num, id"
                 rows = conn.execute(query, params).fetchall()
                 kps_data.extend(rows)

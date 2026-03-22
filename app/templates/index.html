@@ -1437,6 +1437,78 @@
                                 </div>
                             </div>
 
+                            <!-- 知识点属性筛选 -->
+                            <div style="margin-bottom:14px;border:1px solid #e8e0f5;border-radius:6px;padding:8px 10px;background:#faf8ff;">
+                                <div style="font-size:0.82rem;font-weight:500;color:#7d3c98;margin-bottom:7px;">
+                                    <i class="fas fa-tags" style="font-size:0.75rem;margin-right:4px;"></i>知识点属性筛选
+                                    <span style="font-weight:normal;color:#aaa;font-size:0.75rem;margin-left:4px;">（不勾选=不限制）</span>
+                                </div>
+                                <!-- 教学属性 -->
+                                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:5px;">
+                                    <span style="font-size:0.78rem;color:#555;width:54px;flex-shrink:0;">教学属性</span>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-focus-cb" value="重点" onchange="filterRagSections()">
+                                        <span style="color:#c0392b;font-weight:500;">重点</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-focus-cb" value="难点" onchange="filterRagSections()">
+                                        <span style="color:#d35400;font-weight:500;">难点</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-focus-cb" value="考点" onchange="filterRagSections()">
+                                        <span style="color:#2471a3;font-weight:500;">考点</span>
+                                    </label>
+                                </div>
+                                <!-- 知识类型 -->
+                                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:5px;">
+                                    <span style="font-size:0.78rem;color:#555;width:54px;flex-shrink:0;">知识类型</span>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-kt-cb" value="事实性" onchange="filterRagSections()">
+                                        <span>事实性</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-kt-cb" value="概念性" onchange="filterRagSections()">
+                                        <span>概念性</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-kt-cb" value="程序性" onchange="filterRagSections()">
+                                        <span>程序性</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-kt-cb" value="元认知" onchange="filterRagSections()">
+                                        <span>元认知</span>
+                                    </label>
+                                </div>
+                                <!-- 认知维度 -->
+                                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                                    <span style="font-size:0.78rem;color:#555;width:54px;flex-shrink:0;">认知维度</span>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-cd-cb" value="记忆" onchange="filterRagSections()">
+                                        <span>记忆</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-cd-cb" value="理解" onchange="filterRagSections()">
+                                        <span>理解</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-cd-cb" value="应用" onchange="filterRagSections()">
+                                        <span>应用</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-cd-cb" value="分析" onchange="filterRagSections()">
+                                        <span>分析</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-cd-cb" value="评价" onchange="filterRagSections()">
+                                        <span>评价</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-cd-cb" value="创造" onchange="filterRagSections()">
+                                        <span>创造</span>
+                                    </label>
+                                </div>
+                            </div>
+
                             <!-- 出题语言 + 题型与数量：左右两列，不使用 form-group 避免 min-width 干扰 -->
                             <div style="display:flex; gap:24px; align-items:flex-start;">
                                 <!-- 出题语言 -->
@@ -5685,6 +5757,9 @@ Now please start generating questions. Output question content directly without 
                 chapter_num: kp.chapter_num,
                 section_name: kp.section_name || '',
                 display_name: kp.name,
+                teaching_focus: kp.teaching_focus || '',
+                knowledge_type: kp.knowledge_type || '',
+                cognitive_dimension: kp.cognitive_dimension || '',
             }));
             filterRagChapters();
             filterRagSections();
@@ -5708,9 +5783,12 @@ Now please start generating questions. Output question content directly without 
                 return;
             }
 
-            const docIds   = [...document.querySelectorAll('.rag-doc-cb:checked')].map(cb => cb.value);
-            const chapters = [...document.querySelectorAll('.rag-chapter-cb:checked')].map(cb => cb.value);
-            const kpNames  = [...document.querySelectorAll('.rag-section-cb:checked')].map(cb => cb.value);
+            const docIds      = [...document.querySelectorAll('.rag-doc-cb:checked')].map(cb => cb.value);
+            const chapters    = [...document.querySelectorAll('.rag-chapter-cb:checked')].map(cb => cb.value);
+            const kpNames     = [...document.querySelectorAll('.rag-section-cb:checked')].map(cb => cb.value);
+            const focusFilter = [...document.querySelectorAll('.rag-focus-cb:checked')].map(cb => cb.value);
+            const ktFilter    = [...document.querySelectorAll('.rag-kt-cb:checked')].map(cb => cb.value);
+            const cdFilter    = [...document.querySelectorAll('.rag-cd-cb:checked')].map(cb => cb.value);
 
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 出题中...';
@@ -5725,6 +5803,9 @@ Now please start generating questions. Output question content directly without 
                         doc_ids: docIds,
                         chapters,
                         kp_names: kpNames,
+                        teaching_focus_filter: focusFilter,
+                        knowledge_type_filter: ktFilter,
+                        cognitive_dimension_filter: cdFilter,
                         prompt: promptTemplate,
                         question_list: questionList,
                     }),
@@ -5841,9 +5922,12 @@ Now please start generating questions. Output question content directly without 
         function filterRagSections() {
             const q = (document.getElementById('rag-section-search')?.value || '').toLowerCase();
             const checkedChapters = [...document.querySelectorAll('.rag-chapter-cb:checked')].map(cb => cb.value);
+            const focusFilter = [...document.querySelectorAll('.rag-focus-cb:checked')].map(cb => cb.value);
+            const ktFilter    = [...document.querySelectorAll('.rag-kt-cb:checked')].map(cb => cb.value);
+            const cdFilter    = [...document.querySelectorAll('.rag-cd-cb:checked')].map(cb => cb.value);
+
             let filtered = _ragAllSections;
             if (checkedChapters.length > 0 && _ragAllChapters.length > 0) {
-                // checkbox value 格式为 "章名|||节名"，需用联合键比对
                 filtered = filtered.filter(s => {
                     const key = s.chapter_name + '|||' + (s.section_name || '');
                     return checkedChapters.includes(key);
@@ -5851,6 +5935,17 @@ Now please start generating questions. Output question content directly without 
             }
             if (q) {
                 filtered = filtered.filter(s => (s.display_name || s.name).toLowerCase().includes(q));
+            }
+            if (focusFilter.length > 0) {
+                filtered = filtered.filter(s =>
+                    focusFilter.some(f => (s.teaching_focus || '').includes(f))
+                );
+            }
+            if (ktFilter.length > 0) {
+                filtered = filtered.filter(s => ktFilter.includes(s.knowledge_type));
+            }
+            if (cdFilter.length > 0) {
+                filtered = filtered.filter(s => cdFilter.includes(s.cognitive_dimension));
             }
             renderRagSectionList(filtered);
         }
@@ -5876,18 +5971,34 @@ Now please start generating questions. Output question content directly without 
             }).join('');
         }
 
+        function _kpAttrBadges(s) {
+            const badges = [];
+            const tf = s.teaching_focus || '';
+            if (tf.includes('重点')) badges.push('<span style="font-size:0.62rem;padding:0 3px;border-radius:3px;background:#fde8e8;color:#c0392b;font-weight:600;">重</span>');
+            if (tf.includes('难点')) badges.push('<span style="font-size:0.62rem;padding:0 3px;border-radius:3px;background:#fef0e6;color:#d35400;font-weight:600;">难</span>');
+            if (tf.includes('考点')) badges.push('<span style="font-size:0.62rem;padding:0 3px;border-radius:3px;background:#e8f4fd;color:#2471a3;font-weight:600;">考</span>');
+            if (s.knowledge_type)       badges.push(`<span style="font-size:0.62rem;padding:0 3px;border-radius:3px;background:#f0f0f0;color:#666;">${escapeHtml(s.knowledge_type)}</span>`);
+            if (s.cognitive_dimension)  badges.push(`<span style="font-size:0.62rem;padding:0 3px;border-radius:3px;background:#f5f0ff;color:#8e44ad;">${escapeHtml(s.cognitive_dimension)}</span>`);
+            return badges.join('');
+        }
+
         function renderRagSectionList(items) {
             const el = document.getElementById('rag-section-list');
             if (!items || items.length === 0) {
                 el.innerHTML = '<span style="color:#bbb;">' + (_ragAllSections.length === 0 ? '选择文档后加载' : '无匹配结果') + '</span>';
                 return;
             }
-            el.innerHTML = items.map(s => `
+            el.innerHTML = items.map(s => {
+                const badges = _kpAttrBadges(s);
+                return `
                 <div style="display:flex;align-items:flex-start;gap:4px;padding:2px 0;">
                     <label style="display:flex;align-items:flex-start;gap:6px;flex:1;min-width:0;cursor:pointer;">
                         <input type="checkbox" class="rag-section-cb" value="${escapeHtml(s.name)}" style="margin-top:2px;flex-shrink:0;">
-                        <span style="font-size:0.82rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
-                              title="${escapeHtml(s.display_name || s.name)}">${escapeHtml(s.display_name || s.name)}</span>
+                        <span style="flex:1;min-width:0;">
+                            <span style="font-size:0.82rem;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                                  title="${escapeHtml(s.display_name || s.name)}">${escapeHtml(s.display_name || s.name)}</span>
+                            ${badges ? `<span style="display:flex;gap:2px;flex-wrap:wrap;margin-top:1px;">${badges}</span>` : ''}
+                        </span>
                     </label>
                     <button onclick="_jumpToKpInGraph(${s.num},'${escapeHtml(s.name).replace(/'/g, "\\'")}')"
                         title="在知识图谱中查看"
@@ -5896,8 +6007,8 @@ Now please start generating questions. Output question content directly without 
                         onmouseover="this.style.background='#f9f'" onmouseout="this.style.background='none'">
                         <i class="fas fa-project-diagram" style="font-size:0.62rem;"></i>
                     </button>
-                </div>
-            `).join('');
+                </div>`;
+            }).join('');
         }
 
         async function _jumpToKpInGraph(kpId, kpName) {
