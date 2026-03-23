@@ -1723,40 +1723,94 @@ def ds_kp_get(kp_id):
 
 @rag_bp.route('/api/rag/ds-kps/<int:kp_id>', methods=['PUT'])
 def ds_kp_update(kp_id):
-    """更新单个知识点（name、content、relations）。"""
+    """更新单个知识点（支持部分更新，未传入的字段保持原值）。"""
     _init_ds_db()
     data = request.json or {}
 
-    name = data.get('name', '').strip()
-    content = data.get('content', '').strip()
-    relations = data.get('relations', [])
-    teaching_focus = data.get('teaching_focus', '').strip()
-    knowledge_type = data.get('knowledge_type', '').strip()
-    cognitive_dimension = data.get('cognitive_dimension', '').strip()
-
-    if not name:
-        return jsonify({'error': '知识点名称不能为空'}), 400
-    if not isinstance(relations, list):
-        return jsonify({'error': 'relations 必须为列表'}), 400
-
-    # 过滤掉无效条目
-    clean_relations = [
-        r for r in relations
-        if isinstance(r, dict) and r.get('target', '').strip()
-    ]
-
     with _ds_db_conn() as conn:
-        cur = conn.execute(
-            "UPDATE ds_kps SET kp_name=?, kp_content=?, relations_json=?, "
-            "teaching_focus=?, knowledge_type=?, cognitive_dimension=? WHERE id=?",
-            (name, content, _json_mod.dumps(clean_relations, ensure_ascii=False),
-             teaching_focus, knowledge_type, cognitive_dimension, kp_id),
-        )
-        conn.commit()
-        if cur.rowcount == 0:
+        old = conn.execute("SELECT * FROM ds_kps WHERE id=?", (kp_id,)).fetchone()
+        if not old:
             return jsonify({'error': f'知识点 {kp_id} 不存在'}), 404
 
+        name = data['name'].strip() if 'name' in data else old['kp_name']
+        content = data['content'].strip() if 'content' in data else (old['kp_content'] or '')
+        teaching_focus = data['teaching_focus'].strip() if 'teaching_focus' in data else (old['teaching_focus'] or '')
+        knowledge_type = data['knowledge_type'].strip() if 'knowledge_type' in data else (old['knowledge_type'] or '')
+        cognitive_dimension = data['cognitive_dimension'].strip() if 'cognitive_dimension' in data else (old['cognitive_dimension'] or '')
+
+        if not name:
+            return jsonify({'error': '知识点名称不能为空'}), 400
+
+        if 'relations' in data:
+            relations = data['relations']
+            if not isinstance(relations, list):
+                return jsonify({'error': 'relations 必须为列表'}), 400
+            relations_json = _json_mod.dumps(
+                [r for r in relations if isinstance(r, dict) and r.get('target', '').strip()],
+                ensure_ascii=False
+            )
+        else:
+            relations_json = old['relations_json'] or '[]'
+
+        conn.execute(
+            "UPDATE ds_kps SET kp_name=?, kp_content=?, relations_json=?, "
+            "teaching_focus=?, knowledge_type=?, cognitive_dimension=? WHERE id=?",
+            (name, content, relations_json, teaching_focus, knowledge_type, cognitive_dimension, kp_id),
+        )
+        conn.commit()
+
     return jsonify({'success': True, 'id': kp_id})
+
+
+@rag_bp.route('/api/rag/ds-chapters', methods=['PUT'])
+def update_ds_chapter():
+    """修改章节名称，级联更新 ds_chapters 和 ds_kps 中的所有相关记录。"""
+    _init_ds_db()
+    data = request.json or {}
+    doc_id = data.get('doc_id', '').strip()
+    chapter_num = data.get('chapter_num')
+    new_name = data.get('new_name', '').strip()
+
+    if not doc_id or chapter_num is None or not new_name:
+        return jsonify({'error': '缺少必要参数 doc_id / chapter_num / new_name'}), 400
+
+    with _ds_db_conn() as conn:
+        row = conn.execute(
+            "SELECT chapter_name, parent_chapter_num FROM ds_chapters "
+            "WHERE doc_id=? AND chapter_num=?",
+            (doc_id, chapter_num)
+        ).fetchone()
+
+        if not row:
+            # ds_chapters 中可能没有该章节记录（仅在 ds_kps 中存在），
+            # 此时只更新 ds_kps
+            conn.execute(
+                "UPDATE ds_kps SET chapter_name=? WHERE doc_id=? AND chapter_num=?",
+                (new_name, doc_id, chapter_num)
+            )
+            conn.commit()
+            return jsonify({'success': True, 'new_name': new_name})
+
+        # 1. 更新 ds_chapters 主记录
+        conn.execute(
+            "UPDATE ds_chapters SET chapter_name=? WHERE doc_id=? AND chapter_num=?",
+            (new_name, doc_id, chapter_num)
+        )
+        # 2. 若为 L1 章（parent_chapter_num == 0），同步更新子章节的 parent_chapter_name
+        if row['parent_chapter_num'] == 0:
+            conn.execute(
+                "UPDATE ds_chapters SET parent_chapter_name=? "
+                "WHERE doc_id=? AND parent_chapter_num=?",
+                (new_name, doc_id, chapter_num)
+            )
+        # 3. 同步更新 ds_kps 中所有该章节知识点的 chapter_name
+        conn.execute(
+            "UPDATE ds_kps SET chapter_name=? WHERE doc_id=? AND chapter_num=?",
+            (new_name, doc_id, chapter_num)
+        )
+        conn.commit()
+
+    return jsonify({'success': True, 'new_name': new_name})
 
 
 # ── 批量分类：知识类型 + 认知维度 ──────────────────────────────────────────────
@@ -1852,7 +1906,7 @@ def _classify_batch(
     if user_prompt:
         # 前端传来的提示词，{focus_section} 已被替换，只需填 {kp_list}
         if '{kp_list}' in user_prompt:
-            user_msg = user_prompt.format(kp_list=kp_list_text)
+            user_msg = user_prompt.replace('{kp_list}', kp_list_text)
         else:
             user_msg = user_prompt + '\n\n## 待分类知识点\n' + kp_list_text
     else:
@@ -1890,6 +1944,126 @@ _classify_tasks: dict = {}
 _VALID_KT = {'事实性', '概念性', '程序性', '元认知'}
 _VALID_CD = {'记忆', '理解', '应用', '分析', '评价', '创造'}
 _VALID_TF = {'重点', '难点', '考点'}
+
+
+def _parse_focus_topics(content: str) -> list[str]:
+    """解析重难点文件，提取清洁主题字符串列表。
+
+    支持多级缩进的 txt/md 格式：去掉 #/- 等标记后返回非空行。
+    """
+    import re
+    topics = []
+    for line in content.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        line = re.sub(r'^#+\s*', '', line)                   # 去掉 # 标题符
+        line = re.sub(r'^[-*·•●]\s*', '', line)              # 去掉列表符
+        line = re.sub(r'^[（(]?\d+[）).、]\s*', '', line)    # 去掉序号
+        line = line.strip()
+        if len(line) >= 2:
+            topics.append(line)
+    return topics
+
+
+def _match_kp_to_topics(kp_name: str, kp_content: str, topics: list[str]) -> tuple[bool, str]:
+    """判断知识点是否匹配重难点列表中的某个主题。
+
+    匹配策略（优先级递减）：
+    1. KP 名称直接出现在某条目文本中
+    2. 某条目冒号前的标题出现在 KP 名称或内容中
+    3. 某条目中提取的 ≥2 个中文关键词均出现在 KP 文本中（或 1 个 ≥4 字长词）
+    """
+    import re
+    kp_text = (kp_name or '') + ' ' + (kp_content or '')[:300]
+    _STOPWORDS = {'的', '是', '在', '和', '与', '及', '等', '了', '其', '该', '各', '此', '为', '以', '有'}
+
+    for topic in topics:
+        # 策略 1：KP 名称直接出现在主题行中
+        if kp_name and len(kp_name) >= 2 and kp_name in topic:
+            return True, topic
+
+        # 策略 2：主题冒号前的标题出现在 KP 文本中
+        colon_match = re.match(r'^([^：:]{2,12})[：:]', topic)
+        if colon_match:
+            title = colon_match.group(1).strip()
+            if title and len(title) >= 2 and title in kp_text:
+                return True, topic
+
+        # 策略 3：关键词匹配
+        keywords = list({kw for kw in re.findall(r'[\u4e00-\u9fff]{2,6}', topic)
+                         if kw not in _STOPWORDS})
+        if not keywords:
+            continue
+        match_count = sum(1 for kw in keywords if kw in kp_text)
+        if match_count >= 2:
+            return True, topic
+        if match_count == 1 and any(len(kw) >= 4 and kw in kp_text for kw in keywords):
+            return True, topic
+
+    return False, ''
+
+
+@rag_bp.route('/api/rag/ds-match-focus', methods=['POST'])
+def ds_match_focus():
+    """智能解析重难点列表并直接匹配知识点，写入 teaching_focus。
+
+    请求体：
+      {
+        "doc_id": "...",          # 必须
+        "topics": ["...", ...],   # 主题字符串列表（前端解析后传入）
+        "tag": "重点",            # 打标签：重点 / 难点 / 考点，默认"重点"
+        "overwrite": false        # false=仅补全，true=覆盖已有
+      }
+    """
+    _init_ds_db()
+    data     = request.json or {}
+    doc_id   = data.get('doc_id', '').strip()
+    topics   = data.get('topics', [])
+    tag      = data.get('tag', '重点')
+    overwrite = bool(data.get('overwrite', False))
+
+    if not doc_id:
+        return jsonify({'error': 'doc_id 必须提供'}), 400
+    if not isinstance(topics, list) or not topics:
+        return jsonify({'error': 'topics 列表为空'}), 400
+    if tag not in _VALID_TF:
+        tag = '重点'
+
+    with _ds_db_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, kp_name, kp_content, teaching_focus FROM ds_kps WHERE doc_id=?",
+            (doc_id,)
+        ).fetchall()
+
+    matched = []
+    for row in rows:
+        current_tf = row['teaching_focus'] or ''
+        existing = [p.strip() for p in current_tf.split(',') if p.strip()]
+        if not overwrite and tag in existing:
+            continue
+        is_match, _ = _match_kp_to_topics(row['kp_name'], row['kp_content'], topics)
+        if is_match:
+            matched.append((row['id'], existing))
+
+    with _ds_db_conn() as conn:
+        for kp_id, existing in matched:
+            parts = [p for p in existing if p in _VALID_TF]
+            if tag not in parts:
+                parts.append(tag)
+            conn.execute(
+                "UPDATE ds_kps SET teaching_focus=? WHERE id=?",
+                (','.join(parts), kp_id),
+            )
+        conn.commit()
+
+    return jsonify({
+        'success': True,
+        'topics_count': len(topics),
+        'matched_count': len(matched),
+        'total_kps': len(rows),
+        'matched_kp_ids': [x[0] for x in matched],
+    })
 
 
 @rag_bp.route('/api/rag/ds-batch-classify', methods=['POST'])
@@ -2321,7 +2495,8 @@ def ds_doc_kps(doc_id):
             if key not in seen_ch:
                 seen_ch[key] = r['chapter_num']
         chapters_list = sorted(
-            [{'name': ch, 'section_name': sec, 'num': num} for (ch, sec), num in seen_ch.items()],
+            [{'name': ch, 'section_name': sec, 'num': num, 'doc_id': doc_id}
+             for (ch, sec), num in seen_ch.items()],
             key=lambda x: (x['num'], x['section_name'])
         )
         kps = conn.execute(

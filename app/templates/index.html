@@ -622,6 +622,35 @@
         .ql-editor { min-height: 80px; }
         .ql-editor img { max-width: 100%; display: block; }
         #quill-content .ql-editor { min-height: 120px; }
+
+        /* ── 知识图谱章节/知识点内联编辑 ── */
+        .rag-chapter-item { display:flex; align-items:flex-start; gap:3px; }
+        .rag-chapter-item:hover .rag-edit-btn,
+        .rag-section-item:hover .rag-edit-btn { visibility:visible; }
+        .rag-edit-btn {
+            visibility:hidden; background:none; border:none; cursor:pointer;
+            color:#bbb; font-size:11px; padding:2px 4px; border-radius:3px;
+            line-height:1; margin-top:3px; flex-shrink:0; transition:color 0.15s;
+        }
+        .rag-edit-btn:hover { color:#4a90d9; background:#e8f0fe; }
+        .rag-name-input {
+            font-size:0.82rem; padding:1px 5px; border:1px solid #4a90d9;
+            border-radius:3px; min-width:80px; width:100%;
+        }
+
+        /* ── 组卷高级筛选标签 chip ── */
+        .exam-tag-chip {
+            padding:3px 10px; border-radius:12px; border:1px solid #bbb;
+            background:#fff; cursor:pointer; font-size:0.82rem; transition:all 0.15s;
+        }
+        .exam-tag-chip.active { background:var(--primary-color); color:#fff; border-color:var(--primary-color); }
+        .exam-tag-selected-item {
+            display:inline-flex; align-items:center; gap:3px; padding:2px 8px;
+            background:#e3f0ff; border:1px solid #99c1f1; border-radius:12px;
+            font-size:0.82rem; color:#1a73e8;
+        }
+        .exam-tag-selected-item .rm-tag { cursor:pointer; color:#888; margin-left:1px; }
+        .exam-tag-selected-item .rm-tag:hover { color:#e00; }
     </style>
 </head>
 <body>
@@ -815,6 +844,15 @@
                             </button>
                         </div>
                     </div>
+                    <div class="form-row" style="margin-top:6px;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <label style="font-size:0.85rem;color:#666;white-space:nowrap;">导入时间：</label>
+                        <input type="date" id="search-imported-after" style="padding:5px 8px;border:1px solid #ddd;border-radius:5px;font-size:0.85rem;" title="导入时间起始">
+                        <span style="font-size:0.85rem;color:#666;">至</span>
+                        <input type="date" id="search-imported-before" style="padding:5px 8px;border:1px solid #ddd;border-radius:5px;font-size:0.85rem;" title="导入时间截止">
+                        <label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;color:#666;cursor:pointer;">
+                            <input type="checkbox" id="search-imported-only"> 仅显示文件导入题目
+                        </label>
+                    </div>
                     <div id="question-count-bar" style="margin-top:8px; font-size:0.9rem; color:var(--dark-gray);"></div>
                 </div>
 
@@ -844,6 +882,7 @@
                                 <th>内容</th>
                                 <th>难度</th>
                                 <th>状态</th>
+                                <th>导入时间</th>
                                 <th>操作</th>
                             </tr>
                         </thead>
@@ -860,14 +899,73 @@
                     <h3><i class="fas fa-bolt"></i> 一键自动组卷</h3>
                     <p>根据以下配置自动生成试卷：</p>
 
-                    <div style="margin-bottom:15px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                    <div style="margin-bottom:10px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
                         <label style="font-weight:500; color:var(--primary-color);" for="exam-subject-filter">
                             <i class="fas fa-book-open"></i> 组卷科目：
                         </label>
-                        <select id="exam-subject-filter" style="padding:8px 14px; border:1px solid #ddd; border-radius:var(--border-radius); min-width:160px; font-size:0.95rem;">
+                        <select id="exam-subject-filter" style="padding:8px 14px; border:1px solid #ddd; border-radius:var(--border-radius); min-width:160px; font-size:0.95rem;" onchange="updateExamAvailableCount()">
                             <option value="">不限科目（所有题目）</option>
                             <!-- populated dynamically -->
                         </select>
+                    </div>
+
+                    <!-- 高级筛选面板 -->
+                    <div style="margin-bottom:12px;">
+                        <button id="exam-advanced-toggle" onclick="toggleExamAdvanced()"
+                                style="background:none;border:1px solid #ccc;border-radius:5px;padding:4px 12px;font-size:0.85rem;cursor:pointer;color:#555;">
+                            <i class="fas fa-sliders-h"></i> 高级筛选
+                            <i class="fas fa-chevron-down" id="exam-advanced-icon" style="margin-left:4px;font-size:0.75rem;"></i>
+                        </button>
+                    </div>
+                    <div id="exam-advanced-panel" style="display:none;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:8px;padding:14px;margin-bottom:14px;">
+                        <!-- 难度 -->
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+                            <label style="font-weight:500;min-width:68px;font-size:0.88rem;"><i class="fas fa-tachometer-alt"></i> 难度：</label>
+                            <select id="exam-difficulty-filter" onchange="updateExamAvailableCount()"
+                                    style="padding:5px 10px;border:1px solid #ddd;border-radius:5px;font-size:0.88rem;">
+                                <option value="">不限难度</option>
+                                <option value="easy">简单</option>
+                                <option value="medium">中等</option>
+                                <option value="hard">困难</option>
+                            </select>
+                        </div>
+                        <!-- 知识点 -->
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+                            <label style="font-weight:500;min-width:68px;font-size:0.88rem;"><i class="fas fa-brain"></i> 知识点：</label>
+                            <input type="text" id="exam-kp-filter" placeholder="知识点关键词（模糊匹配）" oninput="updateExamAvailableCount()"
+                                   style="flex:1;min-width:180px;padding:5px 10px;border:1px solid #ddd;border-radius:5px;font-size:0.88rem;">
+                        </div>
+                        <!-- 标签 -->
+                        <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+                            <label style="font-weight:500;min-width:68px;font-size:0.88rem;padding-top:4px;"><i class="fas fa-tags"></i> 标签：</label>
+                            <div style="flex:1;">
+                                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+                                    <button class="exam-tag-chip" data-tag="重点" onclick="toggleExamTag(this)">重点</button>
+                                    <button class="exam-tag-chip" data-tag="难点" onclick="toggleExamTag(this)">难点</button>
+                                    <button class="exam-tag-chip" data-tag="考点" onclick="toggleExamTag(this)">考点</button>
+                                </div>
+                                <div id="exam-tags-selected" style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">
+                                    <input type="text" id="exam-tag-input" placeholder="自定义标签，回车添加"
+                                           onkeydown="onExamTagInputKeydown(event)"
+                                           style="padding:3px 8px;border:1px solid #ccc;border-radius:4px;font-size:0.82rem;width:160px;">
+                                </div>
+                                <div style="font-size:0.76rem;color:#999;margin-top:3px;">多个标签为 OR 关系（含任意一个即入选）</div>
+                            </div>
+                        </div>
+                        <!-- 题目状态 -->
+                        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px;">
+                            <label style="font-weight:500;min-width:68px;font-size:0.88rem;"><i class="fas fa-check-circle"></i> 状态：</label>
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.88rem;">
+                                <input type="radio" name="exam-is-used" value="unused" checked onchange="updateExamAvailableCount()"> 仅未使用
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.88rem;">
+                                <input type="radio" name="exam-is-used" value="used" onchange="updateExamAvailableCount()"> 仅已使用
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.88rem;">
+                                <input type="radio" name="exam-is-used" value="" onchange="updateExamAvailableCount()"> 全部
+                            </label>
+                        </div>
+                        <div id="exam-available-count" style="font-size:0.82rem;color:#888;"></div>
                     </div>
 
                     <div id="exam-type-configs">
@@ -1959,6 +2057,9 @@
             const type = document.getElementById('search-type').value;
             const language = document.getElementById('search-language').value;
             const subject = document.getElementById('search-subject').value;
+            const importedAfter = document.getElementById('search-imported-after').value;
+            const importedBefore = document.getElementById('search-imported-before').value;
+            const importedOnly = document.getElementById('search-imported-only').checked;
 
             let url = '/api/questions';
             const params = [];
@@ -1966,6 +2067,9 @@
             if (keyword) params.push(`keyword=${encodeURIComponent(keyword)}`);
             if (type) params.push(`type=${encodeURIComponent(type)}`);
             if (language) params.push(`language=${encodeURIComponent(language)}`);
+            if (importedAfter) params.push(`imported_after=${encodeURIComponent(importedAfter)}`);
+            if (importedBefore) params.push(`imported_before=${encodeURIComponent(importedBefore)}`);
+            if (importedOnly) params.push('imported_only=1');
 
             if (params.length > 0) {
                 url += '?' + params.join('&');
@@ -2010,6 +2114,7 @@
                         <td title="${escapeHtml(metaTitle)}">${escapeHtml(stripHtml(question.content).substring(0, 50))}${stripHtml(question.content).length > 50 ? '...' : ''}${bilingualIcon}</td>
                         <td>${difficultyText}</td>
                         <td><span class="${statusClass}">${status}</span></td>
+                        <td style="font-size:0.78rem;color:#888;white-space:nowrap;">${question.imported_at || '—'}</td>
                         <td><div class="action-btns">
                             <button class="btn btn-outline btn-sm" onclick="editQuestion('${question.question_id}')">
                                 <i class="fas fa-edit"></i>
@@ -2455,11 +2560,18 @@
         document.getElementById('generate-exam-btn').addEventListener('click', async () => {
             const config = getExamConfig();
             const examSubject = document.getElementById('exam-subject-filter').value;
+            const difficulty = document.getElementById('exam-difficulty-filter').value;
+            const kp = document.getElementById('exam-kp-filter').value.trim();
+            const isUsedFilter = (document.querySelector('input[name="exam-is-used"]:checked') || {}).value ?? 'unused';
             const subjectSuffix = examSubject ? `_${examSubject}` : '';
             const examData = {
                 name: `自动组卷${subjectSuffix}_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`,
                 config: config,
                 subject: examSubject || null,
+                difficulty: difficulty || '',
+                knowledge_point: kp || '',
+                tags: [..._examSelectedTags],
+                is_used_filter: isUsedFilter,
             };
 
             try {
@@ -4825,25 +4937,83 @@ Now please start generating questions. Output question content directly without 
             }
         }
 
-        function _loadClassifyFocusFile(input) {
+        function _parseFocusTopics(content) {
+            // 解析重难点文件为主题字符串列表（与后端 _parse_focus_topics 保持一致）
+            const topics = [];
+            for (const rawLine of content.split('\n')) {
+                let line = rawLine.trim();
+                if (!line) continue;
+                line = line.replace(/^#+\s*/, '');               // 去掉 # 标题符
+                line = line.replace(/^[-*·•●]\s*/, '');          // 去掉列表符
+                line = line.replace(/^[（(]?\d+[）).、]\s*/, ''); // 去掉序号
+                line = line.trim();
+                if (line.length >= 2) topics.push(line);
+            }
+            return topics;
+        }
+
+        async function _loadClassifyFocusFile(input) {
             const file = input.files[0];
             if (!file) return;
             const reader = new FileReader();
-            reader.onload = e => {
+            reader.onload = async e => {
                 const content = e.target.result.trim();
-                document.getElementById('ds-classify-focus-filename').textContent = file.name;
-                // 自动勾选 classify_focus
-                const cb = document.getElementById('ds-classify-focus-cb');
-                cb.checked = true;
-                // 切换到含 focus 的提示词模板（若还是默认）
-                const userTA = document.getElementById('ds-classify-user-prompt');
-                const curUser = userTA.value.trim();
-                if (curUser === _CLASSIFY_DEFAULT_USER.trim() || curUser === _CLASSIFY_DEFAULT_USER_WITH_FOCUS.trim()) {
-                    userTA.value = _CLASSIFY_DEFAULT_USER_WITH_FOCUS;
+                const filenameEl = document.getElementById('ds-classify-focus-filename');
+                filenameEl.style.color = '#888';
+                filenameEl.textContent = file.name + ' 解析中…';
+
+                // 解析文件为主题列表
+                const topics = _parseFocusTopics(content);
+
+                // 获取当前 doc_id
+                const subtitle = document.getElementById('ds-kg-subtitle');
+                const m = subtitle && subtitle.textContent.match(/^\（(.+)\）$/);
+                const docId = m ? m[1] : null;
+
+                if (docId && topics.length > 0) {
+                    try {
+                        const resp = await fetch('/api/rag/ds-match-focus', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ doc_id: docId, topics, tag: '重点', overwrite: false }),
+                        });
+                        const data = await resp.json();
+                        if (data.success) {
+                            filenameEl.style.color = '#27ae60';
+                            filenameEl.textContent =
+                                `${file.name} — 解析 ${data.topics_count} 条，自动标注 ${data.matched_count}/${data.total_kps} 个知识点为重点 ✓`;
+                            // 更新内存中已匹配 KP 的 teaching_focus
+                            if (data.matched_kp_ids && data.matched_kp_ids.length > 0) {
+                                const idSet = new Set(data.matched_kp_ids);
+                                _ragAllKps.forEach(kp => {
+                                    if (!idSet.has(kp.id)) return;
+                                    const parts = (kp.teaching_focus || '').split(',')
+                                        .map(s => s.trim()).filter(s => s);
+                                    if (!parts.includes('重点')) parts.push('重点');
+                                    kp.teaching_focus = parts.join(',');
+                                });
+                                filterRagSections();
+                                _refreshDsKgAfterClassify(data.matched_kp_ids);
+                            }
+                        } else {
+                            filenameEl.style.color = '#e74c3c';
+                            filenameEl.textContent = `${file.name}（匹配失败：${data.error || '未知'}）`;
+                        }
+                    } catch (err) {
+                        filenameEl.style.color = '#e74c3c';
+                        filenameEl.textContent = `${file.name}（网络错误：${err.message}）`;
+                    }
+                } else if (!docId) {
+                    filenameEl.style.color = '#e67e22';
+                    filenameEl.textContent = `${file.name}（请先打开单个文档的知识图谱）`;
+                } else {
+                    filenameEl.style.color = '#e74c3c';
+                    filenameEl.textContent = `${file.name}（文件内容无有效条目）`;
                 }
-                // 替换 {focus_section} 占位符 → 实际内容
-                const focusBlock = `## 重难点参考列表（来自文件：${file.name}）\n${content}\n\n`;
-                userTA.value = userTA.value.replace('{focus_section}', focusBlock);
+
+                // 自动勾选"同时标注教学属性"——AI 可继续补充未匹配 KP 的 teaching_focus
+                const cb = document.getElementById('ds-classify-focus-cb');
+                if (cb && !cb.checked) { cb.checked = true; _toggleClassifyFocusCb(); }
             };
             reader.readAsText(file, 'UTF-8');
             input.value = ''; // 允许重复选同一文件
@@ -6047,16 +6217,21 @@ Now please start generating questions. Output question content directly without 
             }
             el.innerHTML = items.map(c => {
                 const secName = c.section_name || '';
-                // value 编码为 "章名|||节名"，与 filterRagSections 比对逻辑一致
                 const val = c.name + '|||' + secName;
                 const display = secName
                     ? `${escapeHtml(c.name)} <span style="color:#aaa">›</span> <span style="color:#555">${escapeHtml(secName)}</span>`
                     : escapeHtml(c.name);
-                return `<label style="display:flex;align-items:flex-start;gap:6px;padding:2px 0;cursor:pointer;">
-                    <input type="checkbox" class="rag-chapter-cb" value="${escapeHtml(val)}" style="margin-top:2px;"
-                        onchange="filterRagSections()">
-                    <span style="font-size:0.82rem;${secName ? 'padding-left:4px;' : ''}">${display}</span>
-                </label>`;
+                return `<div class="rag-chapter-item"
+                         data-doc-id="${escapeHtml(c.doc_id || '')}"
+                         data-chapter-num="${c.num}"
+                         data-chapter-name="${escapeHtml(c.name)}">
+                    <label style="display:flex;align-items:flex-start;gap:6px;flex:1;min-width:0;cursor:pointer;padding:2px 0;">
+                        <input type="checkbox" class="rag-chapter-cb" value="${escapeHtml(val)}" style="margin-top:2px;flex-shrink:0;"
+                            onchange="filterRagSections()">
+                        <span class="rag-chapter-label" style="font-size:0.82rem;${secName ? 'padding-left:4px;' : ''}">${display}</span>
+                    </label>
+                    <button class="rag-edit-btn" title="编辑章节名" onclick="startChapterEdit(this)">✎</button>
+                </div>`;
             }).join('');
         }
 
@@ -6080,15 +6255,19 @@ Now please start generating questions. Output question content directly without 
             el.innerHTML = items.map(s => {
                 const badges = _kpAttrBadges(s);
                 return `
-                <div style="display:flex;align-items:flex-start;gap:4px;padding:2px 0;">
+                <div class="rag-section-item" style="display:flex;align-items:flex-start;gap:4px;padding:2px 0;">
                     <label style="display:flex;align-items:flex-start;gap:6px;flex:1;min-width:0;cursor:pointer;">
                         <input type="checkbox" class="rag-section-cb" value="${escapeHtml(s.name)}" style="margin-top:2px;flex-shrink:0;">
                         <span style="flex:1;min-width:0;">
-                            <span style="font-size:0.82rem;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                            <span class="rag-kp-name" style="font-size:0.82rem;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
                                   title="${escapeHtml(s.display_name || s.name)}">${escapeHtml(s.display_name || s.name)}</span>
                             ${badges ? `<span style="display:flex;gap:2px;flex-wrap:wrap;margin-top:1px;">${badges}</span>` : ''}
                         </span>
                     </label>
+                    <button class="rag-edit-btn" title="编辑知识点名"
+                            data-kp-id="${s.num}"
+                            data-kp-name="${escapeHtml(s.display_name || s.name)}"
+                            onclick="startKpEdit(this)">✎</button>
                     <button onclick="_jumpToKpInGraph(${s.num},'${escapeHtml(s.name).replace(/'/g, "\\'")}')"
                         title="在知识图谱中查看"
                         style="flex-shrink:0;padding:1px 5px;font-size:0.68rem;border:1px solid #c39;
@@ -6953,6 +7132,248 @@ Reference answer integrating theory and case.
                 alert('导入出错：' + e.message);
             }
         }
+
+        // ══════════════════════════════════════════════════════
+        // 功能1：知识图谱章节/知识点名称内联编辑
+        // ══════════════════════════════════════════════════════
+
+        function startChapterEdit(btn) {
+            const item = btn.closest('.rag-chapter-item');
+            const docId = item.dataset.docId;
+            const chapterNum = parseInt(item.dataset.chapterNum);
+            const oldName = item.dataset.chapterName;
+            const labelSpan = item.querySelector('.rag-chapter-label');
+            if (!labelSpan) return;
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = oldName;
+            input.className = 'rag-name-input';
+            input.style.flex = '1';
+            labelSpan.replaceWith(input);
+            btn.style.visibility = 'hidden';
+            input.focus();
+            input.select();
+
+            let committed = false;
+            const confirm = async () => {
+                if (committed) return;
+                committed = true;
+                const newName = input.value.trim();
+                if (!newName || newName === oldName) { cancel(); return; }
+                try {
+                    const r = await fetch('/api/rag/ds-chapters', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ doc_id: docId, chapter_num: chapterNum, new_name: newName })
+                    });
+                    const d = await r.json();
+                    if (d.success) {
+                        item.dataset.chapterName = newName;
+                        _ragAllChapters.forEach(c => {
+                            if (c.doc_id === docId && c.num === chapterNum) c.name = newName;
+                        });
+                        _ragAllSections.forEach(s => {
+                            if (s.chapter_num === chapterNum) s.chapter_name = newName;
+                        });
+                        filterRagChapters();
+                        filterRagSections();
+                        showRagToast('章节名已更新');
+                    } else {
+                        alert('更新失败：' + (d.error || '未知错误'));
+                        cancel();
+                    }
+                } catch (e) {
+                    alert('请求出错：' + e.message);
+                    cancel();
+                }
+            };
+            const cancel = () => {
+                if (!input.parentNode) return;
+                const span = document.createElement('span');
+                span.className = 'rag-chapter-label';
+                span.style.fontSize = '0.82rem';
+                span.textContent = oldName;
+                input.replaceWith(span);
+                btn.style.visibility = '';
+            };
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); confirm(); }
+                if (e.key === 'Escape') { committed = true; cancel(); }
+            });
+            input.addEventListener('blur', confirm);
+        }
+
+        function startKpEdit(btn) {
+            const kpId = parseInt(btn.dataset.kpId);
+            const oldName = btn.dataset.kpName;
+            const nameSpan = btn.closest('.rag-section-item')?.querySelector('.rag-kp-name');
+            if (!nameSpan) return;
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = oldName;
+            input.className = 'rag-name-input';
+            nameSpan.replaceWith(input);
+            btn.style.visibility = 'hidden';
+            input.focus();
+            input.select();
+
+            let committed = false;
+            const confirm = async () => {
+                if (committed) return;
+                committed = true;
+                const newName = input.value.trim();
+                if (!newName || newName === oldName) { cancel(); return; }
+                try {
+                    const r = await fetch(`/api/rag/ds-kps/${kpId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: newName })
+                    });
+                    const d = await r.json();
+                    if (d.success) {
+                        btn.dataset.kpName = newName;
+                        _ragAllSections.forEach(s => {
+                            if (s.num === kpId) { s.name = newName; s.display_name = newName; }
+                        });
+                        _ragAllKps.forEach(k => { if (k.id === kpId) k.name = newName; });
+                        filterRagSections();
+                        showRagToast('知识点名已更新');
+                    } else {
+                        alert('更新失败：' + (d.error || '未知错误'));
+                        cancel();
+                    }
+                } catch (e) {
+                    alert('请求出错：' + e.message);
+                    cancel();
+                }
+            };
+            const cancel = () => {
+                if (!input.parentNode) return;
+                const span = document.createElement('span');
+                span.className = 'rag-kp-name';
+                span.style.cssText = 'font-size:0.82rem;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                span.title = oldName;
+                span.textContent = oldName;
+                input.replaceWith(span);
+                btn.style.visibility = '';
+            };
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); confirm(); }
+                if (e.key === 'Escape') { committed = true; cancel(); }
+            });
+            input.addEventListener('blur', confirm);
+        }
+
+        function showRagToast(msg) {
+            let t = document.getElementById('rag-toast');
+            if (!t) {
+                t = document.createElement('div');
+                t.id = 'rag-toast';
+                t.style.cssText = 'position:fixed;bottom:30px;left:50%;transform:translateX(-50%);'
+                    + 'background:#333;color:#fff;padding:8px 18px;border-radius:20px;font-size:0.85rem;'
+                    + 'z-index:9999;opacity:0;transition:opacity 0.2s;pointer-events:none;';
+                document.body.appendChild(t);
+            }
+            t.textContent = msg;
+            t.style.opacity = '1';
+            clearTimeout(t._timer);
+            t._timer = setTimeout(() => { t.style.opacity = '0'; }, 2000);
+        }
+
+        // ══════════════════════════════════════════════════════
+        // 功能3：组卷高级筛选 JS
+        // ══════════════════════════════════════════════════════
+
+        let _examAdvancedOpen = false;
+        const _examSelectedTags = new Set();
+
+        function toggleExamAdvanced() {
+            _examAdvancedOpen = !_examAdvancedOpen;
+            document.getElementById('exam-advanced-panel').style.display = _examAdvancedOpen ? 'block' : 'none';
+            document.getElementById('exam-advanced-icon').className =
+                'fas ' + (_examAdvancedOpen ? 'fa-chevron-up' : 'fa-chevron-down');
+            if (_examAdvancedOpen) updateExamAvailableCount();
+        }
+
+        function toggleExamTag(btn) {
+            const tag = btn.dataset.tag;
+            if (_examSelectedTags.has(tag)) {
+                _examSelectedTags.delete(tag);
+                btn.classList.remove('active');
+            } else {
+                _examSelectedTags.add(tag);
+                btn.classList.add('active');
+            }
+            _renderExamCustomTags();
+            updateExamAvailableCount();
+        }
+
+        function onExamTagInputKeydown(e) {
+            if (e.key === 'Enter') {
+                const val = e.target.value.trim();
+                if (val && !['重点', '难点', '考点'].includes(val)) {
+                    _examSelectedTags.add(val);
+                    e.target.value = '';
+                    _renderExamCustomTags();
+                    updateExamAvailableCount();
+                } else if (val) {
+                    // 预设标签：切换对应 chip
+                    const chip = document.querySelector(`.exam-tag-chip[data-tag="${val}"]`);
+                    if (chip) { toggleExamTag(chip); e.target.value = ''; }
+                }
+            }
+        }
+
+        function _renderExamCustomTags() {
+            const container = document.getElementById('exam-tags-selected');
+            const input = document.getElementById('exam-tag-input');
+            container.innerHTML = '';
+            _examSelectedTags.forEach(tag => {
+                if (['重点', '难点', '考点'].includes(tag)) return; // 已有 chip
+                const item = document.createElement('span');
+                item.className = 'exam-tag-selected-item';
+                item.innerHTML = `${escapeHtml(tag)}<span class="rm-tag" onclick="removeExamTag('${escapeHtml(tag)}')">×</span>`;
+                container.appendChild(item);
+            });
+            container.appendChild(input);
+        }
+
+        function removeExamTag(tag) {
+            _examSelectedTags.delete(tag);
+            _renderExamCustomTags();
+            updateExamAvailableCount();
+        }
+
+        let _examCountTimer = null;
+        function updateExamAvailableCount() {
+            if (!_examAdvancedOpen) return;
+            clearTimeout(_examCountTimer);
+            _examCountTimer = setTimeout(async () => {
+                const subject = document.getElementById('exam-subject-filter').value;
+                const difficulty = document.getElementById('exam-difficulty-filter').value;
+                const kp = document.getElementById('exam-kp-filter').value.trim();
+                const isUsedEl = document.querySelector('input[name="exam-is-used"]:checked');
+                const isUsed = isUsedEl ? isUsedEl.value : 'unused';
+                const tags = [..._examSelectedTags].join(',');
+
+                const params = new URLSearchParams();
+                if (subject) params.set('subject', subject);
+                if (difficulty) params.set('difficulty', difficulty);
+                if (kp) params.set('knowledge_point', kp);
+                if (tags) params.set('tags', tags);
+                if (isUsed === 'unused') params.set('is_used', '0');
+                else if (isUsed === 'used') params.set('is_used', '1');
+
+                try {
+                    const r = await fetch('/api/questions/count?' + params);
+                    const d = await r.json();
+                    document.getElementById('exam-available-count').textContent =
+                        `当前筛选条件下题库共有 ${d.count} 道题目可用`;
+                } catch { /* ignore */ }
+            }, 400);
+        }
     </script>
 
     <!-- ═══════════════════════════════════════════════════════════
@@ -7123,7 +7544,7 @@ Reference answer integrating theory and case.
                                 <input type="file" id="ds-classify-focus-file" accept=".txt,.md"
                                     style="display:none;" onchange="_loadClassifyFocusFile(this)">
                                 <div style="font-size:0.65rem;color:#aaa;margin-top:4px;">
-                                    上传 .txt/.md 文件，系统自动将重难点列表写入提示词，并开启教学属性标注
+                                    上传 .txt/.md 文件：系统解析文件结构 → 关键词匹配 → 直接标注匹配知识点为重点；AI 批量标注可对剩余知识点补充教学属性
                                 </div>
                             </div>
                         </div>

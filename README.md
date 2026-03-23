@@ -66,7 +66,7 @@
 - **切换保护** — 编辑未保存时切换节点或关闭面板弹出二次确认
 - **ESC 行为** — 面板开启时 ESC 收起面板；面板已关闭时 ESC 关闭整个图谱弹窗
 - **筛选** — 左侧面板支持章节筛选、关键词搜索、关系类型筛选
-- **AI批量标注** — 左侧面板「AI批量标注」区一键调用 DeepSeek 批量写入 `knowledge_type`（知识类型）和 `cognitive_dimension`（认知维度）；可选开启 `teaching_focus`（重点/难点/考点）标注；支持查看/编辑提示词（系统提示词 + 用户提示词均可修改，「恢复默认」一键重置）；支持上传重难点列表文件（`.txt`/`.md`），系统自动将文件内容嵌入提示词以辅助 AI 判断教学属性
+- **AI批量标注** — 左侧面板「AI批量标注」区一键调用 DeepSeek 批量写入 `knowledge_type`（知识类型）和 `cognitive_dimension`（认知维度）；可选开启 `teaching_focus`（重点/难点/考点）标注；支持查看/编辑提示词（系统提示词 + 用户提示词均可修改，「恢复默认」一键重置）；支持上传重难点列表文件（`.txt`/`.md`），**智能匹配模式**：系统自动解析文件结构、提取主题、通过三级关键词匹配直接标注命中知识点（无需 AI，即时完成），匹配结果实时显示；AI 批量标注可继续补充未匹配知识点的教学属性
 
 #### 独立知识图谱页面（RAG 向量模式）
 
@@ -261,6 +261,7 @@ python -m pytest tests/ -v
 | `DELETE` | `/api/rag/ds-docs/<doc_id>` | 删除 DS 文档及其章节和知识点数据 |
 | `GET` | `/api/rag/ds-kps/<kp_id>` | 获取单个知识点完整信息（name/content/relations） |
 | `PUT` | `/api/rag/ds-kps/<kp_id>` | 更新单个知识点（name/content/relations），kp_id 不存在返回 404 |
+| `POST` | `/api/rag/ds-match-focus` | 解析重难点主题列表，关键词匹配知识点并批量写入 teaching_focus（v1.17.0） |
 | `GET` | `/api/rag/ds-graph` | 获取知识图谱节点 + 边数据（D3 可视化） |
 | `POST` | `/api/rag/ds-generate` | 基于 DS 知识图谱 → DeepSeek 出题 |
 
@@ -401,6 +402,16 @@ PADDLEOCR_TIMEOUT=120
 ```
 
 > 也可以直接在 AI 智能出题标签页的 API 配置卡片中填写，无需手动编辑文件。
+
+## 计划功能（Roadmap）
+
+以下功能已完成详细规划（见 `plans/` 目录），待实施：
+
+| 功能 | 规划文档 | 核心变更 |
+|------|----------|----------|
+| **知识图谱内联编辑** — 在章节/知识点列表直接点击 ✎ 修改名称，Enter 确认，Esc 取消；章节名级联更新所有知识点 | `plan_feature1_kg_edit.md` | 新增 `PUT /api/rag/ds-chapters`；`ds_doc_kps` 返回 `doc_id`；`PUT /api/rag/ds-kps/<id>` 改为部分更新 |
+| **题库导入时间字段** — `questions` 表新增 `imported_at`，记录批量导入批次；题库搜索支持按导入时间范围筛选；便于批量撤销误导入 | `plan_feature2_import_datetime.md` | `QuestionModel` 新增 `imported_at`；`GET /api/questions` 新增时间范围参数；导入时写入时间戳 |
+| **一键出题高级筛选** — 组卷配置页新增「高级筛选」折叠区：难度/知识点关键词/标签 chip 多选/题目状态；实时预估可用题目数量 | `plan_feature3_exam_filter.md` | `POST /api/exams/generate` 扩展筛选参数；新增 `GET /api/questions/count` 预估接口 |
 
 ## 许可证
 
