@@ -622,13 +622,49 @@
         .ql-editor { min-height: 80px; }
         .ql-editor img { max-width: 100%; display: block; }
         #quill-content .ql-editor { min-height: 120px; }
+
+        /* ── 知识图谱章节/知识点内联编辑 ── */
+        .rag-chapter-item { display:flex; align-items:flex-start; gap:3px; }
+        .rag-chapter-item:hover .rag-edit-btn,
+        .rag-section-item:hover .rag-edit-btn { visibility:visible; }
+        .rag-edit-btn {
+            visibility:hidden; background:none; border:none; cursor:pointer;
+            color:#bbb; font-size:11px; padding:2px 4px; border-radius:3px;
+            line-height:1; margin-top:3px; flex-shrink:0; transition:color 0.15s;
+        }
+        .rag-edit-btn:hover { color:#4a90d9; background:#e8f0fe; }
+        .rag-name-input {
+            font-size:0.82rem; padding:1px 5px; border:1px solid #4a90d9;
+            border-radius:3px; min-width:80px; width:100%;
+        }
+
+        /* ── 组卷高级筛选标签 chip ── */
+        .exam-tag-chip {
+            padding:3px 10px; border-radius:12px; border:1px solid #bbb;
+            background:#fff; cursor:pointer; font-size:0.82rem; transition:all 0.15s;
+        }
+        .exam-tag-chip.active { background:var(--primary-color); color:#fff; border-color:var(--primary-color); }
+        .exam-tag-selected-item {
+            display:inline-flex; align-items:center; gap:3px; padding:2px 8px;
+            background:#e3f0ff; border:1px solid #99c1f1; border-radius:12px;
+            font-size:0.82rem; color:#1a73e8;
+        }
+        .exam-tag-selected-item .rm-tag { cursor:pointer; color:#888; margin-left:1px; }
+        .exam-tag-selected-item .rm-tag:hover { color:#e00; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
+        <div class="header" style="position:relative;">
             <h1 id="site-title"><i class="fas fa-graduation-cap"></i> 试题管理系统</h1>
             <p id="site-subtitle">高效管理试题，智能生成试卷</p>
+            <button onclick="appShutdown()" title="退出程序"
+                style="position:absolute;top:12px;right:16px;padding:5px 14px;
+                       background:rgba(255,255,255,0.15);color:#fff;border:1px solid rgba(255,255,255,0.4);
+                       border-radius:6px;cursor:pointer;font-size:0.82rem;
+                       transition:background 0.15s;">
+                <i class="fas fa-power-off"></i> 退出程序
+            </button>
         </div>
 
         <div class="nav-tabs">
@@ -808,6 +844,15 @@
                             </button>
                         </div>
                     </div>
+                    <div class="form-row" style="margin-top:6px;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <label style="font-size:0.85rem;color:#666;white-space:nowrap;">导入时间：</label>
+                        <input type="date" id="search-imported-after" style="padding:5px 8px;border:1px solid #ddd;border-radius:5px;font-size:0.85rem;" title="导入时间起始">
+                        <span style="font-size:0.85rem;color:#666;">至</span>
+                        <input type="date" id="search-imported-before" style="padding:5px 8px;border:1px solid #ddd;border-radius:5px;font-size:0.85rem;" title="导入时间截止">
+                        <label style="display:flex;align-items:center;gap:4px;font-size:0.85rem;color:#666;cursor:pointer;">
+                            <input type="checkbox" id="search-imported-only"> 仅显示文件导入题目
+                        </label>
+                    </div>
                     <div id="question-count-bar" style="margin-top:8px; font-size:0.9rem; color:var(--dark-gray);"></div>
                 </div>
 
@@ -817,6 +862,9 @@
                     </select>
                     <button id="batch-type-btn" class="btn btn-primary btn-sm">
                         <i class="fas fa-exchange-alt"></i> 批量修改题型
+                    </button>
+                    <button id="batch-export-xlsx-btn" class="btn btn-success btn-sm">
+                        <i class="fas fa-file-excel"></i> 导出xlsx
                     </button>
                     <button id="batch-delete-btn" class="btn btn-danger btn-sm">
                         <i class="fas fa-trash"></i> 批量删除 (<span id="batch-count">0</span>)
@@ -834,6 +882,7 @@
                                 <th>内容</th>
                                 <th>难度</th>
                                 <th>状态</th>
+                                <th>导入时间</th>
                                 <th>操作</th>
                             </tr>
                         </thead>
@@ -850,14 +899,73 @@
                     <h3><i class="fas fa-bolt"></i> 一键自动组卷</h3>
                     <p>根据以下配置自动生成试卷：</p>
 
-                    <div style="margin-bottom:15px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                    <div style="margin-bottom:10px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
                         <label style="font-weight:500; color:var(--primary-color);" for="exam-subject-filter">
                             <i class="fas fa-book-open"></i> 组卷科目：
                         </label>
-                        <select id="exam-subject-filter" style="padding:8px 14px; border:1px solid #ddd; border-radius:var(--border-radius); min-width:160px; font-size:0.95rem;">
+                        <select id="exam-subject-filter" style="padding:8px 14px; border:1px solid #ddd; border-radius:var(--border-radius); min-width:160px; font-size:0.95rem;" onchange="updateExamAvailableCount()">
                             <option value="">不限科目（所有题目）</option>
                             <!-- populated dynamically -->
                         </select>
+                    </div>
+
+                    <!-- 高级筛选面板 -->
+                    <div style="margin-bottom:12px;">
+                        <button id="exam-advanced-toggle" onclick="toggleExamAdvanced()"
+                                style="background:none;border:1px solid #ccc;border-radius:5px;padding:4px 12px;font-size:0.85rem;cursor:pointer;color:#555;">
+                            <i class="fas fa-sliders-h"></i> 高级筛选
+                            <i class="fas fa-chevron-down" id="exam-advanced-icon" style="margin-left:4px;font-size:0.75rem;"></i>
+                        </button>
+                    </div>
+                    <div id="exam-advanced-panel" style="display:none;background:#f8f9fa;border:1px solid #e0e0e0;border-radius:8px;padding:14px;margin-bottom:14px;">
+                        <!-- 难度 -->
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+                            <label style="font-weight:500;min-width:68px;font-size:0.88rem;"><i class="fas fa-tachometer-alt"></i> 难度：</label>
+                            <select id="exam-difficulty-filter" onchange="updateExamAvailableCount()"
+                                    style="padding:5px 10px;border:1px solid #ddd;border-radius:5px;font-size:0.88rem;">
+                                <option value="">不限难度</option>
+                                <option value="easy">简单</option>
+                                <option value="medium">中等</option>
+                                <option value="hard">困难</option>
+                            </select>
+                        </div>
+                        <!-- 知识点 -->
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+                            <label style="font-weight:500;min-width:68px;font-size:0.88rem;"><i class="fas fa-brain"></i> 知识点：</label>
+                            <input type="text" id="exam-kp-filter" placeholder="知识点关键词（模糊匹配）" oninput="updateExamAvailableCount()"
+                                   style="flex:1;min-width:180px;padding:5px 10px;border:1px solid #ddd;border-radius:5px;font-size:0.88rem;">
+                        </div>
+                        <!-- 标签 -->
+                        <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
+                            <label style="font-weight:500;min-width:68px;font-size:0.88rem;padding-top:4px;"><i class="fas fa-tags"></i> 标签：</label>
+                            <div style="flex:1;">
+                                <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+                                    <button class="exam-tag-chip" data-tag="重点" onclick="toggleExamTag(this)">重点</button>
+                                    <button class="exam-tag-chip" data-tag="难点" onclick="toggleExamTag(this)">难点</button>
+                                    <button class="exam-tag-chip" data-tag="考点" onclick="toggleExamTag(this)">考点</button>
+                                </div>
+                                <div id="exam-tags-selected" style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">
+                                    <input type="text" id="exam-tag-input" placeholder="自定义标签，回车添加"
+                                           onkeydown="onExamTagInputKeydown(event)"
+                                           style="padding:3px 8px;border:1px solid #ccc;border-radius:4px;font-size:0.82rem;width:160px;">
+                                </div>
+                                <div style="font-size:0.76rem;color:#999;margin-top:3px;">多个标签为 OR 关系（含任意一个即入选）</div>
+                            </div>
+                        </div>
+                        <!-- 题目状态 -->
+                        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px;">
+                            <label style="font-weight:500;min-width:68px;font-size:0.88rem;"><i class="fas fa-check-circle"></i> 状态：</label>
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.88rem;">
+                                <input type="radio" name="exam-is-used" value="unused" checked onchange="updateExamAvailableCount()"> 仅未使用
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.88rem;">
+                                <input type="radio" name="exam-is-used" value="used" onchange="updateExamAvailableCount()"> 仅已使用
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.88rem;">
+                                <input type="radio" name="exam-is-used" value="" onchange="updateExamAvailableCount()"> 全部
+                            </label>
+                        </div>
+                        <div id="exam-available-count" style="font-size:0.82rem;color:#888;"></div>
                     </div>
 
                     <div id="exam-type-configs">
@@ -974,7 +1082,7 @@
                         </div>
                         <div class="form-group">
                             <label for="import-file">选择文件</label>
-                            <input type="file" id="import-file" accept=".docx,.txt,.csv">
+                            <input type="file" id="import-file" accept=".docx,.txt,.csv,.xlsx">
                         </div>
                     </div>
                     <button id="import-btn" class="btn btn-primary">
@@ -1002,18 +1110,34 @@
                         AI 生成的结果保存为 .txt 文件后，可通过上方"导入题库"功能导入系统。
                     </p>
 
-                    <div class="form-row" style="align-items:center; margin-bottom:12px;">
-                        <div class="form-group" style="min-width:220px;">
-                            <label for="prompt-mode-select">选择出题模式</label>
-                            <select id="prompt-mode-select">
-                                <option value="zh">模式一：纯中文出题</option>
-                                <option value="bilingual">模式二：中英双语出题</option>
-                                <option value="en">模式三：纯英文出题</option>
-                            </select>
-                        </div>
-                        <button id="copy-prompt-btn" class="btn btn-outline" style="align-self:flex-end;">
+                    <!-- 提示词选择器行 -->
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
+                        <label style="font-size:0.9rem; color:#555; white-space:nowrap; font-weight:500;">提示词模板：</label>
+                        <select id="import-prompt-selector" onchange="loadImportPromptFromSelector()" style="flex:1; min-width:200px; max-width:320px; padding:6px 10px; font-size:0.88rem; border:1px solid #ddd; border-radius:5px;">
+                            <optgroup label="默认模板">
+                                <option value="default_zh">模式一：纯中文出题（默认）</option>
+                                <option value="default_bilingual">模式二：中英双语出题（默认）</option>
+                                <option value="default_en">模式三：纯英文出题（默认）</option>
+                            </optgroup>
+                            <optgroup label="我的提示词" id="import-custom-prompt-group">
+                            </optgroup>
+                        </select>
+                        <!-- 隐藏的原始模式选择器，供内部逻辑使用 -->
+                        <select id="prompt-mode-select" style="display:none;">
+                            <option value="zh">模式一：纯中文出题</option>
+                            <option value="bilingual">模式二：中英双语出题</option>
+                            <option value="en">模式三：纯英文出题</option>
+                        </select>
+                        <button id="copy-prompt-btn" class="btn btn-outline" style="padding:6px 14px; white-space:nowrap;">
                             <i class="fas fa-copy"></i> 复制提示词
                         </button>
+                        <button class="btn btn-outline" onclick="saveImportPromptTemplate()" style="padding:6px 12px; white-space:nowrap;">
+                            <i class="fas fa-save"></i> 保存当前
+                        </button>
+                        <button id="import-delete-prompt-btn" class="btn btn-outline" onclick="deleteImportPromptTemplate()" style="padding:6px 12px; display:none; color:#e74c3c; border-color:#e74c3c; white-space:nowrap;">
+                            <i class="fas fa-trash-alt"></i> 删除
+                        </button>
+                        <span id="import-prompt-save-status" style="font-size:0.82rem; color:#27ae60;"></span>
                     </div>
 
                     <!-- Review Notes Upload Panel -->
@@ -1037,9 +1161,10 @@
                         <div id="review-notes-status" style="margin-top:7px; font-size:13px;"></div>
                     </div>
 
-                    <textarea id="prompt-display" readonly rows="18"
+                    <textarea id="prompt-display" rows="18"
                         style="width:100%; font-family:monospace; font-size:13px; resize:vertical;
-                               background:#f8f9fa; border:1px solid #ddd; padding:12px; border-radius:6px; box-sizing:border-box;">
+                               background:#fff; border:1px solid #ddd; padding:12px; border-radius:6px; box-sizing:border-box;"
+                        placeholder="选择模板后可在此直接编辑提示词内容…">
                     </textarea>
                 </div>
             </div>
@@ -1166,7 +1291,7 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="settings-institution-name">学校/机构名称</label>
-                            <input type="text" id="settings-institution-name" placeholder="如: 中南财经政法大学">
+                            <input type="text" id="settings-institution-name" placeholder="">
                         </div>
                         <div class="form-group">
                             <label for="settings-semester-info">学期信息</label>
@@ -1230,92 +1355,6 @@
             <!-- AI Generation Tab -->
             <div id="ai-generation" class="tab-content">
 
-                <!-- ── 出题模式切换 ── -->
-                <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;">
-                    <span style="font-size:0.9rem; color:#555; font-weight:500;">出题模式：</span>
-                    <div style="display:inline-flex; border:1px solid #ddd; border-radius:8px; overflow:hidden; background:#f5f5f5;">
-                        <button id="ai-mode-btn-deepseek" onclick="setAiMode('deepseek')"
-                            style="padding:8px 18px; font-size:0.88rem; border:none; cursor:pointer;
-                                   background:var(--secondary-color); color:white; font-weight:500;
-                                   display:flex; align-items:center; gap:6px;">
-                            <i class="fas fa-brain"></i> DeepSeek 直出
-                        </button>
-                        <button id="ai-mode-btn-rag" onclick="setAiMode('rag')"
-                            style="padding:8px 18px; font-size:0.88rem; border:none; cursor:pointer;
-                                   background:transparent; color:#666;
-                                   display:flex; align-items:center; gap:6px;">
-                            <i class="fas fa-search"></i> RAG 向量检索
-                        </button>
-                    </div>
-                    <span id="ai-mode-desc" style="font-size:0.78rem; color:#888;">
-                        无需向量数据库，DeepSeek 直接分析文档知识结构并出题
-                    </span>
-                </div>
-
-                <!-- ── RAG 模式切换弹窗（两阶段：确认 → 安装） ── -->
-                <div id="rag-warning-modal" style="display:none; position:fixed; inset:0;
-                    background:rgba(0,0,0,0.55); z-index:9999; justify-content:center; align-items:center;">
-                    <div style="background:white; border-radius:10px; padding:28px 32px; max-width:500px;
-                        width:90%; box-shadow:0 20px 40px rgba(0,0,0,0.3);">
-
-                        <!-- 阶段1：确认提示 -->
-                        <div id="rag-warn-phase1">
-                            <h3 style="margin-bottom:14px; color:var(--warning-color);">
-                                <i class="fas fa-exclamation-triangle"></i> 切换到 RAG 向量检索模式
-                            </h3>
-                            <p style="margin-bottom:12px; color:#444; line-height:1.7; font-size:0.92rem;">
-                                RAG 模式需要在本地运行 <strong>向量嵌入模型</strong>，对硬件有较高要求：
-                            </p>
-                            <ul style="margin:0 0 14px 18px; color:#555; font-size:0.88rem; line-height:2.1;">
-                                <li>推荐 <strong>GPU 显存 ≥ 4 GB</strong>（RTX 3060 及以上）</li>
-                                <li>CPU 模式可用，但每次检索约需 10～30 秒</li>
-                                <li>首次使用需下载嵌入模型权重：<strong>BGE-large-zh（约 1.3 GB）</strong></li>
-                                <li>点击「确认」后将自动安装所需 Python 依赖包</li>
-                            </ul>
-                            <div style="display:flex; gap:10px; justify-content:flex-end;">
-                                <button onclick="closeRagWarning(false)" class="btn btn-outline" style="padding:7px 18px;">
-                                    取消
-                                </button>
-                                <button onclick="closeRagWarning(true)" class="btn btn-warning" style="padding:7px 18px;">
-                                    确认，开始安装依赖
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- 阶段2：安装进度 -->
-                        <div id="rag-warn-phase2" style="display:none;">
-                            <h3 style="margin-bottom:18px; color:var(--secondary-color);">
-                                <i class="fas fa-download"></i> 正在安装 RAG 依赖
-                            </h3>
-                            <div style="background:#f8f9fa; border-radius:6px; padding:14px 16px; margin-bottom:16px;
-                                font-size:0.88rem; color:#444; min-height:48px; line-height:1.7;">
-                                <i class="fas fa-spinner fa-spin" style="color:var(--secondary-color);"></i>
-                                <span id="rag-install-log" style="margin-left:8px;">准备中...</span>
-                            </div>
-                            <div style="background:#eee; border-radius:4px; height:6px; overflow:hidden; margin-bottom:16px;">
-                                <div id="rag-install-bar" style="height:100%; width:30%; background:var(--secondary-color);
-                                    border-radius:4px; transition:width 0.4s;
-                                    animation: rag-bar-anim 1.5s ease-in-out infinite alternate;"></div>
-                            </div>
-                            <p style="font-size:0.8rem; color:#999; margin:0;">
-                                安装过程中请勿关闭窗口，网络较慢时可能需要数分钟。
-                            </p>
-                        </div>
-
-                        <!-- 阶段3：安装结果 -->
-                        <div id="rag-warn-phase3" style="display:none;">
-                            <h3 id="rag-install-result-title" style="margin-bottom:14px;"></h3>
-                            <p id="rag-install-result-msg" style="color:#555; font-size:0.9rem; margin-bottom:20px; line-height:1.7;"></p>
-                            <div style="display:flex; gap:10px; justify-content:flex-end;">
-                                <button id="rag-install-result-btn" onclick="closeRagWarning(false)"
-                                    class="btn btn-outline" style="padding:7px 18px;">关闭</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <style>
-                @keyframes rag-bar-anim { from { width:20%; } to { width:80%; } }
-                </style>
 
                 <!-- Top: Two columns -->
                 <div style="display:flex; gap:16px; margin-bottom:16px; align-items:flex-start;">
@@ -1363,11 +1402,43 @@
                                 onclick="document.getElementById('ds-file-input').click()">
                                 <i class="fas fa-cloud-upload-alt" style="font-size:1.6rem; color:#aaa; margin-bottom:5px; display:block;"></i>
                                 <div style="font-size:0.83rem; color:#888;">拖拽或点击上传</div>
-                                <div style="font-size:0.75rem; color:#bbb; margin-top:3px;">.md &nbsp;.txt &nbsp;.docx &nbsp;.pptx &nbsp;.pdf</div>
+                                <div style="font-size:0.75rem; color:#bbb; margin-top:3px;">.md &nbsp;.txt &nbsp;.docx</div>
                             </div>
                             <input type="file" id="ds-file-input" style="display:none;" multiple
-                                accept=".md,.txt,.docx,.pptx,.ppt,.pdf"
+                                accept=".md,.txt,.docx"
                                 onchange="dsUploadFiles(this.files)">
+
+                            <!-- PDF/PPTX 转 Markdown 说明 -->
+                            <details style="margin-bottom:10px; font-size:0.78rem; color:#666;">
+                                <summary style="cursor:pointer; color:var(--secondary-color); font-weight:500; user-select:none;">
+                                    <i class="fas fa-file-pdf"></i> 有 PDF 或 PPTX？点此查看转换方法
+                                </summary>
+                                <div style="margin-top:8px; padding:10px 12px; background:#f8f9fa; border-radius:6px; border-left:3px solid var(--secondary-color); line-height:1.8;">
+                                    <div style="font-weight:500; margin-bottom:4px; color:#444;">
+                                        <i class="fas fa-magic"></i> 推荐流程：PDF → Markdown → 上传
+                                    </div>
+                                    <ol style="margin:0 0 8px 16px; padding:0;">
+                                        <li>打开
+                                            <a href="https://aistudio.baidu.com/paddleocr" target="_blank"
+                                                style="color:var(--secondary-color); text-decoration:none; font-weight:500;">
+                                                aistudio.baidu.com/paddleocr <i class="fas fa-external-link-alt" style="font-size:0.6rem;"></i>
+                                            </a>
+                                            （免登录，免费使用）
+                                        </li>
+                                        <li>模型选择 <strong>PP-StructureV3</strong>，上传 PDF 文件</li>
+                                        <li>输出格式选 <strong>Markdown</strong>，点击解析</li>
+                                        <li>下载 <code>.md</code> 文件，直接上传到本系统</li>
+                                    </ol>
+                                    <div style="color:#e67e22; font-size:0.75rem;">
+                                        <i class="fas fa-lightbulb"></i>
+                                        <strong>PPTX 用户：</strong>请先在自己电脑上将 .pptx 另存为 PDF（PowerPoint → 文件 → 导出），再按上述步骤处理。
+                                    </div>
+                                    <div style="color:#888; font-size:0.72rem; margin-top:4px;">
+                                        <i class="fas fa-info-circle"></i>
+                                        为什么选 Markdown 而非 JSON？Markdown 保留了章节标题（# ## 格式），可直接上传；JSON 含大量坐标数据，需额外解析，反而不便。
+                                    </div>
+                                </div>
+                            </details>
 
                             <!-- DS 文档列表 -->
                             <div id="ds-doc-list" style="max-height:360px; overflow-y:auto;">
@@ -1377,48 +1448,6 @@
                             </div>
                         </div>
 
-                        <!-- RAG 知识库管理面板（RAG 向量检索模式，默认隐藏） -->
-                        <div id="rag-kb-panel" class="form-container" style="padding:16px; display:none;">
-                            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
-                                <h3 style="margin:0;"><i class="fas fa-database"></i> 知识库管理</h3>
-                                <a href="/kg" target="_blank"
-                                    style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;font-size:0.78rem;background:linear-gradient(135deg,#9b59b6,#3498db);color:#fff;border-radius:14px;text-decoration:none;white-space:nowrap;box-shadow:0 2px 5px rgba(0,0,0,0.15);"
-                                    title="在新标签页打开知识图谱">
-                                    <i class="fas fa-project-diagram"></i> 知识图谱
-                                </a>
-                            </div>
-
-                            <!-- Upload area -->
-                            <div id="rag-upload-area"
-                                style="border:2px dashed #aaa; border-radius:8px; padding:20px; text-align:center; cursor:pointer; background:#fafafa; margin-bottom:10px; transition:border-color 0.2s;"
-                                ondragover="event.preventDefault(); this.style.borderColor='#3498db';"
-                                ondragleave="this.style.borderColor='#aaa';"
-                                ondrop="event.preventDefault(); this.style.borderColor='#aaa'; ragUploadFiles(event.dataTransfer.files);"
-                                onclick="document.getElementById('rag-file-input').click()">
-                                <i class="fas fa-cloud-upload-alt" style="font-size:1.8rem; color:#aaa; margin-bottom:6px; display:block;"></i>
-                                <div style="font-size:0.85rem; color:#888;">拖拽或点击上传</div>
-                                <div style="font-size:0.78rem; color:#bbb; margin-top:4px;">.md .txt .docx .pptx .pdf</div>
-                            </div>
-                            <input type="file" id="rag-file-input" style="display:none;" multiple
-                                accept=".md,.txt,.docx,.pptx,.ppt,.pdf"
-                                onchange="ragUploadFiles(this.files)">
-
-                            <!-- Doc type selector -->
-                            <div style="margin-bottom:10px; font-size:0.85rem; color:#555;">
-                                文档类型：
-                                <label style="margin-left:4px;"><input type="radio" name="rag-doc-type" value="auto" checked> 自动</label>
-                                <label style="margin-left:8px;"><input type="radio" name="rag-doc-type" value="textbook"> 教材</label>
-                                <label style="margin-left:8px;"><input type="radio" name="rag-doc-type" value="slides"> 幻灯片</label>
-                            </div>
-
-                            <!-- Document list -->
-                            <div id="rag-doc-list" style="max-height:420px; overflow-y:auto;">
-                                <div style="text-align:center; color:#bbb; padding:20px; font-size:0.85rem;">
-                                    <i class="fas fa-folder-open"></i><br>暂无文档
-                                </div>
-                            </div>
-                        </div>
-                        <!-- /rag-kb-panel -->
 
                         <!-- API 配置卡片 -->
                         <div class="form-container" style="padding:14px;">
@@ -1427,22 +1456,19 @@
                             </h3>
                             <div style="display:flex; flex-direction:column; gap:9px; font-size:0.83rem;">
                                 <div>
-                                    <label style="display:block; margin-bottom:3px; color:#666;">PaddleOCR 服务地址</label>
-                                    <input type="text" id="cfg-paddle-url"
-                                        placeholder="https://your-paddleocr/layout-parsing"
-                                        style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:5px; font-size:0.78rem; font-family:monospace; box-sizing:border-box;">
-                                </div>
-                                <div>
-                                    <label style="display:block; margin-bottom:3px; color:#666;">PaddleOCR API Key</label>
-                                    <input type="password" id="cfg-paddle-token"
-                                        placeholder="token / api key"
-                                        style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:5px; font-size:0.78rem; font-family:monospace; box-sizing:border-box;">
-                                </div>
-                                <div>
                                     <label style="display:block; margin-bottom:3px; color:#666;">DeepSeek API Key</label>
                                     <input type="password" id="cfg-deepseek-key"
                                         placeholder="sk-..."
                                         style="width:100%; padding:6px 8px; border:1px solid #ddd; border-radius:5px; font-size:0.78rem; font-family:monospace; box-sizing:border-box;">
+                                </div>
+                                <div style="font-size:0.75rem; color:#999; line-height:1.5; margin-top:1px;">
+                                    没有 Key？
+                                    <a href="https://platform.deepseek.com/usage" target="_blank"
+                                        style="color:var(--secondary-color); text-decoration:none;"
+                                        title="在 DeepSeek 平台申请 API Key">
+                                        platform.deepseek.com <i class="fas fa-external-link-alt" style="font-size:0.65rem;"></i>
+                                    </a>
+                                    注册后在「API Keys」页创建即可，按量计费。
                                 </div>
                                 <div style="display:flex; align-items:center; gap:8px; margin-top:2px;">
                                     <button class="btn btn-primary" onclick="saveRagConfig()"
@@ -1494,10 +1520,10 @@
                                         <span style="color:#bbb;">选择文档后加载章节</span>
                                     </div>
                                 </div>
-                                <!-- 知识点/节名 -->
+                                <!-- 知识点 -->
                                 <div style="flex:1; min-width:0;">
                                     <label style="display:block; margin-bottom:5px; font-weight:500; color:var(--primary-color);">
-                                        知识点/节名 <span style="font-weight:normal; font-size:0.78rem; color:#888;">（留空则全部）</span>
+                                        知识点 <span style="font-weight:normal; font-size:0.78rem; color:#888;">（留空则全部）</span>
                                     </label>
                                     <input type="text" id="rag-section-search" placeholder="搜索知识点..."
                                         style="width:100%; padding:7px 10px; border:1px solid #ddd; border-radius:6px; font-size:0.88rem; margin-bottom:4px;"
@@ -1506,6 +1532,78 @@
                                         style="border:1px solid #ddd; border-radius:6px; padding:6px; max-height:130px; overflow-y:auto; background:#fff; font-size:0.85rem; text-align:left;">
                                         <span style="color:#bbb;">选择文档后加载</span>
                                     </div>
+                                </div>
+                            </div>
+
+                            <!-- 知识点属性筛选 -->
+                            <div style="margin-bottom:14px;border:1px solid #e8e0f5;border-radius:6px;padding:8px 10px;background:#faf8ff;">
+                                <div style="font-size:0.82rem;font-weight:500;color:#7d3c98;margin-bottom:7px;">
+                                    <i class="fas fa-tags" style="font-size:0.75rem;margin-right:4px;"></i>知识点属性筛选
+                                    <span style="font-weight:normal;color:#aaa;font-size:0.75rem;margin-left:4px;">（不勾选=不限制）</span>
+                                </div>
+                                <!-- 教学属性 -->
+                                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:5px;">
+                                    <span style="font-size:0.78rem;color:#555;width:54px;flex-shrink:0;">教学属性</span>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-focus-cb" value="重点" onchange="filterRagSections()">
+                                        <span style="color:#c0392b;font-weight:500;">重点</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-focus-cb" value="难点" onchange="filterRagSections()">
+                                        <span style="color:#d35400;font-weight:500;">难点</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-focus-cb" value="考点" onchange="filterRagSections()">
+                                        <span style="color:#2471a3;font-weight:500;">考点</span>
+                                    </label>
+                                </div>
+                                <!-- 知识类型 -->
+                                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:5px;">
+                                    <span style="font-size:0.78rem;color:#555;width:54px;flex-shrink:0;">知识类型</span>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-kt-cb" value="事实性" onchange="filterRagSections()">
+                                        <span>事实性</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-kt-cb" value="概念性" onchange="filterRagSections()">
+                                        <span>概念性</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-kt-cb" value="程序性" onchange="filterRagSections()">
+                                        <span>程序性</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-kt-cb" value="元认知" onchange="filterRagSections()">
+                                        <span>元认知</span>
+                                    </label>
+                                </div>
+                                <!-- 认知维度 -->
+                                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                                    <span style="font-size:0.78rem;color:#555;width:54px;flex-shrink:0;">认知维度</span>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-cd-cb" value="记忆" onchange="filterRagSections()">
+                                        <span>记忆</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-cd-cb" value="理解" onchange="filterRagSections()">
+                                        <span>理解</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-cd-cb" value="应用" onchange="filterRagSections()">
+                                        <span>应用</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-cd-cb" value="分析" onchange="filterRagSections()">
+                                        <span>分析</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-cd-cb" value="评价" onchange="filterRagSections()">
+                                        <span>评价</span>
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:3px;cursor:pointer;font-size:0.78rem;">
+                                        <input type="checkbox" class="rag-cd-cb" value="创造" onchange="filterRagSections()">
+                                        <span>创造</span>
+                                    </label>
                                 </div>
                             </div>
 
@@ -1559,6 +1657,26 @@
                             <button class="btn btn-outline" id="rag-lang-btn-en" onclick="setRagPromptMode('en')" style="padding:5px 12px; font-size:0.85rem;">English</button>
                         </div>
                     </div>
+                    <!-- 提示词选择器行 -->
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap;">
+                        <label style="font-size:0.85rem; color:#555; white-space:nowrap; font-weight:500;">切换提示词：</label>
+                        <select id="rag-prompt-selector" onchange="loadRagPromptFromSelector()" style="flex:1; min-width:160px; max-width:280px; padding:5px 8px; font-size:0.85rem; border:1px solid #ddd; border-radius:5px;">
+                            <optgroup label="默认模板">
+                                <option value="default_zh">中文（默认）</option>
+                                <option value="default_bilingual">双语（默认）</option>
+                                <option value="default_en">English（默认）</option>
+                            </optgroup>
+                            <optgroup label="我的提示词" id="rag-custom-prompt-group">
+                            </optgroup>
+                        </select>
+                        <button class="btn btn-outline" onclick="saveRagPromptTemplate()" style="padding:5px 12px; font-size:0.85rem; white-space:nowrap;">
+                            <i class="fas fa-save"></i> 保存当前
+                        </button>
+                        <button id="rag-delete-prompt-btn" class="btn btn-outline" onclick="deleteRagPromptTemplate()" style="padding:5px 12px; font-size:0.85rem; display:none; color:#e74c3c; border-color:#e74c3c; white-space:nowrap;">
+                            <i class="fas fa-trash-alt"></i> 删除
+                        </button>
+                        <span id="rag-prompt-save-status" style="font-size:0.82rem; color:#27ae60;"></span>
+                    </div>
                     <textarea id="rag-prompt-editor"
                         style="width:100%; height:280px; font-family:monospace; font-size:0.82rem; padding:10px; border:1px solid #ddd; border-radius:6px; resize:vertical; line-height:1.5;"></textarea>
                 </div>
@@ -1574,17 +1692,29 @@
                 <!-- Results area -->
                 <div class="form-container" style="padding:16px;">
                     <h3 style="margin-bottom:10px;"><i class="fas fa-list-alt"></i> 生成结果</h3>
-                    <textarea id="rag-result" readonly
-                        style="width:100%; height:400px; font-family:monospace; font-size:0.82rem; padding:10px; border:1px solid #ddd; border-radius:6px; resize:vertical; line-height:1.5; background:#f9f9f9;"
-                        placeholder="点击「一键出题」后，生成的题目将显示在这里..."></textarea>
-                    <div style="display:flex; gap:10px; margin-top:10px; flex-wrap:wrap;">
-                        <button class="btn btn-outline" onclick="ragCopyResult()">
-                            <i class="fas fa-copy"></i> 复制结果
+                    <textarea id="rag-result"
+                        style="width:100%; height:400px; font-family:monospace; font-size:0.82rem; padding:10px; border:1px solid #ddd; border-radius:6px; resize:vertical; line-height:1.5; background:#fff;"
+                        placeholder="点击「一键出题」后，生成的题目将显示在这里，可直接编辑..."></textarea>
+                    <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; align-items:center;">
+                        <button class="btn" onclick="ragSaveEdit()"
+                            style="background:#27ae60;color:#fff;border:1px solid #219a52;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:0.85rem;">
+                            <i class="fas fa-save"></i> 保存
                         </button>
-                        <button class="btn btn-primary" onclick="ragImportToBank()">
+                        <button class="btn btn-outline" onclick="ragUndoEdit()"
+                            style="padding:6px 14px;font-size:0.85rem;">
+                            <i class="fas fa-undo"></i> 撤销
+                        </button>
+                        <div style="width:1px;height:20px;background:#ddd;margin:0 2px;"></div>
+                        <button class="btn btn-outline" onclick="ragCopyResult()"
+                            style="padding:6px 14px;font-size:0.85rem;">
+                            <i class="fas fa-copy"></i> 复制
+                        </button>
+                        <button class="btn btn-primary" onclick="ragImportToBank()"
+                            style="padding:6px 14px;font-size:0.85rem;">
                             <i class="fas fa-file-import"></i> 导入题库
                         </button>
-                        <span id="rag-import-status" style="align-self:center; font-size:0.85rem; color:#888;"></span>
+                        <span id="rag-result-status" style="align-self:center; font-size:0.83rem; color:#888;"></span>
+                        <span id="rag-import-status" style="align-self:center; font-size:0.83rem; color:#888;"></span>
                     </div>
                 </div>
             </div>
@@ -1679,7 +1809,7 @@
 
                 if (tabId === 'type-management') renderQuestionTypesTable();
                 if (tabId === 'usage-management') loadUsedQuestions();
-                if (tabId === 'ai-generation') { (_aiMode === 'deepseek' ? loadDsDocs() : loadRagDocs()); loadRagConfig(); }
+                if (tabId === 'ai-generation') { loadDsDocs(); loadRagConfig(); }
             });
         });
 
@@ -1856,12 +1986,80 @@
             }
         });
 
+        document.getElementById('batch-export-xlsx-btn').addEventListener('click', async () => {
+            if (selectedQuestionIds.size === 0) return;
+            const questionIds = Array.from(selectedQuestionIds);
+            const btn = document.getElementById('batch-export-xlsx-btn');
+            btn.disabled = true;
+            btn.textContent = '检查中...';
+            try {
+                // 第一步：检查是否有超500字符的字段
+                const checkResp = await fetch('/api/questions/check-export', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question_ids: questionIds })
+                });
+                if (!checkResp.ok) {
+                    alert('检查失败，请重试');
+                    return;
+                }
+                const { warnings } = await checkResp.json();
+                const skipIds = [];
+
+                // 第二步：逐题弹窗让用户决策
+                for (const w of warnings) {
+                    const fieldDesc = w.fields.map(f => `【${f.name}】${f.length}字符`).join('、');
+                    const preview = w.content_preview ? `「${w.content_preview}…」` : '';
+                    const msg = `题目 ${preview}（${w.question_type}）\n${fieldDesc} 超出500字符限制。\n\n点击「确定」→ 截断导出\n点击「取消」→ 跳过此题`;
+                    const keep = confirm(msg);
+                    if (!keep) {
+                        skipIds.push(w.question_id);
+                    }
+                }
+
+                // 第三步：导出
+                btn.textContent = '导出中...';
+                const exportResp = await fetch('/api/questions/export-xlsx', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question_ids: questionIds, skip_ids: skipIds })
+                });
+                if (!exportResp.ok) {
+                    const err = await exportResp.json().catch(() => null);
+                    alert(err?.error || '导出失败');
+                    return;
+                }
+                const blob = await exportResp.blob();
+                const disposition = exportResp.headers.get('Content-Disposition') || '';
+                const nameMatch = disposition.match(/filename[^;=\n]*=([^;\n]*)/);
+                const filename = nameMatch ? nameMatch[1].replace(/['"]/g, '').trim() : 'export.xlsx';
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                const exportedCount = questionIds.length - skipIds.length;
+                alert(`导出完成：${exportedCount} 道题${skipIds.length > 0 ? `，跳过 ${skipIds.length} 道` : ''}`);
+            } catch (error) {
+                console.error('Export error:', error);
+                alert('导出时发生错误！');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-file-excel"></i> 导出xlsx';
+            }
+        });
+
         // Load questions function
         async function loadQuestions() {
             const keyword = document.getElementById('search-keyword').value;
             const type = document.getElementById('search-type').value;
             const language = document.getElementById('search-language').value;
             const subject = document.getElementById('search-subject').value;
+            const importedAfter = document.getElementById('search-imported-after').value;
+            const importedBefore = document.getElementById('search-imported-before').value;
+            const importedOnly = document.getElementById('search-imported-only').checked;
 
             let url = '/api/questions';
             const params = [];
@@ -1869,6 +2067,9 @@
             if (keyword) params.push(`keyword=${encodeURIComponent(keyword)}`);
             if (type) params.push(`type=${encodeURIComponent(type)}`);
             if (language) params.push(`language=${encodeURIComponent(language)}`);
+            if (importedAfter) params.push(`imported_after=${encodeURIComponent(importedAfter)}`);
+            if (importedBefore) params.push(`imported_before=${encodeURIComponent(importedBefore)}`);
+            if (importedOnly) params.push('imported_only=1');
 
             if (params.length > 0) {
                 url += '?' + params.join('&');
@@ -1913,6 +2114,7 @@
                         <td title="${escapeHtml(metaTitle)}">${escapeHtml(stripHtml(question.content).substring(0, 50))}${stripHtml(question.content).length > 50 ? '...' : ''}${bilingualIcon}</td>
                         <td>${difficultyText}</td>
                         <td><span class="${statusClass}">${status}</span></td>
+                        <td style="font-size:0.78rem;color:#888;white-space:nowrap;">${question.imported_at || '—'}</td>
                         <td><div class="action-btns">
                             <button class="btn btn-outline btn-sm" onclick="editQuestion('${question.question_id}')">
                                 <i class="fas fa-edit"></i>
@@ -2358,11 +2560,18 @@
         document.getElementById('generate-exam-btn').addEventListener('click', async () => {
             const config = getExamConfig();
             const examSubject = document.getElementById('exam-subject-filter').value;
+            const difficulty = document.getElementById('exam-difficulty-filter').value;
+            const kp = document.getElementById('exam-kp-filter').value.trim();
+            const isUsedFilter = (document.querySelector('input[name="exam-is-used"]:checked') || {}).value ?? 'unused';
             const subjectSuffix = examSubject ? `_${examSubject}` : '';
             const examData = {
                 name: `自动组卷${subjectSuffix}_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`,
                 config: config,
                 subject: examSubject || null,
+                difficulty: difficulty || '',
+                knowledge_point: kp || '',
+                tags: [..._examSelectedTags],
+                is_used_filter: isUsedFilter,
             };
 
             try {
@@ -3354,7 +3563,7 @@
             const subtitleEl = document.getElementById('site-subtitle');
 
             if (settings.course_name) {
-                const titleText = `${settings.course_name} 试题管理系统`;
+                const titleText = `"${settings.course_name}"试题管理系统`;
                 titleEl.innerHTML = `<i class="fas fa-graduation-cap"></i> ${escapeHtml(titleText)}`;
                 document.title = titleText;
             } else {
@@ -4097,6 +4306,9 @@ Now please start generating questions. Output question content directly without 
             setRagPromptMode('zh');
             // Load DS docs for default DeepSeek mode
             loadDsDocs();
+            // 初始化提示词选择器（渲染已保存的自定义提示词）
+            renderRagPromptSelector();
+            renderImportPromptSelector();
         });
 
         // ========== AI 智能出题 ==========
@@ -4238,138 +4450,12 @@ Important notes:
 Now please start generating questions. Output question content directly without any preamble.`;
 
         // ── 状态变量 ────────────────────────────────────────────────────────────
-        let _aiMode = 'deepseek';   // 'deepseek' | 'rag' — 出题模式
         let _ragAllChapters = [];   // [{num, name}, ...]
         let _ragAllSections = [];   // [{num, name}, ...]
         let _ragAllKps = [];        // DS 模式知识点列表
         let _ragCurrentMode = 'zh'; // zh / bilingual / en
         let _currentDsTaskId = null; // 当前正在运行的 DS 提取任务 ID
-
-        // ── AI 出题模式切换 ───────────────────────────────────────────────────────
-
-        function setAiMode(mode) {
-            if (mode === 'rag' && _aiMode !== 'rag') {
-                showRagWarning();  // 先弹警告，确认后再切换
-                return;
-            }
-            _aiMode = mode;
-            _applyAiMode();
-        }
-
-        function _applyAiMode() {
-            const isDS = _aiMode === 'deepseek';
-
-            // 切换左侧面板
-            const dsPanel  = document.getElementById('ds-kb-panel');
-            const ragPanel = document.getElementById('rag-kb-panel');
-            if (dsPanel)  dsPanel.style.display  = isDS ? '' : 'none';
-            if (ragPanel) ragPanel.style.display = isDS ? 'none' : '';
-
-            // 切换按钮样式
-            const dsBtn  = document.getElementById('ai-mode-btn-deepseek');
-            const ragBtn = document.getElementById('ai-mode-btn-rag');
-            if (dsBtn && ragBtn) {
-                dsBtn.style.background  = isDS ? 'var(--secondary-color)' : 'transparent';
-                dsBtn.style.color       = isDS ? 'white' : '#666';
-                ragBtn.style.background = isDS ? 'transparent' : 'var(--secondary-color)';
-                ragBtn.style.color      = isDS ? '#666' : 'white';
-            }
-
-            // 更新模式说明
-            const desc = document.getElementById('ai-mode-desc');
-            if (desc) {
-                desc.textContent = isDS
-                    ? '无需向量数据库，DeepSeek 直接分析文档知识结构并出题'
-                    : 'BGE 嵌入模型 + Qdrant 向量库混合检索，语义匹配精度更高';
-            }
-
-            // 刷新提示词（不同模式用不同前言）
-            setRagPromptMode(_ragCurrentMode);
-
-            // 刷新文档列表和章节/知识点列表
-            if (isDS) {
-                loadDsDocs();
-            } else {
-                loadRagDocs();
-            }
-        }
-
-        function showRagWarning() {
-            // 重置为阶段1
-            document.getElementById('rag-warn-phase1').style.display = '';
-            document.getElementById('rag-warn-phase2').style.display = 'none';
-            document.getElementById('rag-warn-phase3').style.display = 'none';
-            const modal = document.getElementById('rag-warning-modal');
-            if (modal) modal.style.display = 'flex';
-        }
-
-        function closeRagWarning(confirmed) {
-            const modal = document.getElementById('rag-warning-modal');
-            if (!confirmed) {
-                if (modal) modal.style.display = 'none';
-                return;
-            }
-            // 进入阶段2：触发安装
-            document.getElementById('rag-warn-phase1').style.display = 'none';
-            document.getElementById('rag-warn-phase2').style.display = '';
-            _startRagDepInstall();
-        }
-
-        async function _startRagDepInstall() {
-            try {
-                const resp = await fetch('/api/rag/install-rag-deps', { method: 'POST' });
-                const data = await resp.json();
-                if (data.error) { _ragInstallFinish(false, data.error); return; }
-                _pollRagInstall(data.task_id);
-            } catch (e) {
-                _ragInstallFinish(false, '网络请求失败：' + e.message);
-            }
-        }
-
-        function _pollRagInstall(taskId) {
-            const logEl = document.getElementById('rag-install-log');
-            const timer = setInterval(async () => {
-                try {
-                    const resp = await fetch(`/api/rag/install-tasks/${taskId}`);
-                    const task = await resp.json();
-                    if (logEl) logEl.textContent = task.log || '';
-                    if (task.status === 'done') {
-                        clearInterval(timer);
-                        _ragInstallFinish(true, task.log);
-                    } else if (task.status === 'error') {
-                        clearInterval(timer);
-                        _ragInstallFinish(false, task.log);
-                    }
-                } catch (e) { /* 网络抖动，继续轮询 */ }
-            }, 2000);
-        }
-
-        function _ragInstallFinish(success, msg) {
-            document.getElementById('rag-warn-phase2').style.display = 'none';
-            document.getElementById('rag-warn-phase3').style.display = '';
-            const titleEl = document.getElementById('rag-install-result-title');
-            const msgEl   = document.getElementById('rag-install-result-msg');
-            const btnEl   = document.getElementById('rag-install-result-btn');
-            if (success) {
-                titleEl.innerHTML = '<i class="fas fa-check-circle" style="color:var(--success-color);"></i> 依赖安装成功';
-                titleEl.style.color = 'var(--success-color)';
-                msgEl.textContent = msg;
-                btnEl.textContent = '切换到 RAG 模式';
-                btnEl.onclick = () => {
-                    document.getElementById('rag-warning-modal').style.display = 'none';
-                    _aiMode = 'rag';
-                    _applyAiMode();
-                };
-            } else {
-                titleEl.innerHTML = '<i class="fas fa-times-circle" style="color:var(--danger-color);"></i> 安装失败';
-                titleEl.style.color = 'var(--danger-color)';
-                msgEl.textContent = msg;
-                btnEl.textContent = '关闭';
-                btnEl.onclick = () => {
-                    document.getElementById('rag-warning-modal').style.display = 'none';
-                };
-            }
-        }
+        let _ragSavedResult = '';   // 上次保存/生成时的结果快照，用于撤销
 
         // ── DS 文档管理 ───────────────────────────────────────────────────────────
 
@@ -4473,7 +4559,6 @@ Now please start generating questions. Output question content directly without 
         }
 
         function renderDsDocCheckboxes(docs) {
-            if (_aiMode !== 'deepseek') return;
             const el = document.getElementById('rag-doc-checkboxes');
             if (!el) return;
             const doneDocs = (docs || []).filter(d => d.status === 'done' || d.status === 'paused');
@@ -4513,6 +4598,89 @@ Now please start generating questions. Output question content directly without 
 
         // ── DS 知识图谱可视化 ──────────────────────────────────────────────────────
 
+        // 字体大小控制
+        const _dsKgFontSteps = [0.75, 0.85, 1, 1.15, 1.3, 1.5];
+        let _dsKgFontIdx = 2;
+        function _dsKgFontChange(dir) {
+            _dsKgFontIdx = Math.max(0, Math.min(_dsKgFontSteps.length - 1, _dsKgFontIdx + dir));
+            const scale = _dsKgFontSteps[_dsKgFontIdx];
+            // zoom 可正确缩放 rem/px 等所有单位；只缩文字区域，不影响 D3 画布
+            ['ds-kg-sidebar', 'ds-kg-legend', 'ds-kp-panel'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.zoom = scale;
+            });
+            const lbl = document.getElementById('ds-kg-font-label');
+            if (lbl) lbl.textContent = Math.round(scale * 100) + '%';
+        }
+
+        // 侧边栏拖拽调整宽度
+        (function() {
+            function initDsKgResize() {
+                const handle = document.getElementById('ds-kg-resize-handle');
+                const sidebar = document.getElementById('ds-kg-sidebar');
+                if (!handle || !sidebar) return;
+                let dragging = false, startX = 0, startW = 0;
+                handle.addEventListener('mousedown', e => {
+                    dragging = true; handle._dragging = true;
+                    startX = e.clientX; startW = sidebar.offsetWidth;
+                    handle.style.background = '#7b68ee';
+                    document.body.style.cursor = 'col-resize';
+                    document.body.style.userSelect = 'none';
+                    e.preventDefault();
+                });
+                document.addEventListener('mousemove', e => {
+                    if (!dragging) return;
+                    const newW = Math.max(120, Math.min(420, startW + e.clientX - startX));
+                    sidebar.style.width = newW + 'px';
+                });
+                document.addEventListener('mouseup', () => {
+                    if (!dragging) return;
+                    dragging = false; handle._dragging = false;
+                    handle.style.background = '#eee';
+                    document.body.style.cursor = '';
+                    document.body.style.userSelect = '';
+                });
+            }
+
+            // 右侧知识点详情面板拖拽
+            function initDsKpResize() {
+                const handle = document.getElementById('ds-kp-resize-handle');
+                const panel = document.getElementById('ds-kp-panel');
+                const inner = panel && panel.querySelector('div');
+                if (!handle || !panel) return;
+                let dragging = false, startX = 0, startW = 0;
+                handle.addEventListener('mousedown', e => {
+                    if (panel.offsetWidth === 0) return;
+                    dragging = true; handle._dragging = true;
+                    startX = e.clientX; startW = panel.offsetWidth;
+                    handle.style.background = '#7b68ee';
+                    document.body.style.cursor = 'col-resize';
+                    document.body.style.userSelect = 'none';
+                    e.preventDefault();
+                });
+                document.addEventListener('mousemove', e => {
+                    if (!dragging) return;
+                    const newW = Math.max(200, Math.min(600, startW - (e.clientX - startX)));
+                    panel.style.width = newW + 'px';
+                    panel._userW = newW;
+                    if (inner) inner.style.width = newW + 'px';
+                });
+                document.addEventListener('mouseup', () => {
+                    if (!dragging) return;
+                    dragging = false; handle._dragging = false;
+                    handle.style.background = '#eee';
+                    document.body.style.cursor = '';
+                    document.body.style.userSelect = '';
+                });
+            }
+
+            // modal 打开后初始化（避免元素不存在）
+            document.addEventListener('DOMContentLoaded', () => {
+                initDsKgResize();
+                initDsKpResize();
+            });
+        })();
+
         let _dsKgD3Ready = false;
 
         // 全局调色板 & 关系颜色（供渲染和筛选面板共用，颜色一致）
@@ -4530,6 +4698,7 @@ Now please start generating questions. Output question content directly without 
         let _dsKgAllNodes    = [];
         let _dsKgAllLinks    = [];
         let _dsKgAllChapters = [];
+        let _dsKgSelectedNodeId = null;  // 当前在详情面板中打开的节点 id
 
         // 稳定的章节颜色（以全量章节列表为基准，避免筛选后颜色跳变）
         function _dsKgColorOf(chName) {
@@ -4539,19 +4708,28 @@ Now please start generating questions. Output question content directly without 
 
         // ── 构建左侧筛选面板 ──────────────────────────────────────────────────
         function _buildDsKgFilterPanel() {
-            // 章节复选框
+            // 章节复选框：显示"章名 > 节名"（section_name 为空时只显示章名）
             const chPanel = document.getElementById('ds-kg-chapter-checks');
             if (chPanel) {
-                chPanel.innerHTML = _dsKgAllChapters.map(ch => `
+                chPanel.innerHTML = _dsKgAllChapters.map(ch => {
+                    const secName = ch.section_name || '';
+                    // value 编码：章名 + '|||' + 节名（三竖线分隔，避免歧义）
+                    const val = ch.name + '|||' + secName;
+                    const displayLabel = secName
+                        ? `${escapeHtml(ch.name)} <span style="color:#aaa;font-size:0.72rem;">›</span> <span style="color:#555;">${escapeHtml(secName)}</span>`
+                        : escapeHtml(ch.name);
+                    const titleText = secName ? `${ch.name} > ${secName}` : ch.name;
+                    return `
                     <label style="display:flex;align-items:center;gap:5px;padding:2px 0;
                                   cursor:pointer;font-size:0.78rem;overflow:hidden;min-width:0;">
-                        <input type="checkbox" class="ds-kg-ch-cb" value="${escapeHtml(ch.name)}"
+                        <input type="checkbox" class="ds-kg-ch-cb" value="${escapeHtml(val)}"
                                checked onchange="_applyDsKgFilter()" style="flex-shrink:0;">
                         <span style="width:8px;height:8px;border-radius:50%;
-                                     background:${_dsKgColorOf(ch.name)};flex-shrink:0;"></span>
-                        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
-                              title="${escapeHtml(ch.name)}">${escapeHtml(ch.name)}</span>
-                    </label>`).join('');
+                                     background:${_dsKgColorOf(ch.name)};flex-shrink:0;${secName ? 'opacity:0.6' : ''}"></span>
+                        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${secName ? 'padding-left:4px;' : ''}"
+                              title="${escapeHtml(titleText)}">${displayLabel}</span>
+                    </label>`;
+                }).join('');
             }
             // 关系类型复选框
             const relPanel = document.getElementById('ds-kg-rel-checks');
@@ -4575,8 +4753,12 @@ Now please start generating questions. Output question content directly without 
             const selectedRel = new Set([...document.querySelectorAll('.ds-kg-rel-cb:checked')].map(cb => cb.value));
             const searchText  = (document.getElementById('ds-kg-kp-search')?.value || '').trim().toLowerCase();
 
-            // 筛选节点：按章节 + 知识点关键词
-            let filteredNodes = _dsKgAllNodes.filter(n => selectedCh.has(n.chapter));
+            // 筛选节点：按章节（章名+节名联合键）+ 知识点关键词
+            // value 格式：章名 + '|||' + 节名
+            let filteredNodes = _dsKgAllNodes.filter(n => {
+                const nodeKey = n.chapter + '|||' + (n.section_name || '');
+                return selectedCh.has(nodeKey);
+            });
             if (searchText) {
                 filteredNodes = filteredNodes.filter(n =>
                     n.name.toLowerCase().includes(searchText) ||
@@ -4667,6 +4849,349 @@ Now please start generating questions. Output question content directly without 
                     container.innerHTML = `<div style="padding:40px;text-align:center;color:#e74c3c;">加载失败：${escapeHtml(e.message)}</div>`;
                 }
             });
+        }
+
+        // ── 批量AI标注知识类型/认知维度 ─────────────────────────────────────────
+        let _classifyPollTimer = null;
+
+        // ── 默认提示词常量（与 rag_routes.py 保持一致）────────────────────────
+        const _CLASSIFY_DEFAULT_SYS = `你是一名教育学专家，熟悉布鲁姆教育目标分类理论。`;
+        const _CLASSIFY_DEFAULT_USER = `请根据布鲁姆分类法，对下列知识点逐一判断其【知识类型】和【认知维度】。
+
+## 知识类型（四选一）
+- 事实性：指客观存在的事实、数据、事件等，不涉及推理或解释。
+- 概念性：涉及定义、原理、理论等，是对事物本质和规律的描述。
+- 程序性：关于如何做事的知识，包括方法、步骤、算法等。
+- 元认知：关于认知的认知，涉及对思维过程、学习策略、自我监控等的理解和运用。
+
+## 认知维度（六选一，由低到高）
+- 记忆：最低层次，认识和记忆名词、事实、规则、原理。行动动词：指出、写出、界定、说明、举例、命名。
+- 理解：把握知识或概念的意义，包括转译、解释、推论。行动动词：解释、说明、区别、摘要、归纳。
+- 应用：将规则、方法、步骤应用到新情境。行动动词：预测、证明、解决、修改、应用。
+- 分析：将概念分析为各构成部分，找出相互关系。行动动词：选出、分析、判断、区分、指出关系。
+- 评价：依据标准做价值的判断。行动动词：评鉴、判断、评论、比较、批判。
+- 创造：将各元素组装形成完整且具功能的整体。行动动词：设计、创造、发展、建立、提出假设。
+
+## 待分类知识点
+{kp_list}
+
+## 输出要求
+直接输出纯 JSON 数组，不要加代码块标记，格式如下：
+[
+  {"seq": 1, "knowledge_type": "概念性", "cognitive_dimension": "理解"},
+  ...
+]`;
+
+        const _CLASSIFY_DEFAULT_USER_WITH_FOCUS = `请根据布鲁姆分类法，对下列知识点逐一判断其【知识类型】、【认知维度】和【教学属性】。
+
+## 知识类型（四选一）
+- 事实性：指客观存在的事实、数据、事件等，不涉及推理或解释。
+- 概念性：涉及定义、原理、理论等，是对事物本质和规律的描述。
+- 程序性：关于如何做事的知识，包括方法、步骤、算法等。
+- 元认知：关于认知的认知，涉及对思维过程、学习策略、自我监控等的理解和运用。
+
+## 认知维度（六选一，由低到高）
+- 记忆：最低层次，认识和记忆名词、事实、规则、原理。行动动词：指出、写出、界定、说明、举例、命名。
+- 理解：把握知识或概念的意义，包括转译、解释、推论。行动动词：解释、说明、区别、摘要、归纳。
+- 应用：将规则、方法、步骤应用到新情境。行动动词：预测、证明、解决、修改、应用。
+- 分析：将概念分析为各构成部分，找出相互关系。行动动词：选出、分析、判断、区分、指出关系。
+- 评价：依据标准做价值的判断。行动动词：评鉴、判断、评论、比较、批判。
+- 创造：将各元素组装形成完整且具功能的整体。行动动词：设计、创造、发展、建立、提出假设。
+
+## 教学属性（可多选，用逗号分隔，也可为空）
+- 重点：本课程重点掌握的核心概念或方法
+- 难点：学生普遍感到理解困难的内容
+- 考点：历年考试频繁出现的内容
+
+{focus_section}## 待分类知识点
+{kp_list}
+
+## 输出要求
+直接输出纯 JSON 数组，不要加代码块标记，格式如下：
+[
+  {"seq": 1, "knowledge_type": "概念性", "cognitive_dimension": "理解", "teaching_focus": "重点,考点"},
+  ...
+]`;
+
+        function _resetClassifyPrompt() {
+            const focusCb = document.getElementById('ds-classify-focus-cb');
+            const useWithFocus = focusCb && focusCb.checked;
+            const base = useWithFocus ? _CLASSIFY_DEFAULT_USER_WITH_FOCUS : _CLASSIFY_DEFAULT_USER;
+            document.getElementById('ds-classify-sys-prompt').value  = _CLASSIFY_DEFAULT_SYS;
+            document.getElementById('ds-classify-user-prompt').value = base;
+            document.getElementById('ds-classify-focus-filename').textContent = '';
+        }
+
+        function _toggleClassifyFocusCb() {
+            const cb = document.getElementById('ds-classify-focus-cb');
+            const sysTA  = document.getElementById('ds-classify-sys-prompt');
+            const userTA = document.getElementById('ds-classify-user-prompt');
+            // 只在内容仍是默认时自动切换模板；已自定义则不动
+            const curUser = userTA.value.trim();
+            const isDefaultSimple      = curUser === _CLASSIFY_DEFAULT_USER.trim();
+            const isDefaultWithFocus   = curUser === _CLASSIFY_DEFAULT_USER_WITH_FOCUS.trim();
+            if (cb.checked && isDefaultSimple) {
+                userTA.value = _CLASSIFY_DEFAULT_USER_WITH_FOCUS;
+            } else if (!cb.checked && isDefaultWithFocus) {
+                userTA.value = _CLASSIFY_DEFAULT_USER;
+            }
+        }
+
+        function _parseFocusTopics(content) {
+            // 解析重难点文件为主题字符串列表（与后端 _parse_focus_topics 保持一致）
+            const topics = [];
+            for (const rawLine of content.split('\n')) {
+                let line = rawLine.trim();
+                if (!line) continue;
+                line = line.replace(/^#+\s*/, '');               // 去掉 # 标题符
+                line = line.replace(/^[-*·•●]\s*/, '');          // 去掉列表符
+                line = line.replace(/^[（(]?\d+[）).、]\s*/, ''); // 去掉序号
+                line = line.trim();
+                if (line.length >= 2) topics.push(line);
+            }
+            return topics;
+        }
+
+        async function _loadClassifyFocusFile(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async e => {
+                const content = e.target.result.trim();
+                const filenameEl = document.getElementById('ds-classify-focus-filename');
+                filenameEl.style.color = '#888';
+                filenameEl.textContent = file.name + ' 解析中…';
+
+                // 解析文件为主题列表
+                const topics = _parseFocusTopics(content);
+
+                // 获取当前 doc_id
+                const subtitle = document.getElementById('ds-kg-subtitle');
+                const m = subtitle && subtitle.textContent.match(/^\（(.+)\）$/);
+                const docId = m ? m[1] : null;
+
+                if (docId && topics.length > 0) {
+                    try {
+                        const resp = await fetch('/api/rag/ds-match-focus', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ doc_id: docId, topics, tag: '重点', overwrite: false }),
+                        });
+                        const data = await resp.json();
+                        if (data.success) {
+                            filenameEl.style.color = '#27ae60';
+                            filenameEl.textContent =
+                                `${file.name} — 解析 ${data.topics_count} 条，自动标注 ${data.matched_count}/${data.total_kps} 个知识点为重点 ✓`;
+                            // 更新内存中已匹配 KP 的 teaching_focus
+                            if (data.matched_kp_ids && data.matched_kp_ids.length > 0) {
+                                const idSet = new Set(data.matched_kp_ids);
+                                _ragAllKps.forEach(kp => {
+                                    if (!idSet.has(kp.id)) return;
+                                    const parts = (kp.teaching_focus || '').split(',')
+                                        .map(s => s.trim()).filter(s => s);
+                                    if (!parts.includes('重点')) parts.push('重点');
+                                    kp.teaching_focus = parts.join(',');
+                                });
+                                filterRagSections();
+                                _refreshDsKgAfterClassify(data.matched_kp_ids);
+                            }
+                        } else {
+                            filenameEl.style.color = '#e74c3c';
+                            filenameEl.textContent = `${file.name}（匹配失败：${data.error || '未知'}）`;
+                        }
+                    } catch (err) {
+                        filenameEl.style.color = '#e74c3c';
+                        filenameEl.textContent = `${file.name}（网络错误：${err.message}）`;
+                    }
+                } else if (!docId) {
+                    filenameEl.style.color = '#e67e22';
+                    filenameEl.textContent = `${file.name}（请先打开单个文档的知识图谱）`;
+                } else {
+                    filenameEl.style.color = '#e74c3c';
+                    filenameEl.textContent = `${file.name}（文件内容无有效条目）`;
+                }
+
+                // 自动勾选"同时标注教学属性"——AI 可继续补充未匹配 KP 的 teaching_focus
+                const cb = document.getElementById('ds-classify-focus-cb');
+                if (cb && !cb.checked) { cb.checked = true; _toggleClassifyFocusCb(); }
+            };
+            reader.readAsText(file, 'UTF-8');
+            input.value = ''; // 允许重复选同一文件
+        }
+
+        function _toggleClassifyPromptPanel() {
+            const panel = document.getElementById('ds-classify-prompt-panel');
+            const arrow = document.getElementById('ds-classify-prompt-arrow');
+            const open = panel.style.display !== 'none';
+            panel.style.display = open ? 'none' : '';
+            arrow.textContent = open ? '▶' : '▼';
+            if (!open) {
+                // 首次展开：初始化默认内容
+                const sysTA  = document.getElementById('ds-classify-sys-prompt');
+                const userTA = document.getElementById('ds-classify-user-prompt');
+                if (!sysTA.value) sysTA.value = _CLASSIFY_DEFAULT_SYS;
+                if (!userTA.value) userTA.value = _CLASSIFY_DEFAULT_USER;
+            }
+        }
+
+        async function _startBatchClassify() {
+            const subtitle = document.getElementById('ds-kg-subtitle');
+            const match = subtitle && subtitle.textContent.match(/^\（(.+)\）$/);
+            const docId = match ? match[1] : null;
+
+            const onlyFiltered = document.getElementById('ds-classify-only-filtered').checked;
+            const overwrite    = document.getElementById('ds-classify-overwrite').checked;
+            const doFocus      = document.getElementById('ds-classify-focus-cb')?.checked || false;
+
+            // 收集要处理的 kp_ids
+            let kpIds = null;
+            if (onlyFiltered) {
+                // 从当前图谱可见节点取 id（格式 'kp_123' → 123）
+                const visibleNodes = (_dsKgAllNodes || []).filter(n => {
+                    const selectedCh  = new Set([...document.querySelectorAll('.ds-kg-ch-cb:checked')].map(cb => cb.value));
+                    const searchText  = (document.getElementById('ds-kg-kp-search')?.value || '').trim().toLowerCase();
+                    const nodeKey = n.chapter + '|||' + (n.section_name || '');
+                    if (!selectedCh.has(nodeKey)) return false;
+                    if (searchText && !n.name.toLowerCase().includes(searchText) &&
+                        !(n.content || '').toLowerCase().includes(searchText)) return false;
+                    return true;
+                });
+                kpIds = visibleNodes.map(n => parseInt(n.id.replace('kp_', ''))).filter(Boolean);
+                if (kpIds.length === 0) { alert('当前筛选下没有知识点。'); return; }
+            }
+
+            const btn = document.getElementById('ds-classify-btn');
+            btn.disabled = true;
+            const prog = document.getElementById('ds-classify-progress');
+            prog.style.display = '';
+            document.getElementById('ds-classify-bar').style.width = '0%';
+            document.getElementById('ds-classify-msg').textContent = '提交任务…';
+
+            try {
+                const body = { overwrite, classify_focus: doFocus };
+
+                // 读取自定义提示词（与默认相同则不传，后端使用内置默认）
+                const sysTA  = document.getElementById('ds-classify-sys-prompt');
+                const userTA = document.getElementById('ds-classify-user-prompt');
+                const sysVal  = sysTA  ? sysTA.value.trim()  : '';
+                const userVal = userTA ? userTA.value.trim() : '';
+                if (sysVal  && sysVal  !== _CLASSIFY_DEFAULT_SYS.trim())  body.system_prompt = sysVal;
+                if (userVal && userVal !== _CLASSIFY_DEFAULT_USER.trim()
+                            && userVal !== _CLASSIFY_DEFAULT_USER_WITH_FOCUS.trim()) {
+                    body.user_prompt = userVal;
+                }
+
+                if (kpIds) body.kp_ids = kpIds;
+                else if (docId) body.doc_id = docId;
+                else { alert('无法确定文档，请在单文档视图下使用。'); return; }
+
+                const resp = await fetch('/api/rag/ds-batch-classify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+
+                if (!data.task_id) {
+                    // 立即完成（没有需要处理的）
+                    document.getElementById('ds-classify-msg').textContent = data.message || '没有需要处理的知识点';
+                    document.getElementById('ds-classify-bar').style.width = '100%';
+                    btn.disabled = false;
+                    return;
+                }
+
+                const total = data.total;
+                document.getElementById('ds-classify-msg').textContent = `0 / ${total}`;
+
+                // 轮询
+                _classifyPollTimer = setInterval(async () => {
+                    try {
+                        const pr = await fetch(`/api/rag/ds-classify-tasks/${data.task_id}`);
+                        const ps = await pr.json();
+                        const pct = total > 0 ? Math.round(ps.progress / total * 100) : 0;
+                        document.getElementById('ds-classify-bar').style.width = pct + '%';
+
+                        if (ps.status === 'running') {
+                            document.getElementById('ds-classify-msg').textContent =
+                                `处理中 ${ps.progress} / ${total}`;
+                        } else if (ps.status === 'done') {
+                            clearInterval(_classifyPollTimer);
+                            document.getElementById('ds-classify-bar').style.width = '100%';
+                            document.getElementById('ds-classify-msg').textContent =
+                                `✓ 完成，已标注 ${ps.progress} 个知识点`;
+                            btn.disabled = false;
+                            // 刷新图谱数据（重新加载以反映新属性）
+                            _refreshDsKgAfterClassify(ps.done_ids || []);
+                        } else if (ps.status === 'error') {
+                            clearInterval(_classifyPollTimer);
+                            document.getElementById('ds-classify-msg').textContent = '错误：' + (ps.error || '未知');
+                            document.getElementById('ds-classify-bar').style.background = '#e74c3c';
+                            btn.disabled = false;
+                        }
+                    } catch(e) {
+                        clearInterval(_classifyPollTimer);
+                        document.getElementById('ds-classify-msg').textContent = '轮询失败：' + e.message;
+                        btn.disabled = false;
+                    }
+                }, 1200);
+
+            } catch(e) {
+                document.getElementById('ds-classify-msg').textContent = '失败：' + e.message;
+                btn.disabled = false;
+            }
+        }
+
+        function _refreshDsKgAfterClassify(doneIds) {
+            // 从后端重新拉取节点数据，更新内存中对应节点的 teaching_focus/knowledge_type/cognitive_dimension
+            // 简单方案：如果右侧面板当前显示的节点在 doneIds 里，重新拉取该节点信息
+            if (_kpPanelData && doneIds.includes(parseInt((_kpPanelData.id || '').replace('kp_', '')))) {
+                const kpId = parseInt(_kpPanelData.id.replace('kp_', ''));
+                fetch(`/api/rag/ds-kps/${kpId}`)
+                    .then(r => r.json())
+                    .then(d => {
+                        if (d.id) {
+                            _kpPanelData.teaching_focus    = d.teaching_focus    || '';
+                            _kpPanelData.knowledge_type    = d.knowledge_type    || '';
+                            _kpPanelData.cognitive_dimension = d.cognitive_dimension || '';
+                            if (!_kpPanelEditing) _setKpPanelReadonly(_kpPanelData, _kpPanelData._parsedRels || []);
+                        }
+                    }).catch(() => {});
+            }
+        }
+
+        async function _exportDsKgXlsx() {
+            // 从 subtitle 中提取当前 doc_id（格式：（doc_id））
+            const subtitle = document.getElementById('ds-kg-subtitle');
+            const match = subtitle && subtitle.textContent.match(/^\（(.+)\）$/);
+            const docId = match ? match[1] : null;
+            if (!docId) {
+                alert('请先打开单个文档的知识图谱再导出（当前为多文档或无文档视图）。');
+                return;
+            }
+            const btn = document.getElementById('ds-kg-export-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:4px;"></i>导出中…';
+            try {
+                const url = `/api/rag/ds-export-xlsx?doc_id=${encodeURIComponent(docId)}`;
+                const resp = await fetch(url);
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.error || `HTTP ${resp.status}`);
+                }
+                const blob = await resp.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                const cd = resp.headers.get('Content-Disposition') || '';
+                const fnMatch = cd.match(/filename\*?=['"]?([^'";\n]+)/);
+                a.download = fnMatch ? decodeURIComponent(fnMatch[1]) : `${docId}_知识点导出.xlsx`;
+                a.click();
+            } catch (e) {
+                alert('导出失败：' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-file-excel" style="margin-right:4px;"></i>导出 Excel';
+            }
         }
 
         function closeDsKgModal() {
@@ -4779,15 +5304,18 @@ Now please start generating questions. Output question content directly without 
                 );
 
             nodeG.append('circle')
-                .attr('r', 22)
+                .attr('r', d => d.id === _dsKgSelectedNodeId ? 30 : 22)
                 .attr('fill', d => colorOf(d.chapter))
-                .attr('fill-opacity', 0.82)
-                .attr('stroke', d => colorOf(d.chapter))
-                .attr('stroke-width', 2.5).attr('stroke-opacity', 0.4);
+                .attr('fill-opacity', d => d.id === _dsKgSelectedNodeId ? 1 : 0.82)
+                .attr('stroke', d => d.id === _dsKgSelectedNodeId ? '#ffe000' : colorOf(d.chapter))
+                .attr('stroke-width', d => d.id === _dsKgSelectedNodeId ? 5 : 2.5)
+                .attr('stroke-opacity', d => d.id === _dsKgSelectedNodeId ? 1 : 0.4);
 
             nodeG.append('text')
                 .attr('text-anchor', 'middle').attr('dy', '0.35em')
-                .attr('font-size', 9).attr('fill', '#fff').attr('font-weight', '600')
+                .attr('font-size', 9).attr('fill', '#1a1a1a').attr('font-weight', '700')
+                .attr('stroke', 'rgba(255,255,255,0.75)').attr('stroke-width', 2.5)
+                .style('paint-order', 'stroke')
                 .attr('pointer-events', 'none')
                 .text(d => d.name.length > 7 ? d.name.slice(0, 7) + '…' : d.name);
 
@@ -4799,9 +5327,25 @@ Now please start generating questions. Output question content directly without 
                 tt.innerHTML =
                     `<div style="font-weight:600;color:#2c3e50;margin-bottom:4px;font-size:0.83rem;">${escapeHtml(d.name)}</div>` +
                     `<div style="color:#8e44ad;font-size:0.71rem;margin-bottom:5px;"><i class="fas fa-book-open" style="font-size:0.65rem;"></i> ${escapeHtml(d.chapter || '')}</div>` +
-                    `<div style="color:#555;max-height:110px;overflow:hidden;">${escapeHtml((d.content || '').slice(0, 220))}${(d.content||'').length > 220 ? '…' : ''}</div>`;
+                    `<div style="color:#555;max-height:110px;overflow:hidden;">${escapeHtml((d.content || '').slice(0, 220))}${(d.content||'').length > 220 ? '…' : ''}</div>` +
+                    `<div style="margin-top:5px;font-size:0.68rem;color:#aaa;">点击查看完整详情并编辑</div>`;
                 _moveDsKgTt(e);
-            }).on('mousemove', _moveDsKgTt).on('mouseleave', () => { if (tt) tt.style.display = 'none'; });
+            }).on('mousemove', _moveDsKgTt).on('mouseleave', () => { if (tt) tt.style.display = 'none'; })
+            .on('click', (e, d) => {
+                e.stopPropagation();
+                if (tt) tt.style.display = 'none';
+                _dsKgSelectedNodeId = d.id;
+                d3.selectAll('#ds-kg-container circle')
+                    .attr('r', n => n.id === _dsKgSelectedNodeId ? 30 : 22)
+                    .attr('fill-opacity', n => n.id === _dsKgSelectedNodeId ? 1 : 0.82)
+                    .attr('stroke', n => n.id === _dsKgSelectedNodeId ? '#ffe000' : _dsKgColorOf(n.chapter))
+                    .attr('stroke-width', n => n.id === _dsKgSelectedNodeId ? 5 : 2.5)
+                    .attr('stroke-opacity', n => n.id === _dsKgSelectedNodeId ? 1 : 0.4);
+                _openKpPanel(d);
+            });
+
+            // 点击画布空白区域关闭面板
+            svg.on('click', () => { _closeKpPanel(); });
 
             sim.on('tick', () => {
                 edgeLine
@@ -4822,11 +5366,381 @@ Now please start generating questions. Output question content directly without 
             tt.style.top  = (y + tt.offsetHeight > window.innerHeight - 10 ? y - tt.offsetHeight - 20 : y) + 'px';
         }
 
-        // ESC 关闭图谱 modal
+        // ── 知识点详情面板 ────────────────────────────────────────────────────────
+
+        // 当前面板状态
+        let _kpPanelData = null;   // 当前显示的节点数据 (D3 datum)
+        let _kpPanelEditing = false;
+
+        const _KP_REL_TYPES = ['从属', '比较', '并列', '交叉', '前提'];
+
+        function _openKpPanel(d) {
+            // 编辑中切换节点：二次确认
+            if (_kpPanelEditing && _kpPanelData && _kpPanelData.id !== d.id) {
+                if (!confirm('当前有未保存的修改，切换节点将丢弃修改，是否继续？')) return;
+                _kpPanelEditing = false;
+            }
+            _kpPanelData = d;
+            _kpPanelEditing = false;
+            _renderKpPanel(d);
+            const _kpPanelEl = document.getElementById('ds-kp-panel');
+            if (!_kpPanelEl._userW) _kpPanelEl._userW = 340;
+            _kpPanelEl.style.width = _kpPanelEl._userW + 'px';
+            const _kpRh = document.getElementById('ds-kp-resize-handle');
+            if (_kpRh) _kpRh.style.width = '5px';
+            _syncKpGenBtn();
+        }
+
+        function _closeKpPanel() {
+            if (_kpPanelEditing) {
+                if (!confirm('有未保存的修改，关闭将丢弃，是否继续？')) return;
+            }
+            _kpPanelEditing = false;
+            _kpPanelData = null;
+            document.getElementById('ds-kp-panel').style.width = '0';
+            const _kpRhClose = document.getElementById('ds-kp-resize-handle');
+            if (_kpRhClose) _kpRhClose.style.width = '0';
+            // 清除节点高亮，恢复默认样式
+            _dsKgSelectedNodeId = null;
+            d3.selectAll('#ds-kg-container circle')
+                .attr('r', 22).attr('fill-opacity', 0.82)
+                .attr('stroke', d => _dsKgColorOf(d.chapter))
+                .attr('stroke-width', 2.5).attr('stroke-opacity', 0.4);
+        }
+
+        function _renderKpPanel(d) {
+            // 解析关系（d.content 和关系在 _dsKgAllNodes 里，但关系在 _dsKgAllLinks）
+            const kpId = d.id.replace('kp_', '');  // 'kp_123' → '123'
+
+            // 从全量 links 中找以该节点为 source 的关系
+            const myRels = (_dsKgAllLinks || [])
+                .filter(lk => {
+                    const srcId = typeof lk.source === 'object' ? lk.source.id : lk.source;
+                    return srcId === d.id;
+                })
+                .map(lk => ({
+                    type: lk.type || '',
+                    target: (() => {
+                        const tId = typeof lk.target === 'object' ? lk.target.id : lk.target;
+                        const tNode = (_dsKgAllNodes || []).find(n => n.id === tId);
+                        return tNode ? tNode.name : tId;
+                    })(),
+                }));
+
+            // 把解析到的关系挂在 d 上，供保存时使用
+            d._parsedRels = myRels;
+
+            // 渲染只读内容
+            _setKpPanelReadonly(d, myRels);
+        }
+
+        function _setKpPanelReadonly(d, rels) {
+            // 名称
+            const nameView = document.getElementById('ds-kp-panel-name-view');
+            const nameEdit = document.getElementById('ds-kp-panel-name-edit');
+            nameView.textContent = d.name;
+            nameView.style.display = '';
+            nameEdit.style.display = 'none';
+
+            // 章节
+            document.getElementById('ds-kp-panel-chapter').innerHTML =
+                `<i class="fas fa-book-open" style="font-size:0.65rem;margin-right:4px;"></i>${escapeHtml(d.chapter || '')}`;
+
+            // 内容
+            const contentView = document.getElementById('ds-kp-panel-content-view');
+            const contentEdit = document.getElementById('ds-kp-panel-content-edit');
+            contentView.textContent = d.content || '（暂无内容）';
+            contentView.style.display = '';
+            contentEdit.style.display = 'none';
+
+            // 教学属性只读视图
+            const attrsView = document.getElementById('ds-kp-attrs-view');
+            const attrsEdit = document.getElementById('ds-kp-attrs-edit');
+            attrsEdit.style.display = 'none';
+            attrsView.style.display = '';
+            const tags = [];
+            const tf = d.teaching_focus || '';
+            const kt = d.knowledge_type || '';
+            const cd = d.cognitive_dimension || '';
+            if (tf) tf.split(';').forEach(t => t.trim() && tags.push(
+                `<span style="background:#fef9e7;color:#d35400;padding:1px 7px;border-radius:10px;">${escapeHtml(t.trim())}</span>`));
+            if (kt) tags.push(
+                `<span style="background:#eaf4fb;color:#2471a3;padding:1px 7px;border-radius:10px;">${escapeHtml(kt)}</span>`);
+            if (cd) tags.push(
+                `<span style="background:#eafaf1;color:#1e8449;padding:1px 7px;border-radius:10px;">${escapeHtml(cd)}</span>`);
+            attrsView.innerHTML = tags.length ? tags.join('') :
+                '<span style="color:#bbb;font-size:0.76rem;">（未设置）</span>';
+
+            // 关系
+            const relsEl = document.getElementById('ds-kp-panel-rels');
+            document.getElementById('ds-kp-add-rel-btn').style.display = 'none';
+            if (rels.length === 0) {
+                relsEl.innerHTML = '<div style="color:#bbb;font-size:0.78rem;">（暂无关联关系）</div>';
+            } else {
+                relsEl.innerHTML = rels.map(r =>
+                    `<div style="display:flex;align-items:center;gap:5px;font-size:0.78rem;">
+                        <span style="background:#f0e6fa;color:#6c3483;padding:2px 7px;
+                                     border-radius:10px;font-size:0.71rem;white-space:nowrap;">${escapeHtml(r.type)}</span>
+                        <span style="color:#2c3e50;">→</span>
+                        <span style="color:#333;word-break:break-all;">${escapeHtml(r.target)}</span>
+                    </div>`
+                ).join('');
+            }
+
+            // 按钮状态
+            document.getElementById('ds-kp-edit-btn').style.display = '';
+            document.getElementById('ds-kp-save-btn').style.display = 'none';
+            document.getElementById('ds-kp-cancel-btn').style.display = 'none';
+            document.getElementById('ds-kp-panel-msg').textContent = '';
+        }
+
+        function _enterKpEdit() {
+            if (!_kpPanelData) return;
+            _kpPanelEditing = true;
+            const d = _kpPanelData;
+            const rels = d._parsedRels || [];
+
+            // 切换名称到编辑态
+            const nameView = document.getElementById('ds-kp-panel-name-view');
+            const nameEdit = document.getElementById('ds-kp-panel-name-edit');
+            nameEdit.value = d.name;
+            nameEdit.style.display = '';
+            nameEdit.style.width = '100%';
+            nameView.style.display = 'none';
+
+            // 切换内容到编辑态
+            const contentView = document.getElementById('ds-kp-panel-content-view');
+            const contentEdit = document.getElementById('ds-kp-panel-content-edit');
+            contentEdit.value = d.content || '';
+            contentEdit.style.display = '';
+            contentView.style.display = 'none';
+
+            // 切换教学属性到编辑态
+            document.getElementById('ds-kp-attrs-view').style.display = 'none';
+            const attrsEditEl = document.getElementById('ds-kp-attrs-edit');
+            attrsEditEl.style.display = '';
+            // 设置教学要点复选框
+            const tf2 = (d.teaching_focus || '').split(';').map(s => s.trim());
+            document.getElementById('ds-kp-focus-key').checked = tf2.includes('重点');
+            document.getElementById('ds-kp-focus-hard').checked = tf2.includes('难点');
+            document.getElementById('ds-kp-focus-exam').checked = tf2.includes('考点');
+            // 设置下拉
+            document.getElementById('ds-kp-knowledge-type').value = d.knowledge_type || '';
+            document.getElementById('ds-kp-cognitive-dim').value = d.cognitive_dimension || '';
+
+            // 关系可编辑行
+            document.getElementById('ds-kp-add-rel-btn').style.display = '';
+            _renderKpRelEditRows(rels);
+
+            // 按钮状态
+            document.getElementById('ds-kp-edit-btn').style.display = 'none';
+            document.getElementById('ds-kp-save-btn').style.display = '';
+            document.getElementById('ds-kp-cancel-btn').style.display = '';
+            document.getElementById('ds-kp-panel-msg').textContent = '';
+        }
+
+        function _renderKpRelEditRows(rels) {
+            const relsEl = document.getElementById('ds-kp-panel-rels');
+            relsEl.innerHTML = '';
+            rels.forEach((r, i) => _appendKpRelRow(r.type, r.target));
+        }
+
+        function _appendKpRelRow(type, target) {
+            const relsEl = document.getElementById('ds-kp-panel-rels');
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:4px;';
+            const typeOpts = _KP_REL_TYPES.map(t =>
+                `<option value="${t}" ${t === type ? 'selected' : ''}>${t}</option>`
+            ).join('');
+            row.innerHTML =
+                `<select style="font-size:0.75rem;padding:2px 4px;border:1px solid #ccc;
+                                border-radius:4px;color:#555;background:#fff;flex-shrink:0;">
+                    ${typeOpts}
+                 </select>
+                 <span style="color:#888;font-size:0.8rem;">→</span>
+                 <input type="text" value="${escapeHtml(target)}" placeholder="目标知识点名称"
+                        style="flex:1;font-size:0.78rem;padding:2px 6px;border:1px solid #ccc;
+                               border-radius:4px;outline:none;min-width:0;">
+                 <button onclick="this.parentElement.remove()"
+                         style="background:none;border:none;color:#e74c3c;cursor:pointer;
+                                font-size:0.9rem;padding:0 2px;flex-shrink:0;" title="删除">×</button>`;
+            relsEl.appendChild(row);
+        }
+
+        function _addKpRelRow() {
+            _appendKpRelRow('从属', '');
+        }
+
+        function _collectKpRelRows() {
+            const rows = document.querySelectorAll('#ds-kp-panel-rels > div');
+            const rels = [];
+            rows.forEach(row => {
+                const sel = row.querySelector('select');
+                const inp = row.querySelector('input');
+                if (sel && inp && inp.value.trim()) {
+                    rels.push({ type: sel.value, target: inp.value.trim() });
+                }
+            });
+            return rels;
+        }
+
+        async function _saveKpEdit() {
+            if (!_kpPanelData) return;
+            const d = _kpPanelData;
+            const kpId = d.id.replace('kp_', '');
+
+            const name = document.getElementById('ds-kp-panel-name-edit').value.trim();
+            const content = document.getElementById('ds-kp-panel-content-edit').value.trim();
+            const relations = _collectKpRelRows();
+
+            // 收集教学属性
+            const focusParts = [];
+            if (document.getElementById('ds-kp-focus-key').checked) focusParts.push('重点');
+            if (document.getElementById('ds-kp-focus-hard').checked) focusParts.push('难点');
+            if (document.getElementById('ds-kp-focus-exam').checked) focusParts.push('考点');
+            const teaching_focus = focusParts.join(';');
+            const knowledge_type = document.getElementById('ds-kp-knowledge-type').value;
+            const cognitive_dimension = document.getElementById('ds-kp-cognitive-dim').value;
+
+            if (!name) {
+                _setKpPanelMsg('名称不能为空', 'error');
+                return;
+            }
+
+            const saveBtn = document.getElementById('ds-kp-save-btn');
+            saveBtn.disabled = true;
+            saveBtn.textContent = '保存中…';
+            _setKpPanelMsg('', '');
+
+            try {
+                const resp = await fetch(`/api/rag/ds-kps/${kpId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, content, relations,
+                        teaching_focus, knowledge_type, cognitive_dimension }),
+                });
+                const data = await resp.json();
+                if (!resp.ok || !data.success) {
+                    throw new Error(data.error || `HTTP ${resp.status}`);
+                }
+
+                // 同步更新内存中的节点数据
+                d.name    = name;
+                d.content = content;
+                d._parsedRels = relations;
+                d.teaching_focus = teaching_focus;
+                d.knowledge_type = knowledge_type;
+                d.cognitive_dimension = cognitive_dimension;
+
+                // 同步更新 _dsKgAllNodes 中对应节点
+                const allNode = (_dsKgAllNodes || []).find(n => n.id === d.id);
+                if (allNode) { allNode.name = name; allNode.content = content; }
+
+                _kpPanelEditing = false;
+                _setKpPanelReadonly(d, relations);
+                _setKpPanelMsg('已保存', 'ok');
+
+                // 刷新图谱中节点文字（不重新请求，直接更新 SVG text）
+                const svg = document.querySelector('#ds-kg-container svg');
+                if (svg) {
+                    svg.querySelectorAll('g > g > g text').forEach(t => {
+                        // 找到显示该节点名称的 text（通过对比截断后文字）
+                        if (t.textContent && t.getAttribute('pointer-events') === 'none') {
+                            // 只能重渲染来完全同步，这里简单提示
+                        }
+                    });
+                    // 重新渲染图谱（保持当前节点位置）
+                    if (window._dsKgSimulation) {
+                        window._dsKgSimulation.nodes().forEach(n => {
+                            if (n.id === d.id) { n.name = name; n.content = content; }
+                        });
+                        // 更新 SVG 中的文字
+                        d3.select('#ds-kg-container svg').selectAll('g g g text')
+                            .filter(nd => nd && nd.id === d.id)
+                            .text(nd => nd.name.length > 7 ? nd.name.slice(0, 7) + '…' : nd.name);
+                    }
+                }
+            } catch (err) {
+                _setKpPanelMsg('保存失败：' + err.message, 'error');
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '<i class="fas fa-save" style="font-size:0.7rem;margin-right:3px;"></i>保存';
+            }
+        }
+
+        function _cancelKpEdit() {
+            if (!_kpPanelData) return;
+            _kpPanelEditing = false;
+            _setKpPanelReadonly(_kpPanelData, _kpPanelData._parsedRels || []);
+        }
+
+        function _setKpPanelMsg(msg, type) {
+            const el = document.getElementById('ds-kp-panel-msg');
+            if (!el) return;
+            el.textContent = msg;
+            el.style.color = type === 'error' ? '#e74c3c' : type === 'ok' ? '#27ae60' : '#aaa';
+        }
+
+        // ── 知识点"选中出题"按钮 ──────────────────────────────────────────────────
+
+        /** 根据 selected 状态刷新按钮外观 */
+        function _setKpGenBtnState(selected) {
+            const btn = document.getElementById('ds-kp-gen-btn');
+            if (!btn) return;
+            if (selected) {
+                btn.style.background = '#27ae60';
+                btn.style.color = '#fff';
+                btn.style.border = '1px solid #27ae60';
+                btn.innerHTML = '<i class="fas fa-check" style="font-size:0.7rem;margin-right:3px;"></i>已选出题';
+            } else {
+                btn.style.background = '#fff';
+                btn.style.color = '#27ae60';
+                btn.style.border = '1px solid #27ae60';
+                btn.innerHTML = '<i class="fas fa-check-square" style="font-size:0.7rem;margin-right:3px;"></i>选中出题';
+            }
+        }
+
+        /** 面板打开/切换时，从出题配置的 checkbox 同步按钮状态 */
+        function _syncKpGenBtn() {
+            if (!_kpPanelData) return;
+            const name = _kpPanelData.name;
+            const cb = [...document.querySelectorAll('.rag-section-cb')]
+                .find(c => c.value === name);
+            _setKpGenBtnState(cb ? cb.checked : false);
+        }
+
+        /** 点击"选中出题"按钮 — 切换该知识点在出题配置中的勾选状态 */
+        function _toggleKpForGen() {
+            if (!_kpPanelData) return;
+            const name = _kpPanelData.name;
+            const cbs = [...document.querySelectorAll('.rag-section-cb')]
+                .filter(c => c.value === name);
+
+            if (cbs.length === 0) {
+                _setKpPanelMsg('请先在出题配置中选择文档并加载知识点', 'error');
+                setTimeout(() => _setKpPanelMsg('', ''), 2500);
+                return;
+            }
+
+            // 取第一个（通常只有一个）；若已全部勾选则取消，否则全部勾选
+            const anyChecked = cbs.some(c => c.checked);
+            cbs.forEach(c => { c.checked = !anyChecked; });
+            _setKpGenBtnState(!anyChecked);
+            _setKpPanelMsg(!anyChecked ? '已加入出题范围' : '已从出题范围移除', 'ok');
+            setTimeout(() => _setKpPanelMsg('', ''), 1500);
+        }
+
+        // ESC：先收起详情面板，面板已关闭时关闭 Modal
         document.addEventListener('keydown', e => {
             if (e.key === 'Escape') {
                 const m = document.getElementById('ds-kg-modal');
-                if (m && m.style.display !== 'none') closeDsKgModal();
+                if (!m || m.style.display === 'none') return;
+                const panel = document.getElementById('ds-kp-panel');
+                if (panel && panel.style.width !== '0px' && panel.style.width !== '0') {
+                    _closeKpPanel();
+                } else {
+                    closeDsKgModal();
+                }
             }
         });
 
@@ -5083,7 +5997,9 @@ Now please start generating questions. Output question content directly without 
                     if (!resp.ok) continue;
                     const meta = await resp.json();
                     for (const ch of (meta.chapters || [])) {
-                        allChapters.set(ch.name, ch);
+                        // 按 (章名 + 节名) 联合键去重
+                        const key = ch.name + '|||' + (ch.section_name || '');
+                        allChapters.set(key, ch);
                     }
                     for (const kp of (meta.kps || [])) {
                         allKps.push(kp);
@@ -5098,7 +6014,11 @@ Now please start generating questions. Output question content directly without 
                 name: kp.name,
                 chapter_name: kp.chapter_name,
                 chapter_num: kp.chapter_num,
+                section_name: kp.section_name || '',
                 display_name: kp.name,
+                teaching_focus: kp.teaching_focus || '',
+                knowledge_type: kp.knowledge_type || '',
+                cognitive_dimension: kp.cognitive_dimension || '',
             }));
             filterRagChapters();
             filterRagSections();
@@ -5122,9 +6042,12 @@ Now please start generating questions. Output question content directly without 
                 return;
             }
 
-            const docIds   = [...document.querySelectorAll('.rag-doc-cb:checked')].map(cb => cb.value);
-            const chapters = [...document.querySelectorAll('.rag-chapter-cb:checked')].map(cb => cb.value);
-            const kpNames  = [...document.querySelectorAll('.rag-section-cb:checked')].map(cb => cb.value);
+            const docIds      = [...document.querySelectorAll('.rag-doc-cb:checked')].map(cb => cb.value);
+            const chapters    = [...document.querySelectorAll('.rag-chapter-cb:checked')].map(cb => cb.value);
+            const kpNames     = [...document.querySelectorAll('.rag-section-cb:checked')].map(cb => cb.value);
+            const focusFilter = [...document.querySelectorAll('.rag-focus-cb:checked')].map(cb => cb.value);
+            const ktFilter    = [...document.querySelectorAll('.rag-kt-cb:checked')].map(cb => cb.value);
+            const cdFilter    = [...document.querySelectorAll('.rag-cd-cb:checked')].map(cb => cb.value);
 
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 出题中...';
@@ -5139,6 +6062,9 @@ Now please start generating questions. Output question content directly without 
                         doc_ids: docIds,
                         chapters,
                         kp_names: kpNames,
+                        teaching_focus_filter: focusFilter,
+                        knowledge_type_filter: ktFilter,
+                        cognitive_dimension_filter: cdFilter,
                         prompt: promptTemplate,
                         question_list: questionList,
                     }),
@@ -5148,7 +6074,9 @@ Now please start generating questions. Output question content directly without 
                     alert('出题失败：' + (data.error || '未知错误'));
                     if (infoEl) infoEl.textContent = '';
                 } else {
-                    if (resultEl) resultEl.value = data.content || '';
+                    const content = data.content || '';
+                    if (resultEl) resultEl.value = content;
+                    _ragSavedResult = content;  // 生成结果作为初始撤销基线
                     if (infoEl) {
                         const stats = data.stats || {};
                         infoEl.textContent = `生成完成！使用了 ${stats.kps_used || 0} 个知识点（${stats.context_chars || 0} 字知识图谱上下文）。`;
@@ -5199,20 +6127,6 @@ Now please start generating questions. Output question content directly without 
                 );
         }
 
-        // ── 文档列表 ─────────────────────────────────────────────────────────────
-
-        async function loadRagDocs() {
-            try {
-                const resp = await fetch('/api/rag/docs');
-                if (!resp.ok) return;
-                const docs = await resp.json();
-                renderRagDocList(docs);
-                renderRagDocCheckboxes(docs);
-            } catch (e) {
-                console.error('loadRagDocs error:', e);
-            }
-        }
-
         // ── API 配置 读/写 ────────────────────────────────────────────────────
 
         async function loadRagConfig() {
@@ -5220,21 +6134,15 @@ Now please start generating questions. Output question content directly without 
                 const resp = await fetch('/api/rag/config');
                 if (!resp.ok) return;
                 const cfg = await resp.json();
-                const urlEl   = document.getElementById('cfg-paddle-url');
-                const tokenEl = document.getElementById('cfg-paddle-token');
-                const dsEl    = document.getElementById('cfg-deepseek-key');
-                if (urlEl)   urlEl.value   = cfg.paddleocr_url   || '';
-                if (tokenEl) tokenEl.value = cfg.paddleocr_token || '';
-                if (dsEl)    dsEl.value    = cfg.deepseek_api_key || '';
+                const dsEl = document.getElementById('cfg-deepseek-key');
+                if (dsEl) dsEl.value = cfg.deepseek_api_key || '';
             } catch (e) { /* 忽略，不影响主流程 */ }
         }
 
         async function saveRagConfig() {
             const statusEl = document.getElementById('cfg-save-status');
             const body = {
-                paddleocr_url:   (document.getElementById('cfg-paddle-url')?.value  || '').trim(),
-                paddleocr_token: (document.getElementById('cfg-paddle-token')?.value || '').trim(),
-                deepseek_api_key:(document.getElementById('cfg-deepseek-key')?.value || '').trim(),
+                deepseek_api_key: (document.getElementById('cfg-deepseek-key')?.value || '').trim(),
             };
             try {
                 if (statusEl) { statusEl.textContent = '保存中...'; statusEl.style.color = '#888'; }
@@ -5258,173 +6166,10 @@ Now please start generating questions. Output question content directly without 
             }
         }
 
-        function renderRagDocList(docs) {
-            const el = document.getElementById('rag-doc-list');
-            if (!docs || docs.length === 0) {
-                el.innerHTML = '<div style="text-align:center;color:#bbb;padding:20px;font-size:0.85rem;"><i class="fas fa-folder-open"></i><br>暂无文档</div>';
-                return;
-            }
-            el.innerHTML = docs.map(d => `
-                <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:0.82rem;">
-                    <div style="flex:1;min-width:0;overflow:hidden;">
-                        <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(d.doc_id)}">${escapeHtml(d.doc_id)}</div>
-                        <div style="color:#888;font-size:0.75rem;">${d.source_type || ''} · ${d.chunk_count} 块</div>
-                    </div>
-                    <button onclick="ragDeleteDoc('${escapeHtml(d.doc_id)}')" title="删除文档"
-                        style="background:none;border:none;color:#e74c3c;cursor:pointer;padding:2px 6px;font-size:0.9rem;flex-shrink:0;"
-                        onmouseover="this.style.background='#ffeaea'" onmouseout="this.style.background='none'">
-                        <i class="fas fa-trash-alt"></i>
-                    </button>
-                </div>
-            `).join('');
-        }
-
-        function renderRagDocCheckboxes(docs) {
-            const el = document.getElementById('rag-doc-checkboxes');
-            if (!docs || docs.length === 0) {
-                el.innerHTML = '<span style="color:#bbb;">上传文档后在此选择</span>';
-                return;
-            }
-            el.innerHTML = docs.map(d => `
-                <label style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;font-size:0.85rem;">
-                    <input type="checkbox" class="rag-doc-cb" value="${escapeHtml(d.doc_id)}" checked
-                        onchange="updateRagMeta()">
-                    ${escapeHtml(d.doc_id)} <span style="color:#aaa;font-size:0.75rem;">(${d.chunk_count}块)</span>
-                </label>
-            `).join('');
-            updateRagMeta();
-        }
-
-        async function ragDeleteDoc(docId) {
-            if (!confirm(`确认删除文档「${docId}」？此操作不可撤销。`)) return;
-            try {
-                const resp = await fetch(`/api/rag/docs/${encodeURIComponent(docId)}`, { method: 'DELETE' });
-                const data = await resp.json();
-                if (data.success) {
-                    await loadRagDocs();
-                } else {
-                    alert('删除失败：' + (data.error || '未知错误'));
-                }
-            } catch (e) {
-                alert('删除出错：' + e.message);
-            }
-        }
-
-        // ── 文件上传 ──────────────────────────────────────────────────────────────
-
-        async function ragUploadFiles(files) {
-            if (!files || files.length === 0) return;
-            const docType = document.querySelector('input[name="rag-doc-type"]:checked')?.value || 'auto';
-
-            for (const file of files) {
-                const statusEl = addRagUploadStatus(file.name, 'uploading');
-                const fd = new FormData();
-                fd.append('file', file);
-                fd.append('doc_type', docType);
-                try {
-                    const resp = await fetch('/api/rag/ingest', { method: 'POST', body: fd });
-                    const data = await resp.json();
-                    if (!resp.ok || data.error) {
-                        updateRagUploadStatus(statusEl, 'error', data.error || '上传失败');
-                    } else if (data.async) {
-                        updateRagUploadStatus(statusEl, 'processing', 'OCR 处理中...');
-                        pollRagTask(data.task_id, statusEl, file.name);
-                    } else {
-                        updateRagUploadStatus(statusEl, 'done', `完成，${data.chunk_count} 块`);
-                        await loadRagDocs();
-                    }
-                } catch (e) {
-                    updateRagUploadStatus(statusEl, 'error', e.message);
-                }
-            }
-            // Reset file input
-            document.getElementById('rag-file-input').value = '';
-        }
-
-        function addRagUploadStatus(filename, status) {
-            const container = document.getElementById('rag-doc-list');
-            const div = document.createElement('div');
-            div.style.cssText = 'padding:6px 4px;border-bottom:1px solid #f0f0f0;font-size:0.82rem;';
-            div.innerHTML = `<div style="display:flex;align-items:center;gap:6px;">
-                <i class="fas fa-spinner fa-spin" style="color:#3498db;"></i>
-                <span>${escapeHtml(filename)}</span>
-                <span class="rag-upload-msg" style="color:#888;font-size:0.75rem;">上传中...</span>
-            </div>`;
-            container.insertBefore(div, container.firstChild);
-            return div;
-        }
-
-        function updateRagUploadStatus(el, status, msg) {
-            const icons = { done: 'fa-check-circle', error: 'fa-times-circle', processing: 'fa-spinner fa-spin' };
-            const colors = { done: '#27ae60', error: '#e74c3c', processing: '#f39c12' };
-            const icon = el.querySelector('i');
-            const msgEl = el.querySelector('.rag-upload-msg');
-            if (icon) {
-                icon.className = `fas ${icons[status] || 'fa-spinner'} `;
-                icon.style.color = colors[status] || '#888';
-            }
-            if (msgEl) msgEl.textContent = msg;
-        }
-
-        async function pollRagTask(taskId, statusEl, filename) {
-            const poll = async () => {
-                try {
-                    const resp = await fetch(`/api/rag/tasks/${taskId}`);
-                    const task = await resp.json();
-                    if (task.status === 'done') {
-                        updateRagUploadStatus(statusEl, 'done', task.message);
-                        await loadRagDocs();
-                    } else if (task.status === 'error') {
-                        updateRagUploadStatus(statusEl, 'error', task.message);
-                    } else {
-                        updateRagUploadStatus(statusEl, 'processing', task.message);
-                        setTimeout(poll, 3000);
-                    }
-                } catch (e) {
-                    setTimeout(poll, 5000);
-                }
-            };
-            setTimeout(poll, 2000);
-        }
-
         // ── 章节/知识点筛选 ───────────────────────────────────────────────────────
 
         async function updateRagMeta() {
-            // DS 模式：从知识图谱数据库加载，而非向量库
-            if (_aiMode === 'deepseek') {
-                return await dsUpdateMeta();
-            }
-
-            const checked = [...document.querySelectorAll('.rag-doc-cb:checked')].map(cb => cb.value);
-            if (checked.length === 0) {
-                _ragAllChapters = [];
-                _ragAllSections = [];
-                renderRagChapterList([]);
-                renderRagSectionList([]);
-                return;
-            }
-
-            const allChapters = new Map();
-            const allSections = new Map();
-
-            for (const docId of checked) {
-                try {
-                    const resp = await fetch(`/api/rag/docs/${encodeURIComponent(docId)}/meta`);
-                    if (!resp.ok) continue;
-                    const meta = await resp.json();
-                    for (const ch of (meta.chapters || [])) {
-                        allChapters.set(ch.name, ch);
-                    }
-                    for (const sec of (meta.sections || [])) {
-                        allSections.set(sec.name, sec);
-                    }
-                } catch (e) { /* ignore */ }
-            }
-
-            _ragAllChapters = [...allChapters.values()];
-            _ragAllSections = [...allSections.values()];
-            filterRagChapters();
-            filterRagSections();
+            return await dsUpdateMeta();
         }
 
         function filterRagChapters() {
@@ -5435,15 +6180,31 @@ Now please start generating questions. Output question content directly without 
 
         function filterRagSections() {
             const q = (document.getElementById('rag-section-search')?.value || '').toLowerCase();
-            // 已勾选的章节列表（有勾选则联动过滤）
             const checkedChapters = [...document.querySelectorAll('.rag-chapter-cb:checked')].map(cb => cb.value);
+            const focusFilter = [...document.querySelectorAll('.rag-focus-cb:checked')].map(cb => cb.value);
+            const ktFilter    = [...document.querySelectorAll('.rag-kt-cb:checked')].map(cb => cb.value);
+            const cdFilter    = [...document.querySelectorAll('.rag-cd-cb:checked')].map(cb => cb.value);
+
             let filtered = _ragAllSections;
-            // 若有章节被勾选，且章节总数 > 0，则只展示属于已勾选章节的知识点
             if (checkedChapters.length > 0 && _ragAllChapters.length > 0) {
-                filtered = filtered.filter(s => checkedChapters.includes(s.chapter_name));
+                filtered = filtered.filter(s => {
+                    const key = s.chapter_name + '|||' + (s.section_name || '');
+                    return checkedChapters.includes(key);
+                });
             }
             if (q) {
                 filtered = filtered.filter(s => (s.display_name || s.name).toLowerCase().includes(q));
+            }
+            if (focusFilter.length > 0) {
+                filtered = filtered.filter(s =>
+                    focusFilter.some(f => (s.teaching_focus || '').includes(f))
+                );
+            }
+            if (ktFilter.length > 0) {
+                filtered = filtered.filter(s => ktFilter.includes(s.knowledge_type));
+            }
+            if (cdFilter.length > 0) {
+                filtered = filtered.filter(s => cdFilter.includes(s.cognitive_dimension));
             }
             renderRagSectionList(filtered);
         }
@@ -5454,13 +6215,35 @@ Now please start generating questions. Output question content directly without 
                 el.innerHTML = '<span style="color:#bbb;">' + (_ragAllChapters.length === 0 ? '选择文档后加载章节' : '无匹配结果') + '</span>';
                 return;
             }
-            el.innerHTML = items.map(c => `
-                <label style="display:flex;align-items:flex-start;gap:6px;padding:2px 0;cursor:pointer;">
-                    <input type="checkbox" class="rag-chapter-cb" value="${escapeHtml(c.name)}" style="margin-top:2px;"
-                        onchange="filterRagSections()">
-                    <span style="font-size:0.82rem;">${escapeHtml(c.name)}</span>
-                </label>
-            `).join('');
+            el.innerHTML = items.map(c => {
+                const secName = c.section_name || '';
+                const val = c.name + '|||' + secName;
+                const display = secName
+                    ? `${escapeHtml(c.name)} <span style="color:#aaa">›</span> <span style="color:#555">${escapeHtml(secName)}</span>`
+                    : escapeHtml(c.name);
+                return `<div class="rag-chapter-item"
+                         data-doc-id="${escapeHtml(c.doc_id || '')}"
+                         data-chapter-num="${c.num}"
+                         data-chapter-name="${escapeHtml(c.name)}">
+                    <label style="display:flex;align-items:flex-start;gap:6px;flex:1;min-width:0;cursor:pointer;padding:2px 0;">
+                        <input type="checkbox" class="rag-chapter-cb" value="${escapeHtml(val)}" style="margin-top:2px;flex-shrink:0;"
+                            onchange="filterRagSections()">
+                        <span class="rag-chapter-label" style="font-size:0.82rem;${secName ? 'padding-left:4px;' : ''}">${display}</span>
+                    </label>
+                    <button class="rag-edit-btn" title="编辑章节名" onclick="startChapterEdit(this)">✎</button>
+                </div>`;
+            }).join('');
+        }
+
+        function _kpAttrBadges(s) {
+            const badges = [];
+            const tf = s.teaching_focus || '';
+            if (tf.includes('重点')) badges.push('<span style="font-size:0.62rem;padding:0 3px;border-radius:3px;background:#fde8e8;color:#c0392b;font-weight:600;">重</span>');
+            if (tf.includes('难点')) badges.push('<span style="font-size:0.62rem;padding:0 3px;border-radius:3px;background:#fef0e6;color:#d35400;font-weight:600;">难</span>');
+            if (tf.includes('考点')) badges.push('<span style="font-size:0.62rem;padding:0 3px;border-radius:3px;background:#e8f4fd;color:#2471a3;font-weight:600;">考</span>');
+            if (s.knowledge_type)       badges.push(`<span style="font-size:0.62rem;padding:0 3px;border-radius:3px;background:#f0f0f0;color:#666;">${escapeHtml(s.knowledge_type)}</span>`);
+            if (s.cognitive_dimension)  badges.push(`<span style="font-size:0.62rem;padding:0 3px;border-radius:3px;background:#f5f0ff;color:#8e44ad;">${escapeHtml(s.cognitive_dimension)}</span>`);
+            return badges.join('');
         }
 
         function renderRagSectionList(items) {
@@ -5469,12 +6252,104 @@ Now please start generating questions. Output question content directly without 
                 el.innerHTML = '<span style="color:#bbb;">' + (_ragAllSections.length === 0 ? '选择文档后加载' : '无匹配结果') + '</span>';
                 return;
             }
-            el.innerHTML = items.map(s => `
-                <label style="display:flex;align-items:flex-start;gap:6px;padding:2px 0;cursor:pointer;">
-                    <input type="checkbox" class="rag-section-cb" value="${escapeHtml(s.name)}" style="margin-top:2px;">
-                    <span style="font-size:0.82rem;" title="${escapeHtml(s.display_name || s.name)}">${escapeHtml(s.display_name || s.name)}</span>
-                </label>
-            `).join('');
+            el.innerHTML = items.map(s => {
+                const badges = _kpAttrBadges(s);
+                return `
+                <div class="rag-section-item" style="display:flex;align-items:flex-start;gap:4px;padding:2px 0;">
+                    <label style="display:flex;align-items:flex-start;gap:6px;flex:1;min-width:0;cursor:pointer;">
+                        <input type="checkbox" class="rag-section-cb" value="${escapeHtml(s.name)}" style="margin-top:2px;flex-shrink:0;">
+                        <span style="flex:1;min-width:0;">
+                            <span class="rag-kp-name" style="font-size:0.82rem;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                                  title="${escapeHtml(s.display_name || s.name)}">${escapeHtml(s.display_name || s.name)}</span>
+                            ${badges ? `<span style="display:flex;gap:2px;flex-wrap:wrap;margin-top:1px;">${badges}</span>` : ''}
+                        </span>
+                    </label>
+                    <button class="rag-edit-btn" title="编辑知识点名"
+                            data-kp-id="${s.num}"
+                            data-kp-name="${escapeHtml(s.display_name || s.name)}"
+                            onclick="startKpEdit(this)">✎</button>
+                    <button onclick="_jumpToKpInGraph(${s.num},'${escapeHtml(s.name).replace(/'/g, "\\'")}')"
+                        title="在知识图谱中查看"
+                        style="flex-shrink:0;padding:1px 5px;font-size:0.68rem;border:1px solid #c39;
+                               color:#c39;background:none;border-radius:3px;cursor:pointer;white-space:nowrap;"
+                        onmouseover="this.style.background='#f9f'" onmouseout="this.style.background='none'">
+                        <i class="fas fa-project-diagram" style="font-size:0.62rem;"></i>
+                    </button>
+                </div>`;
+            }).join('');
+        }
+
+        async function _jumpToKpInGraph(kpId, kpName) {
+            // 节点 id 格式为 "kp_<整数>"，kpId 传入的是整数
+            const nodeId = 'kp_' + kpId;
+
+            // 1. 若图谱模态未打开或数据未加载，先调用 showDsKgModal()
+            if (_dsKgAllNodes.length === 0) {
+                showDsKgModal();
+            }
+
+            // 2. 等待图谱数据加载完成（showDsKgModal 内部异步 fetch）
+            try {
+                await _waitForKgLoaded();
+            } catch (e) {
+                alert('知识图谱加载超时，请先点击"知识图谱"按钮确认图谱已加载后再试。');
+                return;
+            }
+
+            // 3. 查找对应节点（按 id 精确匹配，或按名称模糊匹配兜底）
+            const node = _dsKgAllNodes.find(n => n.id === nodeId || n.name === kpName);
+            if (!node) {
+                alert(`知识图谱中未找到知识点「${kpName}」，请确认已完成知识点提取。`);
+                return;
+            }
+
+            // 4. 确保该节点在当前筛选下可见（勾选其对应章节）
+            const nodeKey = (node.chapter || '') + '|||' + (node.section_name || '');
+            const cb = document.querySelector(`.ds-kg-ch-cb[value="${CSS.escape(nodeKey)}"]`);
+            if (cb && !cb.checked) {
+                cb.checked = true;
+                if (typeof _applyDsKgFilter === 'function') _applyDsKgFilter();
+                await new Promise(r => setTimeout(r, 300));
+            }
+
+            // 5. 设置持久选中高亮并打开详情面板
+            _dsKgSelectedNodeId = nodeId;
+            d3.selectAll('#ds-kg-container circle')
+                .attr('r', n => n.id === _dsKgSelectedNodeId ? 30 : 22)
+                .attr('fill-opacity', n => n.id === _dsKgSelectedNodeId ? 1 : 0.82)
+                .attr('stroke', n => n.id === _dsKgSelectedNodeId ? '#ffe000' : _dsKgColorOf(n.chapter))
+                .attr('stroke-width', n => n.id === _dsKgSelectedNodeId ? 5 : 2.5)
+                .attr('stroke-opacity', n => n.id === _dsKgSelectedNodeId ? 1 : 0.4);
+            if (typeof _openKpPanel === 'function') _openKpPanel(node);
+        }
+
+        function _highlightKgNode(nodeId) {
+            if (typeof d3 === 'undefined') return;
+            d3.selectAll('#ds-kg-container circle')
+                .filter(d => d.id === nodeId)
+                .attr('r', 30)
+                .attr('stroke-width', 4)
+                .attr('stroke-opacity', 1);
+            d3.selectAll('#ds-kg-container circle')
+                .filter(d => d.id !== nodeId)
+                .attr('fill-opacity', 0.3);
+            setTimeout(() => {
+                d3.selectAll('#ds-kg-container circle')
+                    .attr('r', 22).attr('stroke-width', 2.5)
+                    .attr('stroke-opacity', 0.4).attr('fill-opacity', 0.82);
+            }, 3000);
+        }
+
+        function _waitForKgLoaded(maxWait = 8000, interval = 200) {
+            return new Promise((resolve, reject) => {
+                const start = Date.now();
+                const check = () => {
+                    if (typeof _dsKgAllNodes !== 'undefined' && _dsKgAllNodes.length > 0) return resolve();
+                    if (Date.now() - start > maxWait) return reject(new Error('图谱加载超时'));
+                    setTimeout(check, interval);
+                };
+                check();
+            });
         }
 
         // ── 提示词模式切换 ────────────────────────────────────────────────────────
@@ -5485,10 +6360,8 @@ Now please start generating questions. Output question content directly without 
             let prompt = rawPrompts[mode] || RAG_PROMPT_ZH;
             // 注入动态题型格式示例
             prompt = prompt.replace('{format_examples}', buildFormatExamples(mode));
-            // DS 模式使用适配后的提示词（修改前言描述，出题格式不变）
-            if (_aiMode === 'deepseek') {
-                prompt = _adaptPromptForDs(prompt);
-            }
+            // 使用 DS 模式适配提示词
+            prompt = _adaptPromptForDs(prompt);
             const editor = document.getElementById('rag-prompt-editor');
             if (editor) editor.value = prompt;
 
@@ -5504,6 +6377,211 @@ Now please start generating questions. Output question content directly without 
                     btn.style.color = (m === mode) ? 'white' : '';
                 }
             });
+
+            // 同步更新提示词选择器
+            const sel = document.getElementById('rag-prompt-selector');
+            if (sel) sel.value = 'default_' + mode;
+            const deleteBtn = document.getElementById('rag-delete-prompt-btn');
+            if (deleteBtn) deleteBtn.style.display = 'none';
+        }
+
+        // ── 提示词保存/加载系统 ───────────────────────────────────────────────────
+
+        const _PROMPT_KEY_KG = 'saved_prompts_kg';
+        const _PROMPT_KEY_IMPORT = 'saved_prompts_import';
+
+        function _getSavedPrompts(storeKey) {
+            try { return JSON.parse(localStorage.getItem(storeKey) || '[]'); } catch(e) { return []; }
+        }
+
+        function _setSavedPrompts(storeKey, prompts) {
+            localStorage.setItem(storeKey, JSON.stringify(prompts));
+        }
+
+        function _savePromptToStore(storeKey, name, content) {
+            const prompts = _getSavedPrompts(storeKey);
+            const id = 'custom_' + Date.now();
+            prompts.push({ id, name, content, createdAt: new Date().toISOString() });
+            _setSavedPrompts(storeKey, prompts);
+            return id;
+        }
+
+        function _overwritePromptInStore(storeKey, existingId, content) {
+            const prompts = _getSavedPrompts(storeKey);
+            const idx = prompts.findIndex(p => p.id === existingId);
+            if (idx >= 0) {
+                prompts[idx].content = content;
+                prompts[idx].updatedAt = new Date().toISOString();
+                _setSavedPrompts(storeKey, prompts);
+            }
+            return existingId;
+        }
+
+        // 处理重名逻辑，返回 {id, isNew} 或 null（用户取消）
+        function _resolveAndSavePrompt(storeKey, inputName, content) {
+            const prompts = _getSavedPrompts(storeKey);
+            const existing = prompts.find(p => p.name === inputName);
+            if (!existing) {
+                return { id: _savePromptToStore(storeKey, inputName, content), isNew: true };
+            }
+            // 重名：询问是否覆盖
+            if (confirm(`"${inputName}" 已存在，是否覆盖？\n\n点击"确定"覆盖，点击"取消"自动改名。`)) {
+                return { id: _overwritePromptInStore(storeKey, existing.id, content), isNew: false };
+            }
+            // 不覆盖：自动追加今天日期
+            const today = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
+            const autoName = `${inputName} ${today}`;
+            const autoExists = prompts.find(p => p.name === autoName);
+            if (!autoExists) {
+                return { id: _savePromptToStore(storeKey, autoName, content), name: autoName, isNew: true };
+            }
+            // 自动命名也冲突，让用户再输入一次
+            const fallback = prompt(`"${autoName}" 也已存在，请输入新名称：`, autoName + '_2');
+            if (!fallback || !fallback.trim()) return null;
+            const fallbackName = fallback.trim();
+            const fallbackExists = prompts.find(p => p.name === fallbackName);
+            if (fallbackExists) {
+                if (confirm(`"${fallbackName}" 仍已存在，是否覆盖？`)) {
+                    return { id: _overwritePromptInStore(storeKey, fallbackExists.id, content), isNew: false };
+                }
+                return null;
+            }
+            return { id: _savePromptToStore(storeKey, fallbackName, content), name: fallbackName, isNew: true };
+        }
+
+        function _deletePromptFromStore(storeKey, id) {
+            _setSavedPrompts(storeKey, _getSavedPrompts(storeKey).filter(p => p.id !== id));
+        }
+
+        function _showPromptSaveStatus(elId, msg) {
+            const el = document.getElementById(elId);
+            if (!el) return;
+            el.textContent = msg;
+            setTimeout(() => { el.textContent = ''; }, 3000);
+        }
+
+        // ── 知识图谱页面：提示词选择器 ──────────────────────────────────────────
+
+        function renderRagPromptSelector() {
+            const group = document.getElementById('rag-custom-prompt-group');
+            if (!group) return;
+            const prompts = _getSavedPrompts(_PROMPT_KEY_KG);
+            group.innerHTML = prompts.map(p =>
+                `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`
+            ).join('');
+        }
+
+        function loadRagPromptFromSelector() {
+            const sel = document.getElementById('rag-prompt-selector');
+            if (!sel) return;
+            const val = sel.value;
+            const deleteBtn = document.getElementById('rag-delete-prompt-btn');
+            if (val.startsWith('default_')) {
+                setRagPromptMode(val.replace('default_', ''));
+                // setRagPromptMode 已经把 selector 重置，需要再次设置避免循环
+                if (sel) sel.value = val;
+                if (deleteBtn) deleteBtn.style.display = 'none';
+            } else {
+                const p = _getSavedPrompts(_PROMPT_KEY_KG).find(x => x.id === val);
+                if (p) {
+                    const editor = document.getElementById('rag-prompt-editor');
+                    if (editor) editor.value = p.content;
+                }
+                if (deleteBtn) deleteBtn.style.display = '';
+            }
+        }
+
+        function saveRagPromptTemplate() {
+            const editor = document.getElementById('rag-prompt-editor');
+            if (!editor || !editor.value.trim()) {
+                alert('提示词内容为空，请先填写提示词。');
+                return;
+            }
+            const name = prompt('请输入保存名称：', '自定义提示词');
+            if (!name || !name.trim()) return;
+            const result = _resolveAndSavePrompt(_PROMPT_KEY_KG, name.trim(), editor.value);
+            if (!result) return;
+            renderRagPromptSelector();
+            const sel = document.getElementById('rag-prompt-selector');
+            if (sel) sel.value = result.id;
+            const deleteBtn = document.getElementById('rag-delete-prompt-btn');
+            if (deleteBtn) deleteBtn.style.display = '';
+            const savedName = result.name || name.trim();
+            _showPromptSaveStatus('rag-prompt-save-status', result.isNew ? `✓ 已保存为"${savedName}"` : `✓ 已覆盖"${savedName}"`);
+        }
+
+        function deleteRagPromptTemplate() {
+            const sel = document.getElementById('rag-prompt-selector');
+            if (!sel || sel.value.startsWith('default_')) return;
+            const p = _getSavedPrompts(_PROMPT_KEY_KG).find(x => x.id === sel.value);
+            if (!p || !confirm(`确定删除"${p.name}"？`)) return;
+            _deletePromptFromStore(_PROMPT_KEY_KG, sel.value);
+            renderRagPromptSelector();
+            sel.value = 'default_zh';
+            loadRagPromptFromSelector();
+            _showPromptSaveStatus('rag-prompt-save-status', '已删除');
+        }
+
+        // ── 题库导入页面：提示词选择器 ──────────────────────────────────────────
+
+        function renderImportPromptSelector() {
+            const group = document.getElementById('import-custom-prompt-group');
+            if (!group) return;
+            const prompts = _getSavedPrompts(_PROMPT_KEY_IMPORT);
+            group.innerHTML = prompts.map(p =>
+                `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`
+            ).join('');
+        }
+
+        function loadImportPromptFromSelector() {
+            const sel = document.getElementById('import-prompt-selector');
+            if (!sel) return;
+            const val = sel.value;
+            const deleteBtn = document.getElementById('import-delete-prompt-btn');
+            if (val.startsWith('default_')) {
+                const mode = val.replace('default_', '');
+                const modeSelect = document.getElementById('prompt-mode-select');
+                if (modeSelect) { modeSelect.value = mode; modeSelect.dispatchEvent(new Event('change')); }
+                if (deleteBtn) deleteBtn.style.display = 'none';
+            } else {
+                const p = _getSavedPrompts(_PROMPT_KEY_IMPORT).find(x => x.id === val);
+                if (p) {
+                    const ta = document.getElementById('prompt-display');
+                    if (ta) ta.value = p.content;
+                }
+                if (deleteBtn) deleteBtn.style.display = '';
+            }
+        }
+
+        function saveImportPromptTemplate() {
+            const ta = document.getElementById('prompt-display');
+            if (!ta || !ta.value.trim()) {
+                alert('提示词内容为空，请先选择或填写提示词。');
+                return;
+            }
+            const name = prompt('请输入保存名称：', '自定义提示词');
+            if (!name || !name.trim()) return;
+            const result = _resolveAndSavePrompt(_PROMPT_KEY_IMPORT, name.trim(), ta.value);
+            if (!result) return;
+            renderImportPromptSelector();
+            const sel = document.getElementById('import-prompt-selector');
+            if (sel) sel.value = result.id;
+            const deleteBtn = document.getElementById('import-delete-prompt-btn');
+            if (deleteBtn) deleteBtn.style.display = '';
+            const savedName = result.name || name.trim();
+            _showPromptSaveStatus('import-prompt-save-status', result.isNew ? `✓ 已保存为"${savedName}"` : `✓ 已覆盖"${savedName}"`);
+        }
+
+        function deleteImportPromptTemplate() {
+            const sel = document.getElementById('import-prompt-selector');
+            if (!sel || sel.value.startsWith('default_')) return;
+            const p = _getSavedPrompts(_PROMPT_KEY_IMPORT).find(x => x.id === sel.value);
+            if (!p || !confirm(`确定删除"${p.name}"？`)) return;
+            _deletePromptFromStore(_PROMPT_KEY_IMPORT, sel.value);
+            renderImportPromptSelector();
+            sel.value = 'default_zh';
+            loadImportPromptFromSelector();
+            _showPromptSaveStatus('import-prompt-save-status', '已删除');
         }
 
         // ── 题型元数据 ────────────────────────────────────────────────────────────
@@ -5940,79 +7018,64 @@ Reference answer integrating theory and case.
         // ── 一键出题 ─────────────────────────────────────────────────────────────
 
         async function ragGenerate() {
-            // DS 直出模式：使用知识图谱出题
-            if (_aiMode === 'deepseek') {
-                return await dsGenerate();
-            }
+            return await dsGenerate();
+        }
 
-            const btn = document.getElementById('rag-generate-btn');
-            const infoEl = document.getElementById('rag-generate-info');
-            const resultEl = document.getElementById('rag-result');
+        // ── 退出程序 ──────────────────────────────────────────────────────────────
 
-            const promptTemplate = document.getElementById('rag-prompt-editor')?.value || '';
-            if (!promptTemplate.trim()) {
-                alert('提示词模板为空，请先选择语言模式或手动填写提示词。');
-                return;
-            }
-
-            const questionList = buildQuestionList();
-            if (!questionList) {
-                alert('请至少为一种题型设置数量（大于0）。');
-                return;
-            }
-
-            // Collect params
-            const docIds = [...document.querySelectorAll('.rag-doc-cb:checked')].map(cb => cb.value);
-            const chapters = [...document.querySelectorAll('.rag-chapter-cb:checked')].map(cb => cb.value);
-            const knowledgePoints = [...document.querySelectorAll('.rag-section-cb:checked')].map(cb => cb.value);
-
-            // UI: loading state
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 出题中...';
-            if (infoEl) infoEl.textContent = 'AI 正在检索知识库并生成题目，可能需要 30～120 秒...';
-            if (resultEl) resultEl.value = '';
-
+        async function appShutdown() {
+            if (!confirm('确定要退出程序吗？\n退出后需要重新启动 EXE 才能继续使用。')) return;
             try {
-                const resp = await fetch('/api/rag/generate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        doc_ids: docIds,
-                        chapters,
-                        knowledge_points: knowledgePoints,
-                        prompt: promptTemplate,
-                        question_list: questionList,
-                    }),
-                });
-                const data = await resp.json();
-
-                if (!resp.ok || data.error) {
-                    alert('出题失败：' + (data.error || '未知错误'));
-                    if (infoEl) infoEl.textContent = '';
-                } else {
-                    if (resultEl) resultEl.value = data.content || '';
-                    if (infoEl) {
-                        const stats = data.stats || {};
-                        infoEl.textContent = `生成完成！检索到 ${stats.chunks_used || 0} 个文本块（${stats.context_chars || 0} 字）作为参考上下文。`;
-                    }
-                }
-            } catch (e) {
-                alert('请求出错：' + e.message);
-                if (infoEl) infoEl.textContent = '';
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-magic"></i> 一键出题';
-            }
+                await fetch('/api/shutdown', { method: 'POST' });
+            } catch (_) { /* 进程退出时连接会断开，忽略错误 */ }
+            document.body.innerHTML =
+                '<div style="display:flex;align-items:center;justify-content:center;height:100vh;'
+                + 'flex-direction:column;gap:16px;font-family:sans-serif;color:#555;">'
+                + '<i class="fas fa-power-off" style="font-size:3rem;color:#e74c3c;"></i>'
+                + '<p style="font-size:1.2rem;font-weight:600;">程序已退出</p>'
+                + '<p style="font-size:0.9rem;">可以关闭此浏览器标签页</p>'
+                + '</div>';
         }
 
         // ── 复制结果 ──────────────────────────────────────────────────────────────
+
+        function ragSaveEdit() {
+            const el = document.getElementById('rag-result');
+            const statusEl = document.getElementById('rag-result-status');
+            if (!el || !el.value.trim()) {
+                if (statusEl) { statusEl.textContent = '结果为空，无需保存'; setTimeout(() => { statusEl.textContent = ''; }, 2000); }
+                return;
+            }
+            _ragSavedResult = el.value;
+            if (statusEl) {
+                statusEl.textContent = '✓ 已保存';
+                statusEl.style.color = '#27ae60';
+                setTimeout(() => { statusEl.textContent = ''; statusEl.style.color = '#888'; }, 2500);
+            }
+        }
+
+        function ragUndoEdit() {
+            const el = document.getElementById('rag-result');
+            const statusEl = document.getElementById('rag-result-status');
+            if (!el) return;
+            if (!_ragSavedResult) {
+                if (statusEl) { statusEl.textContent = '暂无可撤销的内容'; setTimeout(() => { statusEl.textContent = ''; }, 2000); }
+                return;
+            }
+            el.value = _ragSavedResult;
+            if (statusEl) {
+                statusEl.textContent = '↩ 已撤销';
+                statusEl.style.color = '#e67e22';
+                setTimeout(() => { statusEl.textContent = ''; statusEl.style.color = '#888'; }, 2000);
+            }
+        }
 
         function ragCopyResult() {
             const el = document.getElementById('rag-result');
             if (!el || !el.value) { alert('结果区为空，请先生成题目。'); return; }
             navigator.clipboard.writeText(el.value).then(() => {
-                const statusEl = document.getElementById('rag-import-status');
-                if (statusEl) { statusEl.textContent = '已复制到剪贴板！'; setTimeout(() => { statusEl.textContent = ''; }, 3000); }
+                const statusEl = document.getElementById('rag-result-status');
+                if (statusEl) { statusEl.textContent = '✓ 已复制到剪贴板'; statusEl.style.color = '#2980b9'; setTimeout(() => { statusEl.textContent = ''; statusEl.style.color = '#888'; }, 2500); }
             }).catch(() => {
                 el.select();
                 document.execCommand('copy');
@@ -6069,6 +7132,248 @@ Reference answer integrating theory and case.
                 alert('导入出错：' + e.message);
             }
         }
+
+        // ══════════════════════════════════════════════════════
+        // 功能1：知识图谱章节/知识点名称内联编辑
+        // ══════════════════════════════════════════════════════
+
+        function startChapterEdit(btn) {
+            const item = btn.closest('.rag-chapter-item');
+            const docId = item.dataset.docId;
+            const chapterNum = parseInt(item.dataset.chapterNum);
+            const oldName = item.dataset.chapterName;
+            const labelSpan = item.querySelector('.rag-chapter-label');
+            if (!labelSpan) return;
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = oldName;
+            input.className = 'rag-name-input';
+            input.style.flex = '1';
+            labelSpan.replaceWith(input);
+            btn.style.visibility = 'hidden';
+            input.focus();
+            input.select();
+
+            let committed = false;
+            const confirm = async () => {
+                if (committed) return;
+                committed = true;
+                const newName = input.value.trim();
+                if (!newName || newName === oldName) { cancel(); return; }
+                try {
+                    const r = await fetch('/api/rag/ds-chapters', {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ doc_id: docId, chapter_num: chapterNum, new_name: newName })
+                    });
+                    const d = await r.json();
+                    if (d.success) {
+                        item.dataset.chapterName = newName;
+                        _ragAllChapters.forEach(c => {
+                            if (c.doc_id === docId && c.num === chapterNum) c.name = newName;
+                        });
+                        _ragAllSections.forEach(s => {
+                            if (s.chapter_num === chapterNum) s.chapter_name = newName;
+                        });
+                        filterRagChapters();
+                        filterRagSections();
+                        showRagToast('章节名已更新');
+                    } else {
+                        alert('更新失败：' + (d.error || '未知错误'));
+                        cancel();
+                    }
+                } catch (e) {
+                    alert('请求出错：' + e.message);
+                    cancel();
+                }
+            };
+            const cancel = () => {
+                if (!input.parentNode) return;
+                const span = document.createElement('span');
+                span.className = 'rag-chapter-label';
+                span.style.fontSize = '0.82rem';
+                span.textContent = oldName;
+                input.replaceWith(span);
+                btn.style.visibility = '';
+            };
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); confirm(); }
+                if (e.key === 'Escape') { committed = true; cancel(); }
+            });
+            input.addEventListener('blur', confirm);
+        }
+
+        function startKpEdit(btn) {
+            const kpId = parseInt(btn.dataset.kpId);
+            const oldName = btn.dataset.kpName;
+            const nameSpan = btn.closest('.rag-section-item')?.querySelector('.rag-kp-name');
+            if (!nameSpan) return;
+
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = oldName;
+            input.className = 'rag-name-input';
+            nameSpan.replaceWith(input);
+            btn.style.visibility = 'hidden';
+            input.focus();
+            input.select();
+
+            let committed = false;
+            const confirm = async () => {
+                if (committed) return;
+                committed = true;
+                const newName = input.value.trim();
+                if (!newName || newName === oldName) { cancel(); return; }
+                try {
+                    const r = await fetch(`/api/rag/ds-kps/${kpId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: newName })
+                    });
+                    const d = await r.json();
+                    if (d.success) {
+                        btn.dataset.kpName = newName;
+                        _ragAllSections.forEach(s => {
+                            if (s.num === kpId) { s.name = newName; s.display_name = newName; }
+                        });
+                        _ragAllKps.forEach(k => { if (k.id === kpId) k.name = newName; });
+                        filterRagSections();
+                        showRagToast('知识点名已更新');
+                    } else {
+                        alert('更新失败：' + (d.error || '未知错误'));
+                        cancel();
+                    }
+                } catch (e) {
+                    alert('请求出错：' + e.message);
+                    cancel();
+                }
+            };
+            const cancel = () => {
+                if (!input.parentNode) return;
+                const span = document.createElement('span');
+                span.className = 'rag-kp-name';
+                span.style.cssText = 'font-size:0.82rem;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                span.title = oldName;
+                span.textContent = oldName;
+                input.replaceWith(span);
+                btn.style.visibility = '';
+            };
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); confirm(); }
+                if (e.key === 'Escape') { committed = true; cancel(); }
+            });
+            input.addEventListener('blur', confirm);
+        }
+
+        function showRagToast(msg) {
+            let t = document.getElementById('rag-toast');
+            if (!t) {
+                t = document.createElement('div');
+                t.id = 'rag-toast';
+                t.style.cssText = 'position:fixed;bottom:30px;left:50%;transform:translateX(-50%);'
+                    + 'background:#333;color:#fff;padding:8px 18px;border-radius:20px;font-size:0.85rem;'
+                    + 'z-index:9999;opacity:0;transition:opacity 0.2s;pointer-events:none;';
+                document.body.appendChild(t);
+            }
+            t.textContent = msg;
+            t.style.opacity = '1';
+            clearTimeout(t._timer);
+            t._timer = setTimeout(() => { t.style.opacity = '0'; }, 2000);
+        }
+
+        // ══════════════════════════════════════════════════════
+        // 功能3：组卷高级筛选 JS
+        // ══════════════════════════════════════════════════════
+
+        let _examAdvancedOpen = false;
+        const _examSelectedTags = new Set();
+
+        function toggleExamAdvanced() {
+            _examAdvancedOpen = !_examAdvancedOpen;
+            document.getElementById('exam-advanced-panel').style.display = _examAdvancedOpen ? 'block' : 'none';
+            document.getElementById('exam-advanced-icon').className =
+                'fas ' + (_examAdvancedOpen ? 'fa-chevron-up' : 'fa-chevron-down');
+            if (_examAdvancedOpen) updateExamAvailableCount();
+        }
+
+        function toggleExamTag(btn) {
+            const tag = btn.dataset.tag;
+            if (_examSelectedTags.has(tag)) {
+                _examSelectedTags.delete(tag);
+                btn.classList.remove('active');
+            } else {
+                _examSelectedTags.add(tag);
+                btn.classList.add('active');
+            }
+            _renderExamCustomTags();
+            updateExamAvailableCount();
+        }
+
+        function onExamTagInputKeydown(e) {
+            if (e.key === 'Enter') {
+                const val = e.target.value.trim();
+                if (val && !['重点', '难点', '考点'].includes(val)) {
+                    _examSelectedTags.add(val);
+                    e.target.value = '';
+                    _renderExamCustomTags();
+                    updateExamAvailableCount();
+                } else if (val) {
+                    // 预设标签：切换对应 chip
+                    const chip = document.querySelector(`.exam-tag-chip[data-tag="${val}"]`);
+                    if (chip) { toggleExamTag(chip); e.target.value = ''; }
+                }
+            }
+        }
+
+        function _renderExamCustomTags() {
+            const container = document.getElementById('exam-tags-selected');
+            const input = document.getElementById('exam-tag-input');
+            container.innerHTML = '';
+            _examSelectedTags.forEach(tag => {
+                if (['重点', '难点', '考点'].includes(tag)) return; // 已有 chip
+                const item = document.createElement('span');
+                item.className = 'exam-tag-selected-item';
+                item.innerHTML = `${escapeHtml(tag)}<span class="rm-tag" onclick="removeExamTag('${escapeHtml(tag)}')">×</span>`;
+                container.appendChild(item);
+            });
+            container.appendChild(input);
+        }
+
+        function removeExamTag(tag) {
+            _examSelectedTags.delete(tag);
+            _renderExamCustomTags();
+            updateExamAvailableCount();
+        }
+
+        let _examCountTimer = null;
+        function updateExamAvailableCount() {
+            if (!_examAdvancedOpen) return;
+            clearTimeout(_examCountTimer);
+            _examCountTimer = setTimeout(async () => {
+                const subject = document.getElementById('exam-subject-filter').value;
+                const difficulty = document.getElementById('exam-difficulty-filter').value;
+                const kp = document.getElementById('exam-kp-filter').value.trim();
+                const isUsedEl = document.querySelector('input[name="exam-is-used"]:checked');
+                const isUsed = isUsedEl ? isUsedEl.value : 'unused';
+                const tags = [..._examSelectedTags].join(',');
+
+                const params = new URLSearchParams();
+                if (subject) params.set('subject', subject);
+                if (difficulty) params.set('difficulty', difficulty);
+                if (kp) params.set('knowledge_point', kp);
+                if (tags) params.set('tags', tags);
+                if (isUsed === 'unused') params.set('is_used', '0');
+                else if (isUsed === 'used') params.set('is_used', '1');
+
+                try {
+                    const r = await fetch('/api/questions/count?' + params);
+                    const d = await r.json();
+                    document.getElementById('exam-available-count').textContent =
+                        `当前筛选条件下题库共有 ${d.count} 道题目可用`;
+                } catch { /* ignore */ }
+            }, 400);
+        }
     </script>
 
     <!-- ═══════════════════════════════════════════════════════════
@@ -6087,11 +7392,30 @@ Reference answer integrating theory and case.
                     <span>DS 知识图谱</span>
                     <span id="ds-kg-subtitle" style="font-size:0.76rem;opacity:0.8;font-weight:400;"></span>
                 </div>
-                <button onclick="closeDsKgModal()"
-                    style="background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);
-                           color:#fff;cursor:pointer;padding:4px 12px;border-radius:6px;font-size:0.82rem;">
-                    ✕ 关闭
-                </button>
+                <div style="display:flex;gap:7px;align-items:center;">
+                    <!-- 字体大小控制 -->
+                    <div style="display:flex;align-items:center;gap:3px;margin-right:4px;">
+                        <button onclick="_dsKgFontChange(-1)" title="缩小字体"
+                            style="width:24px;height:24px;border-radius:4px;border:1px solid rgba(255,255,255,0.35);
+                                   background:rgba(255,255,255,0.15);color:#fff;cursor:pointer;
+                                   font-size:0.8rem;display:flex;align-items:center;justify-content:center;">A−</button>
+                        <span id="ds-kg-font-label" style="font-size:0.72rem;min-width:30px;text-align:center;opacity:0.85;">100%</span>
+                        <button onclick="_dsKgFontChange(1)" title="放大字体"
+                            style="width:24px;height:24px;border-radius:4px;border:1px solid rgba(255,255,255,0.35);
+                                   background:rgba(255,255,255,0.15);color:#fff;cursor:pointer;
+                                   font-size:0.8rem;display:flex;align-items:center;justify-content:center;">A+</button>
+                    </div>
+                    <button id="ds-kg-export-btn" onclick="_exportDsKgXlsx()"
+                        style="background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);
+                               color:#fff;cursor:pointer;padding:4px 12px;border-radius:6px;font-size:0.82rem;">
+                        <i class="fas fa-file-excel" style="margin-right:4px;"></i>导出 Excel
+                    </button>
+                    <button onclick="closeDsKgModal()"
+                        style="background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);
+                               color:#fff;cursor:pointer;padding:4px 12px;border-radius:6px;font-size:0.82rem;">
+                        ✕ 关闭
+                    </button>
+                </div>
             </div>
             <!-- 图例栏 -->
             <div id="ds-kg-legend"
@@ -6101,7 +7425,7 @@ Reference answer integrating theory and case.
             <!-- 主体：左侧筛选面板 + 右侧画布 -->
             <div style="flex:1;display:flex;overflow:hidden;">
                 <!-- 左侧筛选面板 -->
-                <div style="width:195px;flex-shrink:0;border-right:1px solid #eee;
+                <div id="ds-kg-sidebar" style="width:195px;flex-shrink:0;border-right:1px solid #eee;
                             background:#fff;overflow-y:auto;padding:10px 11px;
                             display:flex;flex-direction:column;gap:0;">
                     <!-- 章节筛选 -->
@@ -6142,19 +7466,264 @@ Reference answer integrating theory and case.
                          style="font-size:0.72rem;color:#aaa;margin-bottom:8px;text-align:center;"></div>
                     <button onclick="_resetDsKgFilter()"
                         style="width:100%;padding:5px 0;font-size:0.78rem;border:1px solid #ddd;
-                               border-radius:5px;background:#f8f8f8;cursor:pointer;color:#666;margin-top:auto;"
+                               border-radius:5px;background:#f8f8f8;cursor:pointer;color:#666;"
                         onmouseover="this.style.background='#eee'" onmouseout="this.style.background='#f8f8f8'">
                         <i class="fas fa-undo" style="font-size:0.7rem;margin-right:3px;"></i>重置筛选
                     </button>
+
+                    <!-- AI批量标注 -->
+                    <div style="border-top:1px solid #eee;margin-top:10px;padding-top:10px;">
+                        <div style="font-size:0.76rem;font-weight:600;color:#8e44ad;margin-bottom:6px;">
+                            <i class="fas fa-magic" style="margin-right:3px;font-size:0.7rem;"></i>AI批量标注
+                        </div>
+                        <div style="font-size:0.72rem;color:#888;margin-bottom:5px;">
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+                                <input type="checkbox" id="ds-classify-only-filtered" checked>
+                                <span>仅标注当前筛选的节点</span>
+                            </label>
+                        </div>
+                        <div style="font-size:0.72rem;color:#888;margin-bottom:5px;">
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+                                <input type="checkbox" id="ds-classify-overwrite">
+                                <span>覆盖已有标注</span>
+                            </label>
+                        </div>
+                        <div style="font-size:0.72rem;color:#888;margin-bottom:7px;">
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+                                <input type="checkbox" id="ds-classify-focus-cb" onchange="_toggleClassifyFocusCb()">
+                                <span>同时标注教学属性（重点/难点/考点）</span>
+                            </label>
+                        </div>
+
+                        <!-- 折叠式提示词编辑区 -->
+                        <div style="margin-bottom:7px;">
+                            <button onclick="_toggleClassifyPromptPanel()"
+                                style="width:100%;padding:4px 0;font-size:0.72rem;border:1px solid #d8c0f0;
+                                       border-radius:5px;background:#faf5ff;cursor:pointer;color:#8e44ad;
+                                       display:flex;align-items:center;justify-content:center;gap:4px;"
+                                onmouseover="this.style.background='#f3e5ff'" onmouseout="this.style.background='#faf5ff'">
+                                <span id="ds-classify-prompt-arrow">▶</span>
+                                <span>查看/编辑提示词</span>
+                            </button>
+                            <div id="ds-classify-prompt-panel" style="display:none;margin-top:6px;">
+                                <!-- 系统提示词 -->
+                                <div style="font-size:0.7rem;color:#888;margin-bottom:2px;display:flex;justify-content:space-between;align-items:center;">
+                                    <span>系统提示词</span>
+                                    <button onclick="_resetClassifyPrompt()"
+                                        style="font-size:0.65rem;padding:1px 6px;border:1px solid #ccc;
+                                               border-radius:3px;background:none;cursor:pointer;color:#888;"
+                                        onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='none'">
+                                        恢复默认
+                                    </button>
+                                </div>
+                                <textarea id="ds-classify-sys-prompt" rows="2"
+                                    style="width:100%;box-sizing:border-box;font-size:0.7rem;padding:5px;
+                                           border:1px solid #ddd;border-radius:4px;resize:vertical;
+                                           font-family:inherit;line-height:1.4;margin-bottom:6px;outline:none;"
+                                    onfocus="this.style.borderColor='#8e44ad'" onblur="this.style.borderColor='#ddd'"></textarea>
+                                <!-- 用户提示词 -->
+                                <div style="font-size:0.7rem;color:#888;margin-bottom:2px;">
+                                    用户提示词（<code style="font-size:0.65rem;">{kp_list}</code> 为知识点占位符）
+                                </div>
+                                <textarea id="ds-classify-user-prompt" rows="10"
+                                    style="width:100%;box-sizing:border-box;font-size:0.68rem;padding:5px;
+                                           border:1px solid #ddd;border-radius:4px;resize:vertical;
+                                           font-family:monospace;line-height:1.4;margin-bottom:6px;outline:none;"
+                                    onfocus="this.style.borderColor='#8e44ad'" onblur="this.style.borderColor='#ddd'"></textarea>
+                                <!-- 重难点列表文件上传 -->
+                                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                                    <button onclick="document.getElementById('ds-classify-focus-file').click()"
+                                        style="padding:3px 8px;font-size:0.7rem;border:1px solid #8e44ad;
+                                               border-radius:4px;background:none;cursor:pointer;color:#8e44ad;white-space:nowrap;"
+                                        onmouseover="this.style.background='#f3e5ff'" onmouseout="this.style.background='none'">
+                                        📄 导入重难点列表
+                                    </button>
+                                    <span id="ds-classify-focus-filename"
+                                        style="font-size:0.68rem;color:#888;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+                                </div>
+                                <input type="file" id="ds-classify-focus-file" accept=".txt,.md"
+                                    style="display:none;" onchange="_loadClassifyFocusFile(this)">
+                                <div style="font-size:0.65rem;color:#aaa;margin-top:4px;">
+                                    上传 .txt/.md 文件：系统解析文件结构 → 关键词匹配 → 直接标注匹配知识点为重点；AI 批量标注可对剩余知识点补充教学属性
+                                </div>
+                            </div>
+                        </div>
+
+                        <button id="ds-classify-btn" onclick="_startBatchClassify()"
+                            style="width:100%;padding:5px 0;font-size:0.78rem;border:none;
+                                   border-radius:5px;background:#8e44ad;cursor:pointer;color:#fff;"
+                            onmouseover="this.style.background='#7d3c98'" onmouseout="this.style.background='#8e44ad'">
+                            <i class="fas fa-brain" style="font-size:0.7rem;margin-right:3px;"></i>开始标注
+                        </button>
+                        <!-- 进度区域 -->
+                        <div id="ds-classify-progress" style="display:none;margin-top:7px;">
+                            <div style="height:4px;background:#e0d0f0;border-radius:2px;overflow:hidden;margin-bottom:5px;">
+                                <div id="ds-classify-bar" style="height:100%;background:#8e44ad;width:0%;transition:width 0.3s;"></div>
+                            </div>
+                            <div id="ds-classify-msg" style="font-size:0.7rem;color:#888;text-align:center;"></div>
+                        </div>
+                    </div>
                 </div>
                 <!-- 右侧图谱画布 -->
+                <!-- 拖拽分隔条 -->
+                <div id="ds-kg-resize-handle"
+                     style="width:5px;flex-shrink:0;cursor:col-resize;background:#eee;
+                            transition:background 0.15s;position:relative;z-index:5;"
+                     onmouseover="this.style.background='#7b68ee'"
+                     onmouseout="if(!this._dragging)this.style.background='#eee'"
+                     title="拖动调整侧边栏宽度"></div>
                 <div id="ds-kg-container"
                      style="flex:1;position:relative;overflow:hidden;background:#f4f6fb;"></div>
+                <!-- 右侧拖拽分隔条（面板关闭时隐藏） -->
+                <div id="ds-kp-resize-handle"
+                     style="width:0;flex-shrink:0;cursor:col-resize;background:#eee;
+                            transition:width 0.22s ease;position:relative;z-index:5;"
+                     onmouseover="if(this.offsetWidth>0)this.style.background='#7b68ee'"
+                     onmouseout="if(!this._dragging)this.style.background='#eee'"
+                     title="拖动调整详情面板宽度"></div>
+                <!-- 右侧知识点详情面板 -->
+                <div id="ds-kp-panel" style="width:0;flex-shrink:0;border-left:1px solid #e8eaf0;
+                     background:#fff;overflow:hidden;transition:width 0.22s ease;
+                     display:flex;flex-direction:column;">
+                    <div style="width:340px;height:100%;display:flex;flex-direction:column;overflow:hidden;">
+                        <!-- 面板标题 -->
+                        <div style="padding:10px 14px 8px;border-bottom:1px solid #f0f0f0;
+                                    display:flex;align-items:flex-start;gap:6px;flex-shrink:0;background:#fafbff;">
+                            <div id="ds-kp-panel-name-view"
+                                 style="flex:1;font-weight:700;font-size:0.88rem;color:#2c3e50;
+                                        line-height:1.4;word-break:break-all;"></div>
+                            <input id="ds-kp-panel-name-edit" type="text"
+                                   style="display:none;flex:1;font-weight:700;font-size:0.88rem;
+                                          color:#2c3e50;border:1px solid #a0b0d0;border-radius:5px;
+                                          padding:3px 6px;outline:none;line-height:1.4;width:0;min-width:0;">
+                            <button onclick="_closeKpPanel()"
+                                    style="flex-shrink:0;background:none;border:none;cursor:pointer;
+                                           color:#aaa;font-size:1rem;line-height:1;padding:1px 3px;"
+                                    title="关闭详情">✕</button>
+                        </div>
+                        <!-- 章节标签 -->
+                        <div id="ds-kp-panel-chapter"
+                             style="padding:5px 14px;font-size:0.74rem;color:#8e44ad;flex-shrink:0;
+                                    border-bottom:1px solid #f5f5f5;background:#fafbff;">
+                        </div>
+                        <!-- 内容区（可滚动） -->
+                        <div style="flex:1;overflow-y:auto;padding:10px 14px 6px;display:flex;flex-direction:column;gap:10px;">
+                            <!-- 知识点内容 -->
+                            <div>
+                                <div style="font-size:0.72rem;font-weight:600;color:#555;margin-bottom:4px;
+                                            text-transform:uppercase;letter-spacing:.03em;">
+                                    <i class="fas fa-file-alt" style="font-size:0.65rem;margin-right:3px;"></i>内容
+                                </div>
+                                <div id="ds-kp-panel-content-view"
+                                     style="font-size:0.82rem;color:#333;line-height:1.7;
+                                            white-space:pre-wrap;word-break:break-all;"></div>
+                                <textarea id="ds-kp-panel-content-edit"
+                                          style="display:none;width:100%;box-sizing:border-box;
+                                                 font-size:0.82rem;color:#333;line-height:1.7;
+                                                 border:1px solid #a0b0d0;border-radius:5px;
+                                                 padding:6px 8px;resize:vertical;min-height:120px;
+                                                 outline:none;font-family:inherit;"></textarea>
+                            </div>
+                            <!-- 教学属性 -->
+                            <div id="ds-kp-panel-attrs">
+                                <div style="font-size:0.72rem;font-weight:600;color:#555;margin-bottom:6px;">
+                                    <i class="fas fa-tags" style="font-size:0.65rem;margin-right:3px;"></i>教学属性
+                                </div>
+                                <!-- 只读视图 -->
+                                <div id="ds-kp-attrs-view" style="display:flex;flex-wrap:wrap;gap:5px;font-size:0.76rem;">
+                                </div>
+                                <!-- 编辑视图 -->
+                                <div id="ds-kp-attrs-edit" style="display:none;display:flex;flex-direction:column;gap:6px;">
+                                    <div style="display:flex;align-items:center;gap:6px;">
+                                        <span style="width:64px;color:#666;font-size:0.76rem;flex-shrink:0;">教学要点</span>
+                                        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                                            <label style="font-size:0.76rem;cursor:pointer;">
+                                                <input type="checkbox" id="ds-kp-focus-key" value="重点"> 重点
+                                            </label>
+                                            <label style="font-size:0.76rem;cursor:pointer;">
+                                                <input type="checkbox" id="ds-kp-focus-hard" value="难点"> 难点
+                                            </label>
+                                            <label style="font-size:0.76rem;cursor:pointer;">
+                                                <input type="checkbox" id="ds-kp-focus-exam" value="考点"> 考点
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex;align-items:center;gap:6px;">
+                                        <span style="width:64px;color:#666;font-size:0.76rem;flex-shrink:0;">知识类型</span>
+                                        <select id="ds-kp-knowledge-type"
+                                                style="font-size:0.76rem;padding:2px 4px;border:1px solid #ccc;
+                                                       border-radius:4px;background:#fff;color:#333;">
+                                            <option value="">— 未设置 —</option>
+                                            <option value="事实性">事实性</option>
+                                            <option value="概念性">概念性</option>
+                                            <option value="程序性">程序性</option>
+                                            <option value="元认知">元认知</option>
+                                        </select>
+                                    </div>
+                                    <div style="display:flex;align-items:center;gap:6px;">
+                                        <span style="width:64px;color:#666;font-size:0.76rem;flex-shrink:0;">认知维度</span>
+                                        <select id="ds-kp-cognitive-dim"
+                                                style="font-size:0.76rem;padding:2px 4px;border:1px solid #ccc;
+                                                       border-radius:4px;background:#fff;color:#333;">
+                                            <option value="">— 未设置 —</option>
+                                            <option value="记忆">记忆</option>
+                                            <option value="理解">理解</option>
+                                            <option value="应用">应用</option>
+                                            <option value="分析">分析</option>
+                                            <option value="评价">评价</option>
+                                            <option value="创造">创造</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- 关联关系 -->
+                            <div>
+                                <div style="font-size:0.72rem;font-weight:600;color:#555;margin-bottom:4px;
+                                            display:flex;align-items:center;justify-content:space-between;">
+                                    <span><i class="fas fa-link" style="font-size:0.65rem;margin-right:3px;"></i>关联关系</span>
+                                    <button id="ds-kp-add-rel-btn" onclick="_addKpRelRow()"
+                                            style="display:none;padding:2px 8px;font-size:0.7rem;
+                                                   border:1px solid #2980b9;color:#2980b9;background:none;
+                                                   border-radius:4px;cursor:pointer;">
+                                        + 添加
+                                    </button>
+                                </div>
+                                <div id="ds-kp-panel-rels" style="display:flex;flex-direction:column;gap:5px;"></div>
+                            </div>
+                        </div>
+                        <!-- 底部操作栏 -->
+                        <div id="ds-kp-panel-actions"
+                             style="padding:8px 14px;border-top:1px solid #f0f0f0;flex-shrink:0;
+                                    display:flex;gap:6px;align-items:center;background:#fafbff;">
+                            <button id="ds-kp-edit-btn" onclick="_enterKpEdit()"
+                                    style="padding:5px 14px;font-size:0.8rem;border-radius:5px;cursor:pointer;
+                                           border:1px solid #2980b9;color:#2980b9;background:#fff;">
+                                <i class="fas fa-pen" style="font-size:0.7rem;margin-right:3px;"></i>编辑
+                            </button>
+                            <button id="ds-kp-gen-btn" onclick="_toggleKpForGen()"
+                                    style="padding:5px 12px;font-size:0.8rem;border-radius:5px;cursor:pointer;
+                                           border:1px solid #27ae60;color:#27ae60;background:#fff;">
+                                <i class="fas fa-check-square" style="font-size:0.7rem;margin-right:3px;"></i>选中出题
+                            </button>
+                            <button id="ds-kp-save-btn" onclick="_saveKpEdit()" style="display:none;
+                                    padding:5px 14px;font-size:0.8rem;border-radius:5px;cursor:pointer;
+                                    border:none;background:#2980b9;color:#fff;">
+                                <i class="fas fa-save" style="font-size:0.7rem;margin-right:3px;"></i>保存
+                            </button>
+                            <button id="ds-kp-cancel-btn" onclick="_cancelKpEdit()" style="display:none;
+                                    padding:5px 14px;font-size:0.8rem;border-radius:5px;cursor:pointer;
+                                    border:1px solid #bbb;background:#fff;color:#666;">
+                                取消
+                            </button>
+                            <span id="ds-kp-panel-msg" style="font-size:0.76rem;flex:1;text-align:right;"></span>
+                        </div>
+                    </div>
+                </div>
             </div>
             <!-- 底部提示 -->
             <div style="padding:5px 16px;font-size:0.7rem;color:#bbb;border-top:1px solid #f0f0f0;
                         background:#fafafa;flex-shrink:0;">
-                悬停节点查看知识点详情 &nbsp;·&nbsp; 滚轮缩放 &nbsp;·&nbsp; 拖拽平移 &nbsp;·&nbsp; 拖动节点调整布局
+                点击节点查看/编辑知识点 &nbsp;·&nbsp; 悬停预览 &nbsp;·&nbsp; 滚轮缩放 &nbsp;·&nbsp; 拖拽平移 &nbsp;·&nbsp; 拖动节点调整布局
             </div>
         </div>
     </div>

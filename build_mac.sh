@@ -7,7 +7,7 @@
 #   ./build_mac.sh
 #
 # 产物：
-#   dist/试题管理系统_v1.7.0_arm64.dmg
+#   dist/试题管理系统_v<VERSION>_arm64.dmg
 #
 # 要求：
 #   - macOS 12+，Apple Silicon（M1/M2/M3）
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 APP_NAME="试题管理系统"
-VERSION="1.7.0"
+VERSION="$(cat VERSION)"
 DMG_NAME="${APP_NAME}_v${VERSION}_arm64.dmg"
 VENV_DIR=".build_venv"
 DIST_APP="dist/${APP_NAME}.app"

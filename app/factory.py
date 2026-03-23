@@ -1,10 +1,12 @@
-from flask import Flask
+from flask import Flask, jsonify
 from app.routes import bp
 from app.db_models import db, QuestionTypeModel
 from config import config
 from datetime import datetime
 from sqlalchemy import text
 import os
+import sys
+import threading
 
 
 def create_app(config_name=None):
@@ -45,6 +47,17 @@ def create_app(config_name=None):
         app.register_blueprint(kg_bp)
     except Exception:
         pass
+
+    # ── 退出端点（打包版 EXE 使用，彻底结束进程）────────────────────────────────
+    @app.route('/api/shutdown', methods=['POST'])
+    def _shutdown():
+        """彻底退出 EXE 进程。延迟 0.5s 确保响应已发送。"""
+        def _kill():
+            import time
+            time.sleep(0.5)
+            os._exit(0)
+        threading.Thread(target=_kill, daemon=True).start()
+        return jsonify({'ok': True, 'message': '正在退出...'})
 
     return app
 

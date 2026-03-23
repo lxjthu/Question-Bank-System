@@ -19,7 +19,7 @@ _IMAGES_DIR = os.path.join(os.path.dirname(_HERE), 'uploads', 'images')
 
 def allowed_file(filename):
     """Check if the uploaded file is allowed"""
-    ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'csv'}
+    ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif', 'doc', 'docx', 'csv', 'xlsx'}
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 

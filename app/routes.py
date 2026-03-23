@@ -288,6 +288,291 @@ def batch_update_question_type():
     return jsonify({'message': f'{updated} questions updated to "{new_type}"', 'updated_count': updated})
 
 
+# ─── xlsx Export ────────────────────────────────────────────────────────────
+
+_XLSX_MAX_LEN = 500
+
+_XLSX_TYPE_MAP = {
+    "单选": "单选题", "多选": "多选题", "是非": "判断题",
+    "简答": "简答题", "简答>计算": "简答题", "简答>论述": "简答题", "简答>材料分析": "简答题",
+}
+_XLSX_SCORE_MAP = {
+    "单选": 1.5, "多选": 2, "是非": 1,
+    "简答": 5, "简答>计算": 5, "简答>论述": 5, "简答>材料分析": 5,
+}
+_XLSX_DIFFICULTY_MAP = {"easy": 2, "medium": 3, "hard": 4}
+
+# ─── xlsx Import helpers ─────────────────────────────────────────────────────
+
+_XLSX_TYPE_REVERSE = {
+    "单选题": "单选", "多选题": "多选", "判断题": "是非",
+    "简答题": "简答", "计算题": "简答>计算",
+    "论述题": "简答>论述", "材料分析题": "简答>材料分析",
+}
+
+
+def _xlsx_diff_from_num(n):
+    """难度数字 1-5 → easy/medium/hard"""
+    try:
+        n = int(float(n))
+    except (TypeError, ValueError):
+        return "medium"
+    if n <= 2:
+        return "easy"
+    if n == 3:
+        return "medium"
+    return "hard"
+
+
+def _xlsx_parse_tags(tag_str):
+    """'#知识点#标签1#标签2' → (knowledge_point, tags_str)"""
+    if not tag_str:
+        return None, None
+    parts = [p.strip() for p in str(tag_str).split('#') if p.strip()]
+    if not parts:
+        return None, None
+    kp = parts[0]
+    tags = ','.join(parts[1:]) if len(parts) > 1 else None
+    return kp, tags
+
+
+def _xlsx_normalize_answer(q_type, raw_answer):
+    """
+    按题型规范化答案，返回 (answer, reference_answer)
+    - 单选: 'D' → ('D', '')
+    - 多选: 'A,B'/'A;B'/'AB' → ('AB', '')
+    - 判断: 'true'/'正确' → ('正确', ''),  'false'/'错误' → ('错误', '')
+    - 简答: 文本 → ('', 文本)
+    """
+    import re
+    raw = (raw_answer or '').strip()
+    if q_type == '单选':
+        return raw.upper() if raw else '', ''
+    if q_type == '多选':
+        letters = re.findall(r'[A-Oa-o]', raw)
+        return ''.join(l.upper() for l in letters), ''
+    if q_type == '是非':
+        if raw.lower() in ('true', '正确', '对', '是'):
+            return '正确', ''
+        if raw.lower() in ('false', '错误', '错', '否'):
+            return '错误', ''
+        return raw, ''
+    # 简答类
+    return '', raw
+
+
+def _parse_xlsx_questions(file_path):
+    """
+    解析 xlsx 题库文件，兼容两种格式：
+    - muban_zh.xlsx 导出格式（标题行在第3行，数据从第4行）
+    - 外部题库格式（标题行在第1行，数据从第2行）
+    返回: (questions_list, errors_list)
+    """
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        raise RuntimeError('openpyxl 未安装，无法解析 xlsx 文件')
+
+    wb = load_workbook(file_path, data_only=True)
+    ws = wb.active
+
+    # 自动检测标题行（找包含 "题干" 的行，最多扫描5行）
+    header_row = None
+    for i, row in enumerate(ws.iter_rows(min_row=1, max_row=5, values_only=True), 1):
+        row_str = ' '.join(str(c or '') for c in row)
+        if '题干' in row_str:
+            header_row = i
+            break
+
+    if header_row is None:
+        raise ValueError("未找到标题行（含'题干'的行），请检查文件格式是否为 muban_zh.xlsx 模板")
+
+    data_start = header_row + 1
+    questions = []
+    errors = []
+
+    for row_idx, row in enumerate(
+        ws.iter_rows(min_row=data_start, values_only=True), data_start
+    ):
+        stem = str(row[7] or '').strip() if len(row) > 7 else ''
+        if not stem:
+            continue
+
+        raw_type = str(row[1] or '').strip()
+        q_type = _XLSX_TYPE_REVERSE.get(raw_type)
+        if not q_type:
+            errors.append(f"第{row_idx}行：未知题型 '{raw_type}'，已跳过")
+            continue
+
+        difficulty = _xlsx_diff_from_num(row[3] if len(row) > 3 else None)
+        tag_str = str(row[5] or '').strip() if len(row) > 5 else ''
+        kp, tags = _xlsx_parse_tags(tag_str)
+        raw_answer = str(row[8] or '').strip() if len(row) > 8 else ''
+        explanation = str(row[9] or '').strip() if len(row) > 9 else ''
+
+        answer, reference_answer = _xlsx_normalize_answer(q_type, raw_answer)
+
+        options = []
+        for ci in range(10, 25):
+            val = row[ci] if ci < len(row) else None
+            if val is not None and str(val).strip():
+                options.append(str(val).strip())
+
+        questions.append({
+            'type': q_type,
+            'content': stem,
+            'options': options,
+            'answer': answer,
+            'reference_answer': reference_answer,
+            'explanation': explanation,
+            'knowledge_point': kp,
+            'tags': tags,
+            'difficulty': difficulty,
+        })
+
+    return questions, errors
+
+
+# ─── xlsx Export ─────────────────────────────────────────────────────────────
+
+def _xlsx_strip_html(text):
+    import re
+    if not text:
+        return ""
+    text = re.sub(r'<[^>]+>', '', text)
+    return text.replace('&nbsp;', ' ').replace('&lt;', '<').replace('&gt;', '>').replace('&amp;', '&').strip()
+
+
+def _xlsx_convert_answer(q_type, answer, reference_answer):
+    if q_type == "是非":
+        return "true" if answer == "正确" else ("false" if answer == "错误" else (answer or ""))
+    if q_type == "多选":
+        return ";".join(list(answer.strip())) if answer else ""
+    if q_type in ("简答", "简答>计算", "简答>论述", "简答>材料分析"):
+        return _xlsx_strip_html(reference_answer or answer or "")
+    return answer or ""
+
+
+def _xlsx_check_fields(q):
+    """返回该题超出 _XLSX_MAX_LEN 的字段列表，格式: [{'name': str, 'length': int}]"""
+    options = json.loads(q.options) if q.options else []
+    stem    = _xlsx_strip_html(q.content)
+    answer  = _xlsx_convert_answer(q.question_type, q.answer, q.reference_answer)
+    answer  = answer.replace('\n', ' ').replace('\r', '')
+    explanation = _xlsx_strip_html(q.explanation or "")
+
+    fields = {"题干": stem, "答案": answer, "解析": explanation}
+    for i, opt in enumerate(options[:15]):
+        fields[f"选项{chr(65+i)}"] = _xlsx_strip_html(opt)
+
+    return [{"name": k, "length": len(v)} for k, v in fields.items() if len(v) > _XLSX_MAX_LEN]
+
+
+@bp.route('/api/questions/check-export', methods=['POST'])
+def check_export_xlsx():
+    """检查选中题目中哪些字段超过500字符，返回警告列表"""
+    data = request.json or {}
+    question_ids = data.get('question_ids', [])
+    if not question_ids:
+        return jsonify({'error': 'No question IDs provided'}), 400
+
+    questions = QuestionModel.query.filter(QuestionModel.question_id.in_(question_ids)).all()
+    warnings = []
+    for q in questions:
+        over = _xlsx_check_fields(q)
+        if over:
+            preview = _xlsx_strip_html(q.content or "")[:30]
+            warnings.append({
+                "question_id": q.question_id,
+                "question_type": q.question_type,
+                "content_preview": preview,
+                "fields": over,
+            })
+    return jsonify({"warnings": warnings})
+
+
+@bp.route('/api/questions/export-xlsx', methods=['POST'])
+def export_xlsx():
+    """将选中题目导出为 xlsx 文件，skip_ids 中的题目跳过"""
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        return jsonify({'error': 'openpyxl 未安装'}), 500
+
+    import shutil, tempfile
+    data = request.json or {}
+    question_ids = data.get('question_ids', [])
+    skip_ids     = set(data.get('skip_ids', []))
+    if not question_ids:
+        return jsonify({'error': 'No question IDs provided'}), 400
+
+    # 保持前端传入的顺序
+    id_order = {qid: i for i, qid in enumerate(question_ids)}
+    questions = QuestionModel.query.filter(QuestionModel.question_id.in_(question_ids)).all()
+    questions.sort(key=lambda q: id_order.get(q.question_id, 9999))
+
+    template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'muban_zh.xlsx')
+    if not os.path.exists(template_path):
+        return jsonify({'error': '模板文件 muban_zh.xlsx 不存在'}), 500
+
+    tmp = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False)
+    tmp.close()
+    shutil.copy(template_path, tmp.name)
+
+    wb = load_workbook(tmp.name)
+    ws = wb.active
+    for row in ws.iter_rows(min_row=4, max_row=ws.max_row):
+        for cell in row:
+            cell.value = None
+
+    def cap(v):
+        return v[:_XLSX_MAX_LEN] if isinstance(v, str) else v
+
+    row_idx = 4
+    seq = 0
+    for q in questions:
+        if q.question_id in skip_ids:
+            continue
+        seq += 1
+        q_type  = q.question_type
+        options = json.loads(q.options) if q.options else []
+        stem    = _xlsx_strip_html(q.content)
+        answer  = _xlsx_convert_answer(q_type, q.answer, q.reference_answer)
+        answer  = answer.replace('\n', ' ').replace('\r', '')
+        explanation = _xlsx_strip_html(q.explanation or "")
+        tag_parts = []
+        if q.knowledge_point:
+            tag_parts.append(q.knowledge_point.strip())
+        if q.tags:
+            for t in q.tags.split(","):
+                t = t.strip()
+                if t and t not in tag_parts:
+                    tag_parts.append(t)
+        tags_val = "".join(f"#{p}" for p in tag_parts[:3])
+
+        ws.cell(row=row_idx, column=1).value  = str(seq)
+        ws.cell(row=row_idx, column=2).value  = _XLSX_TYPE_MAP.get(q_type, "简答题")
+        ws.cell(row=row_idx, column=3).value  = _XLSX_SCORE_MAP.get(q_type, 2)
+        ws.cell(row=row_idx, column=4).value  = _XLSX_DIFFICULTY_MAP.get(q.difficulty, 3)
+        ws.cell(row=row_idx, column=5).value  = "仅自己"
+        ws.cell(row=row_idx, column=6).value  = tags_val
+        ws.cell(row=row_idx, column=8).value  = cap(stem)
+        ws.cell(row=row_idx, column=9).value  = cap(answer)
+        ws.cell(row=row_idx, column=10).value = cap(explanation)
+        for i, opt in enumerate(options[:15]):
+            ws.cell(row=row_idx, column=11+i).value = cap(_xlsx_strip_html(opt))
+        row_idx += 1
+
+    wb.save(tmp.name)
+    filename = f"export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return send_file(
+        tmp.name,
+        as_attachment=True,
+        download_name=filename,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
+
 @bp.route('/api/questions/import', methods=['POST'])
 def import_questions():
     """Import questions from a file (Word or CSV)"""
@@ -421,6 +706,52 @@ def import_questions():
                     models.append(model)
                 db.session.add_all(models)
                 db.session.commit()
+
+            elif file.filename.lower().endswith('.xlsx'):
+                questions_data, parse_errors = _parse_xlsx_questions(file_path)
+                failed = len(parse_errors)
+
+                now = datetime.now()
+                for i, q_data in enumerate(questions_data):
+                    content_text = (q_data.get('content') or '').strip()
+                    if content_text in existing_contents:
+                        skipped += 1
+                        continue
+                    existing_contents.add(content_text)
+                    question_id = f"q_{now.strftime('%Y%m%d_%H%M%S')}_xlsx_{i}"
+                    model = QuestionModel(
+                        question_id=question_id,
+                        question_type=q_data['type'],
+                        content=q_data['content'],
+                        options=json.dumps(q_data.get('options', []), ensure_ascii=False),
+                        answer=q_data.get('answer'),
+                        reference_answer=q_data.get('reference_answer', ''),
+                        explanation=q_data.get('explanation', ''),
+                        content_en=None,
+                        options_en=None,
+                        subject=import_subject or None,
+                        knowledge_point=q_data.get('knowledge_point') or None,
+                        tags=q_data.get('tags') or None,
+                        difficulty=q_data.get('difficulty') or None,
+                        language='zh',
+                        metadata_json='{}',
+                        created_at=now,
+                        updated_at=now,
+                    )
+                    models.append(model)
+                db.session.add_all(models)
+                db.session.commit()
+
+                imported = len(models)
+                os.remove(file_path) if os.path.exists(file_path) else None
+                return jsonify({
+                    'message': 'Questions imported successfully',
+                    'imported': imported,
+                    'count': imported,
+                    'skipped': skipped,
+                    'failed': failed,
+                    'parse_errors': parse_errors[:10],  # 最多返回10条解析错误
+                })
 
             # Clean up temporary files
             if os.path.exists(file_path):
@@ -640,7 +971,7 @@ def generate_exam():
         )
         if subject_filter:
             q_query = q_query.filter(QuestionModel.subject == subject_filter)
-        available = q_query.limit(count).all()
+        available = q_query.order_by(db.func.random()).limit(count).all()
 
         for q in available:
             db.session.execute(exam_questions.insert().values(

@@ -44,24 +44,27 @@ class TestUsageTracking:
         create_question_in_db(db, question_id='co2', content='第二题')
 
         # Generate first exam
-        client.post('/api/exams/generate', json={
+        resp1 = client.post('/api/exams/generate', json={
             'exam_id': 'coe1',
             'name': '第一次',
             'config': {'单选': {'count': 1, 'points': 5}},
         })
+        first_ids = {q['question_id'] for q in resp1.get_json().get('questions', [])}
+
         # Confirm it — this marks questions as used
         client.post('/api/exams/coe1/confirm')
 
         # Generate second exam — should only pick from unused questions
-        resp = client.post('/api/exams/generate', json={
+        resp2 = client.post('/api/exams/generate', json={
             'exam_id': 'coe2',
             'name': '第二次',
             'config': {'单选': {'count': 1, 'points': 5}},
         })
-        data = resp.get_json()
-        # Should get the other question
-        if len(data['questions']) == 1:
-            assert data['questions'][0]['question_id'] == 'co2'
+        second_ids = {q['question_id'] for q in resp2.get_json().get('questions', [])}
+
+        # No overlap between the two exams
+        assert first_ids.isdisjoint(second_ids), \
+            f"第二次生成重复使用了已确认的题目: {first_ids & second_ids}"
 
     def test_replace_does_not_change_used_flags(self, client, db):
         """Replace only swaps the association, does not change is_used."""
