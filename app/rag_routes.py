@@ -359,9 +359,7 @@ def _clean_headings_with_ai(headings: list, subject: str, ds_client) -> dict:
     if not headings:
         return None
 
-    # 只用前 60 个标题（防止 prompt 过长）
-    sample = headings[:60]
-    heading_list = '\n'.join(f"H{h['level']}: {h['text']}" for h in sample)
+    heading_list = '\n'.join(f"H{h['level']}: {h['text']}" for h in headings)
 
     # 自动检测文档类型，生成差异化 prompt
     doc_type = _detect_doc_type(headings)
@@ -430,7 +428,7 @@ def _clean_headings_with_ai(headings: list, subject: str, ds_client) -> dict:
                 {'role': 'system', 'content': '你是文档结构分析专家，善于识别章节层级与无效标题。'},
                 {'role': 'user', 'content': prompt},
             ],
-            max_tokens=1200 if doc_type == 'ppt' else 800,
+            max_tokens=4000,
             temperature=0,
         )
         raw = resp.choices[0].message.content.strip()
