@@ -185,6 +185,8 @@ def _init_ds_db():
             "ALTER TABLE ds_kps ADD COLUMN cognitive_dimension TEXT DEFAULT ''",
             "ALTER TABLE ds_chapters ADD COLUMN section_name TEXT DEFAULT ''",
             "ALTER TABLE ds_kps ADD COLUMN section_name TEXT DEFAULT ''",
+            "ALTER TABLE ds_docs ADD COLUMN display_name TEXT DEFAULT ''",
+            "ALTER TABLE ds_kps ADD COLUMN sub_section_name TEXT DEFAULT ''",
         ]:
             try:
                 conn.execute(migration_sql)
@@ -2223,7 +2225,7 @@ def ds_export_xlsx():
     with _ds_db_conn() as conn:
         # 校验文档存在
         doc_row = conn.execute(
-            "SELECT doc_id FROM ds_docs WHERE doc_id=?", (doc_id,)
+            "SELECT doc_id, COALESCE(display_name,'') as display_name FROM ds_docs WHERE doc_id=?", (doc_id,)
         ).fetchone()
         if doc_row is None:
             return jsonify({'error': f'文档 {doc_id} 不存在'}), 404
@@ -2235,10 +2237,11 @@ def ds_export_xlsx():
             (doc_id,),
         ).fetchall()
 
-        # 获取知识点（含 section_name）
+        # 获取知识点（含 section_name / sub_section_name）
         kps = conn.execute(
             "SELECT id, chapter_num, chapter_name, "
             "COALESCE(section_name, '') as section_name, "
+            "COALESCE(sub_section_name, '') as sub_section_name, "
             "kp_name, teaching_focus, knowledge_type, cognitive_dimension, relations_json "
             "FROM ds_kps WHERE doc_id=? ORDER BY chapter_num, id",
             (doc_id,),
@@ -2246,7 +2249,8 @@ def ds_export_xlsx():
 
     # ── 1. 从 ds_kps 重建层级（按出现顺序去重） ──────────────────────────────
     import re as _re
-    doc_label = _re.sub(r'^\d+_', '', doc_id).replace('_', ' ')
+    _raw_label = _re.sub(r'^\d+_', '', doc_id).replace('_', ' ')
+    doc_label = doc_row['display_name'] if doc_row['display_name'] else _raw_label
 
     # 遍历 kps，按 (chapter_name, section_name) 分组并保持出现顺序
     chapter_order: list = []          # [chapter_name]
@@ -2285,20 +2289,44 @@ def ds_export_xlsx():
     # L1: 文档
     _add_row(1, doc_label, '知识单元')
 
-    # L2（章） → L3（节 or KP直接） → L4（KP，若有节）
+    # L2（章） → L3（节 or KP直接） → L4（KP，若有节且无sub_section）
+    #          → L3（节） → L4（子节,知识单元） → L5（KP，若有sub_section_name）
     for ch_name in chapter_order:
         _add_row(2, ch_name, '知识单元')
         for sec_name in chapter_sections[ch_name]:
             kp_list = section_kps.get((ch_name, sec_name), [])
             if sec_name:
-                # 有节名：L3=节（知识单元），L4=KP
+                # 有节名：L3=节（知识单元）
                 _add_row(3, sec_name, '知识单元')
+                # 按 sub_section_name 分组，保持顺序
+                sub_order = []
+                sub_seen = set()
+                sub_kps = {}  # sub_section_name → [kp, ...]
                 for kp in kp_list:
-                    _add_row(4, kp['kp_name'], '知识点',
-                             tf=kp['teaching_focus'] or '',
-                             kt=kp['knowledge_type'] or '',
-                             cd=kp['cognitive_dimension'] or '',
-                             db_id=kp['id'])
+                    sub = kp['sub_section_name'] or ''
+                    if sub not in sub_seen:
+                        sub_seen.add(sub)
+                        sub_order.append(sub)
+                    sub_kps.setdefault(sub, []).append(kp)
+                for sub_name in sub_order:
+                    sub_list = sub_kps[sub_name]
+                    if sub_name:
+                        # 有子节：L4=子节（知识单元），L5=KP
+                        _add_row(4, sub_name, '知识单元')
+                        for kp in sub_list:
+                            _add_row(5, kp['kp_name'], '知识点',
+                                     tf=kp['teaching_focus'] or '',
+                                     kt=kp['knowledge_type'] or '',
+                                     cd=kp['cognitive_dimension'] or '',
+                                     db_id=kp['id'])
+                    else:
+                        # 无子节：L4=KP（原有行为）
+                        for kp in sub_list:
+                            _add_row(4, kp['kp_name'], '知识点',
+                                     tf=kp['teaching_focus'] or '',
+                                     kt=kp['knowledge_type'] or '',
+                                     cd=kp['cognitive_dimension'] or '',
+                                     db_id=kp['id'])
             else:
                 # 无节名：KP 直接挂在章下，放 L3
                 for kp in kp_list:
@@ -2455,6 +2483,268 @@ def ds_export_xlsx():
         as_attachment=True,
         download_name=f'{doc_label}_知识点导出.xlsx',
     )
+
+
+@rag_bp.route('/api/rag/ds-import-xlsx', methods=['POST'])
+def ds_import_xlsx():
+    """将用户修改后的知识点 Excel 导入回数据库。
+
+    规则：
+    - 按 kp_name 匹配，更新 teaching_focus / knowledge_type / cognitive_dimension /
+      sub_section_name / relations_json（前提+并列类型）；
+    - Excel 中空值的字段保留数据库原值；
+    - 数据库中有但 Excel 中没有的知识点：保留不删除；
+    - L1 名称变更 → 更新 ds_docs.display_name。
+
+    Query params:
+        doc_id  — 目标文档 ID（必填）
+    Form data:
+        file    — .xlsx 文件
+    """
+    import io as _io
+    try:
+        import openpyxl as _openpyxl
+    except ImportError:
+        return jsonify({'error': '请先安装 openpyxl：pip install openpyxl'}), 500
+    try:
+        import pandas as _pd
+    except ImportError:
+        return jsonify({'error': '请先安装 pandas：pip install pandas'}), 500
+
+    _init_ds_db()
+    doc_id = request.args.get('doc_id', '').strip()
+    if not doc_id:
+        return jsonify({'error': 'doc_id 不能为空'}), 400
+
+    if 'file' not in request.files:
+        return jsonify({'error': '请上传 file 字段'}), 400
+    f = request.files['file']
+    if not f.filename.lower().endswith('.xlsx'):
+        return jsonify({'error': '仅支持 .xlsx 格式'}), 400
+
+    # ── 校验文档存在 ──────────────────────────────────────────────────────────
+    with _ds_db_conn() as conn:
+        doc_check = conn.execute(
+            "SELECT doc_id FROM ds_docs WHERE doc_id=?", (doc_id,)
+        ).fetchone()
+    if doc_check is None:
+        return jsonify({'error': f'文档 {doc_id} 不存在'}), 404
+
+    # ── 读取 Excel ────────────────────────────────────────────────────────────
+    try:
+        file_bytes = _io.BytesIO(f.read())
+        df = _pd.read_excel(file_bytes, sheet_name='知识点', header=None)
+    except Exception as e:
+        return jsonify({'error': f'Excel 读取失败：{e}'}), 400
+
+    # 前两行：说明行（row 0）、表头行（row 1）；数据从 row 2 开始
+    if len(df) < 3:
+        return jsonify({'error': 'Excel 数据为空'}), 400
+    df = df.iloc[2:].copy().reset_index(drop=True)
+    _COLS = ['ID', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6',
+             '节点类型', '教学要点', '知识类型', '认知维度', '前序知识点ID', '关联知识点ID']
+    if len(df.columns) < len(_COLS):
+        return jsonify({'error': f'Excel 列数不足，期望 {len(_COLS)} 列'}), 400
+    df.columns = _COLS + list(df.columns[len(_COLS):])
+
+    def _str(v):
+        """将单元格值转为干净字符串，NaN/None → ''"""
+        if _pd.isna(v):
+            return ''
+        s = str(v).strip()
+        return '' if s.lower() == 'nan' else s
+
+    # ── 构建 export_id → name 映射（含知识单元和知识点） ─────────────────────
+    id_to_name: dict = {}
+    for _, row in df.iterrows():
+        eid = _str(row['ID'])
+        if not eid:
+            continue
+        # 找该行第一个非空 Lx 值
+        name = ''
+        for col in ['L1', 'L2', 'L3', 'L4', 'L5', 'L6']:
+            v = _str(row[col])
+            if v:
+                name = v
+                break
+        if name:
+            try:
+                id_to_name[int(float(eid))] = name
+            except (ValueError, OverflowError):
+                pass
+
+    def _resolve_ids(ids_str: str) -> list:
+        """将分号分隔的 export_id 字符串解析为知识点名称列表"""
+        names = []
+        for part in ids_str.split(';'):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                eid = int(float(part))
+                name = id_to_name.get(eid, '')
+                if name:
+                    names.append(name)
+            except (ValueError, OverflowError):
+                pass
+        return names
+
+    # ── 扫描层级上下文，收集每个 KP 的信息 ──────────────────────────────────
+    cur_l2 = ''   # chapter_name
+    cur_l3 = ''   # section_name
+    cur_l4 = ''   # sub_section_name（仅当 L4 是知识单元时）
+    kp_rows = []  # [{kp_name, chapter_name, section_name, sub_section_name, ...}, ...]
+    display_name_new = ''
+
+    for _, row in df.iterrows():
+        node_type = _str(row['节点类型'])
+        # 找该行是哪一级
+        level = None
+        name  = ''
+        for li, col in enumerate(['L1', 'L2', 'L3', 'L4', 'L5', 'L6'], start=1):
+            v = _str(row[col])
+            if v:
+                level = li
+                name  = v
+                break
+        if not name or level is None:
+            continue
+
+        if node_type == '知识单元':
+            if level == 1:
+                display_name_new = name
+                cur_l2 = cur_l3 = cur_l4 = ''
+            elif level == 2:
+                cur_l2 = name
+                cur_l3 = cur_l4 = ''
+            elif level == 3:
+                cur_l3 = name
+                cur_l4 = ''
+            elif level == 4:
+                cur_l4 = name
+            # L5/L6 知识单元暂不处理
+            continue
+
+        if node_type == '知识点':
+            tf  = _str(row['教学要点'])
+            kt  = _str(row['知识类型'])
+            cd  = _str(row['认知维度'])
+            pre = _str(row['前序知识点ID'])
+            rel = _str(row['关联知识点ID'])
+            kp_rows.append({
+                'kp_name':         name,
+                'chapter_name':    cur_l2,
+                'section_name':    cur_l3,
+                'sub_section_name': cur_l4,
+                'teaching_focus':  tf,
+                'knowledge_type':  kt,
+                'cognitive_dimension': cd,
+                'prereq_names':    _resolve_ids(pre) if pre else [],
+                'related_names':   _resolve_ids(rel) if rel else [],
+            })
+
+    # ── 更新数据库 ────────────────────────────────────────────────────────────
+    updated_count = 0
+    skipped_count = 0
+    not_found     = []
+    detail        = []
+
+    with _ds_db_conn() as conn:
+        # 1. 更新 display_name
+        if display_name_new:
+            conn.execute(
+                "UPDATE ds_docs SET display_name=? WHERE doc_id=?",
+                (display_name_new, doc_id)
+            )
+
+        # 2. 加载该文档全部 KP 的名称→id 映射（用于关系 target 解析）
+        all_kps = conn.execute(
+            "SELECT id, kp_name, relations_json FROM ds_kps WHERE doc_id=?",
+            (doc_id,)
+        ).fetchall()
+        kp_name_to_ids: dict = {}
+        kp_id_to_rel: dict   = {}
+        for kp in all_kps:
+            kp_name_to_ids.setdefault(kp['kp_name'], []).append(kp['id'])
+            kp_id_to_rel[kp['id']] = kp['relations_json'] or '[]'
+
+        # 3. 逐个 KP 处理
+        for item in kp_rows:
+            kp_name = item['kp_name']
+            ids = kp_name_to_ids.get(kp_name)
+            if not ids:
+                not_found.append(kp_name)
+                continue
+
+            changed: dict = {}
+
+            for db_id in ids:
+                update_fields = []
+                update_vals   = []
+
+                # 属性字段：空值保留 DB 原值
+                if item['teaching_focus']:
+                    update_fields.append('teaching_focus=?')
+                    update_vals.append(item['teaching_focus'])
+                    changed['teaching_focus'] = item['teaching_focus']
+                if item['knowledge_type']:
+                    update_fields.append('knowledge_type=?')
+                    update_vals.append(item['knowledge_type'])
+                    changed['knowledge_type'] = item['knowledge_type']
+                if item['cognitive_dimension']:
+                    update_fields.append('cognitive_dimension=?')
+                    update_vals.append(item['cognitive_dimension'])
+                    changed['cognitive_dimension'] = item['cognitive_dimension']
+
+                # sub_section_name：只要 Excel 有值就更新（允许清空为 ''）
+                # 若 Excel 中该 KP 在 L4 且 L4 知识单元存在 → 写入 sub_section_name
+                # 若 Excel 中该 KP 在 L4 且 L4 知识单元不存在（原行为）→ sub_section_name=''
+                new_sub = item['sub_section_name']
+                update_fields.append('sub_section_name=?')
+                update_vals.append(new_sub)
+                if new_sub:
+                    changed['sub_section_name'] = new_sub
+
+                # 关系 JSON：合并（覆盖前提+并列，保留其他类型）
+                if item['prereq_names'] or item['related_names']:
+                    try:
+                        existing_rels = _json_mod.loads(kp_id_to_rel.get(db_id, '[]') or '[]')
+                    except Exception:
+                        existing_rels = []
+                    # 保留非前提/并列类型的已有关系
+                    kept = [r for r in existing_rels
+                            if r.get('type') not in ('前提', '并列')]
+                    new_rels = kept[:]
+                    for n in item['prereq_names']:
+                        new_rels.append({'type': '前提', 'target': n})
+                    for n in item['related_names']:
+                        new_rels.append({'type': '并列', 'target': n})
+                    new_rel_json = _json_mod.dumps(new_rels, ensure_ascii=False)
+                    update_fields.append('relations_json=?')
+                    update_vals.append(new_rel_json)
+                    changed['relations_json'] = new_rel_json
+
+                if update_fields:
+                    sql = f"UPDATE ds_kps SET {', '.join(update_fields)} WHERE id=?"
+                    conn.execute(sql, update_vals + [db_id])
+                    updated_count += 1
+                else:
+                    skipped_count += 1
+
+            if changed:
+                detail.append({'kp_name': kp_name, 'changed': changed})
+
+        conn.commit()
+
+    return jsonify({
+        'success': True,
+        'doc_id': doc_id,
+        'display_name_updated': display_name_new or None,
+        'kps_updated':  updated_count,
+        'kps_skipped':  skipped_count,
+        'kps_not_found': not_found,
+        'detail': detail,
+    })
 
 
 @rag_bp.route('/api/rag/ds-tasks/<task_id>', methods=['GET'])

@@ -77,22 +77,30 @@ def main() -> None:
     from app.factory import create_app
 
     port = _free_port()
-    url = f'http://127.0.0.1:{port}'
+    local_url = f'http://127.0.0.1:{port}'
+
+    # 服务器模式：同时获取局域网 IP 供同事访问
+    try:
+        lan_ip = socket.gethostbyname(socket.gethostname())
+    except Exception:
+        lan_ip = '0.0.0.0'
+    lan_url = f'http://{lan_ip}:{port}'
 
     flask_app = create_app('production')
 
-    # 稍后自动打开浏览器
+    # 稍后自动打开浏览器（本机访问）
     def _open_browser():
         time.sleep(1.8)
-        webbrowser.open(url)
+        webbrowser.open(local_url)
 
     threading.Thread(target=_open_browser, daemon=True).start()
 
     print(f'[试题管理系统] 数据目录: {data_dir}')
-    print(f'[试题管理系统] 访问地址: {url}')
+    print(f'[试题管理系统] 本机访问: {local_url}')
+    print(f'[试题管理系统] 局域网访问: {lan_url}')
 
     flask_app.run(
-        host='127.0.0.1',
+        host='0.0.0.0',
         port=port,
         debug=False,
         use_reloader=False,

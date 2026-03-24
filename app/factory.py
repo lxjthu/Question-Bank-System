@@ -68,6 +68,7 @@ def _migrate_db():
         ('exams', 'subject', 'VARCHAR(128)'),
         ('exams', 'is_confirmed', 'BOOLEAN DEFAULT 0'),
         ('exams', 'confirmed_at', 'DATETIME'),
+        ('questions', 'imported_at', 'DATETIME'),
     ]
     with db.engine.connect() as conn:
         for table, col, col_def in new_cols:

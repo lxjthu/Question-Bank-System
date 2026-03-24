@@ -5194,6 +5194,51 @@ Now please start generating questions. Output question content directly without 
             }
         }
 
+        async function _importDsKgXlsx(file) {
+            if (!file) return;
+            // 重置 input，允许下次重复选同一文件
+            document.getElementById('ds-kg-import-input').value = '';
+
+            const subtitle = document.getElementById('ds-kg-subtitle');
+            const match = subtitle && subtitle.textContent.match(/^\（(.+)\）$/);
+            const docId = match ? match[1] : null;
+            if (!docId) {
+                alert('请先打开单个文档的知识图谱再导入（当前为多文档或无文档视图）。');
+                return;
+            }
+            const btn = document.getElementById('ds-kg-import-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:4px;"></i>导入中…';
+            try {
+                const fd = new FormData();
+                fd.append('file', file);
+                const resp = await fetch(
+                    `/api/rag/ds-import-xlsx?doc_id=${encodeURIComponent(docId)}`,
+                    { method: 'POST', body: fd }
+                );
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok) {
+                    alert('导入失败：' + (data.error || `HTTP ${resp.status}`));
+                    return;
+                }
+                let msg = `导入完成！\n共更新知识点：${data.kps_updated} 个`;
+                if (data.kps_skipped) msg += `，跳过（无变更）：${data.kps_skipped} 个`;
+                if (data.display_name_updated) msg += `\n文档显示名已更新为："${data.display_name_updated}"`;
+                if (data.kps_not_found && data.kps_not_found.length) {
+                    msg += `\n\n以下知识点在数据库中未找到（已跳过）：\n${data.kps_not_found.slice(0, 10).join('\n')}`;
+                    if (data.kps_not_found.length > 10) msg += `\n…共 ${data.kps_not_found.length} 个`;
+                }
+                alert(msg);
+                // 刷新知识图谱视图
+                showDsKgModal(docId);
+            } catch (e) {
+                alert('导入出错：' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-file-upload" style="margin-right:4px;"></i>导入 Excel';
+            }
+        }
+
         function closeDsKgModal() {
             const modal = document.getElementById('ds-kg-modal');
             if (modal) modal.style.display = 'none';
@@ -7409,6 +7454,14 @@ Reference answer integrating theory and case.
                         style="background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);
                                color:#fff;cursor:pointer;padding:4px 12px;border-radius:6px;font-size:0.82rem;">
                         <i class="fas fa-file-excel" style="margin-right:4px;"></i>导出 Excel
+                    </button>
+                    <input type="file" id="ds-kg-import-input" accept=".xlsx" style="display:none"
+                           onchange="_importDsKgXlsx(this.files[0])">
+                    <button id="ds-kg-import-btn"
+                        onclick="document.getElementById('ds-kg-import-input').click()"
+                        style="background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);
+                               color:#fff;cursor:pointer;padding:4px 12px;border-radius:6px;font-size:0.82rem;">
+                        <i class="fas fa-file-upload" style="margin-right:4px;"></i>导入 Excel
                     </button>
                     <button onclick="closeDsKgModal()"
                         style="background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);

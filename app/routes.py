@@ -76,6 +76,7 @@ def delete_image(image_id):
 @bp.route('/api/questions', methods=['GET'])
 def get_questions():
     """Get all questions or search questions"""
+    from datetime import timedelta
     keyword = request.args.get('keyword', '')
     question_type = request.args.get('type', '')
     language = request.args.get('language', '')
@@ -83,6 +84,9 @@ def get_questions():
     knowledge_point = request.args.get('knowledge_point', '')
     is_used = request.args.get('is_used', '')
     subject = request.args.get('subject', '')
+    imported_after = request.args.get('imported_after', '').strip()
+    imported_before = request.args.get('imported_before', '').strip()
+    imported_only = request.args.get('imported_only', '')
 
     query = QuestionModel.query
 
@@ -102,9 +106,51 @@ def get_questions():
         query = query.filter_by(is_used=False)
     if subject:
         query = query.filter_by(subject=subject)
+    if imported_after:
+        try:
+            dt = datetime.strptime(imported_after, '%Y-%m-%d')
+            query = query.filter(QuestionModel.imported_at >= dt)
+        except ValueError:
+            pass
+    if imported_before:
+        try:
+            dt = datetime.strptime(imported_before, '%Y-%m-%d') + timedelta(days=1)
+            query = query.filter(QuestionModel.imported_at < dt)
+        except ValueError:
+            pass
+    if imported_only == '1':
+        query = query.filter(QuestionModel.imported_at.isnot(None))
 
     questions = query.all()
     return jsonify([q.to_dict() for q in questions])
+
+
+@bp.route('/api/questions/count', methods=['GET'])
+def count_questions():
+    """返回满足筛选条件的题目数量（用于组卷预估）。"""
+    from datetime import timedelta
+    subject = request.args.get('subject', '').strip()
+    difficulty = request.args.get('difficulty', '').strip()
+    kp = request.args.get('knowledge_point', '').strip()
+    tags_str = request.args.get('tags', '').strip()
+    is_used = request.args.get('is_used', '')
+
+    q = QuestionModel.query
+    if subject:
+        q = q.filter_by(subject=subject)
+    if difficulty:
+        q = q.filter_by(difficulty=difficulty)
+    if kp:
+        q = q.filter(QuestionModel.knowledge_point.contains(kp))
+    if tags_str:
+        tags_list = [t.strip() for t in tags_str.split(',') if t.strip()]
+        if tags_list:
+            q = q.filter(db.or_(*[QuestionModel.tags.contains(t) for t in tags_list]))
+    if is_used == '0':
+        q = q.filter_by(is_used=False)
+    elif is_used == '1':
+        q = q.filter_by(is_used=True)
+    return jsonify({'count': q.count()})
 
 
 @bp.route('/api/questions/subjects', methods=['GET'])
@@ -652,6 +698,7 @@ def import_questions():
                         difficulty=q_data.get('difficulty') or None,
                         language=lang,
                         metadata_json='{}',
+                        imported_at=now,
                         created_at=now,
                         updated_at=now,
                     )
@@ -700,6 +747,7 @@ def import_questions():
                         difficulty=q_data.get('difficulty') or None,
                         language=lang,
                         metadata_json='{}',
+                        imported_at=now,
                         created_at=now,
                         updated_at=now,
                     )
@@ -735,6 +783,7 @@ def import_questions():
                         difficulty=q_data.get('difficulty') or None,
                         language='zh',
                         metadata_json='{}',
+                        imported_at=now,
                         created_at=now,
                         updated_at=now,
                     )
@@ -946,6 +995,10 @@ def generate_exam():
     name = data.get('name', f"Exam_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     config = data.get('config', {})
     subject_filter = data.get('subject') or None
+    difficulty_filter = (data.get('difficulty') or '').strip()
+    kp_filter = (data.get('knowledge_point') or '').strip()
+    tags_filter = [t.strip() for t in (data.get('tags') or []) if str(t).strip()]
+    is_used_filter = data.get('is_used_filter', 'unused')
     now = datetime.now()
 
     # Create a new exam
@@ -964,13 +1017,25 @@ def generate_exam():
     for question_type, settings in config.items():
         count = settings.get('count', 0)
 
-        # Get unused questions of this type (strip whitespace for comparison)
         q_query = QuestionModel.query.filter(
             db.func.trim(QuestionModel.question_type) == question_type.strip(),
-            QuestionModel.is_used == False
         )
+        # 已用/未用筛选（默认只取未使用题目）
+        if is_used_filter == 'unused':
+            q_query = q_query.filter(QuestionModel.is_used == False)
+        elif is_used_filter == 'used':
+            q_query = q_query.filter(QuestionModel.is_used == True)
+        # is_used_filter == '' → 不限制
         if subject_filter:
             q_query = q_query.filter(QuestionModel.subject == subject_filter)
+        if difficulty_filter:
+            q_query = q_query.filter(QuestionModel.difficulty == difficulty_filter)
+        if kp_filter:
+            q_query = q_query.filter(QuestionModel.knowledge_point.contains(kp_filter))
+        if tags_filter:
+            q_query = q_query.filter(
+                db.or_(*[QuestionModel.tags.contains(t) for t in tags_filter])
+            )
         available = q_query.order_by(db.func.random()).limit(count).all()
 
         for q in available:

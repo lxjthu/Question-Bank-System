@@ -1,5 +1,18 @@
 # 更新日志
 
+## 1.18.0 - 2026-03-24
+
+### 新功能
+
+- **知识点 Excel 导入回写** — 知识图谱 Modal 工具栏新增「导入 Excel」按钮（与「导出 Excel」并列）：用户将导出的 `.xlsx` 修改后重新上传，系统按知识点名称匹配，将教学属性（重点/难点/考点、知识类型、认知维度）、关系（前提/并列）、层级（L4 子节 `sub_section_name`，支持五层）一次性回写数据库；Excel 中空字段保留数据库原值（不覆盖）；数据库中有但 Excel 里没有的知识点保留不删；L1 名称变更写入 `ds_docs.display_name`，导出时优先使用；导入完成后自动刷新图谱视图；新增后端端点 `POST /api/rag/ds-import-xlsx`
+
+### 数据库变更（自动迁移，无需手动操作）
+
+- `ds_docs` 新增 `display_name TEXT DEFAULT ''` — 用户自定义文档显示名
+- `ds_kps` 新增 `sub_section_name TEXT DEFAULT ''` — L4 子节名，支持导出五层层级（`section_name → sub_section_name → kp`）
+
+---
+
 ## 1.17.0 - 2026-03-23
 
 ### 新功能

@@ -52,6 +52,7 @@ class QuestionModel(db.Model):
     metadata_json = db.Column(db.Text, default='{}')    # JSON string
     is_used = db.Column(db.Boolean, default=False, index=True)
     used_date = db.Column(db.DateTime)
+    imported_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime)
     updated_at = db.Column(db.DateTime)
 
@@ -74,6 +75,7 @@ class QuestionModel(db.Model):
             'metadata': json.loads(self.metadata_json) if self.metadata_json else {},
             'is_used': self.is_used,
             'used_date': self.used_date.isoformat() if self.used_date else None,
+            'imported_at': self.imported_at.strftime('%Y-%m-%d %H:%M') if self.imported_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
