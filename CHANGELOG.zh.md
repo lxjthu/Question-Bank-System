@@ -1,5 +1,19 @@
 # 更新日志
 
+## 1.22.0 - 2026-03-25
+
+### 修复
+
+- **ds_generate 400 错误** — `max_tokens` 从 `16000` 修正为 `8192`（DeepSeek API 输出上限），消除 `Invalid max_tokens value` 报错
+
+### 优化
+
+- **非分批出题 KP 智能采样** — 非分批模式不再堆入全部知识点，改为从过滤后的 KP 中随机采样与题目数等量的知识点，并自动扩展每个 KP 的关联知识点（`relations_json`）作为背景 context；KP 总数 ≤ 题目数时退化为全量使用
+- **Token 溢出自动分批** — 新增预检逻辑：估算输出 token（`total_q × 350`）> 7500 或估算输入 token > 40000 时，自动将 `batch_mode` 切换为 `true`，`batch_size = max(5, total_q // 2)`，无需用户手动开启分批；返回 `stats.auto_batched=true` 标记
+- **kp_index 全局共用** — `kp_index`（KP 名称 → 行的字典）提前构建，稀疏采样模式和非分批模式共用同一份，消除重复构建
+
+---
+
 ## 1.21.0 - 2026-03-25
 
 ### 新功能

@@ -3047,6 +3047,28 @@ def ds_generate():
     if not api_key:
         return jsonify({'error': '未设置 DEEPSEEK_API_KEY，请在 API 配置中填写'}), 400
 
+    import random as _random
+
+    # kp_name → row 快速查询字典（全模式共用）
+    kp_index = {kp['kp_name']: kp for kp in kps_data}
+
+    def _sample_kps_with_relations(source_kps, count):
+        """随机采样 count 个KP，并扩展其关联KP，去重后返回列表。"""
+        sampled = _random.sample(source_kps, min(count, len(source_kps)))
+        seen = {kp['kp_name'] for kp in sampled}
+        result = list(sampled)
+        for kp in sampled:
+            try:
+                rels = _json.loads(kp['relations_json'] or '[]')
+                for r in rels:
+                    target = r.get('target', '').strip()
+                    if target and target not in seen and target in kp_index:
+                        result.append(kp_index[target])
+                        seen.add(target)
+            except Exception:
+                pass
+        return result
+
     def _build_context(kps_list):
         """将知识点列表构建为 context 字符串（无截断）。"""
         parts: list = []
@@ -3090,54 +3112,54 @@ def ds_generate():
                 },
                 {'role': 'user', 'content': final_prompt},
             ],
-            max_tokens=16000,
+            max_tokens=8192,
             temperature=0.7,
         )
         content = response.choices[0].message.content
         return content, len(context_str)
 
-    # ── 非分批模式（上限提升至 30000） ───────────────────────────────────────
+    # ── 非分批模式 ──────────────────────────────────────────────────────────
+    auto_batched = False
     if not batch_mode:
-        context_parts: list = []
-        current_chapter = None
-        total_chars = 0
-        for kp in kps_data:
-            if total_chars > 30000:
-                context_parts.append('\n（已达上下文长度上限，后续知识点省略）')
-                break
-            if kp['chapter_name'] != current_chapter:
-                current_chapter = kp['chapter_name']
-                context_parts.append(f'\n## {current_chapter}\n')
-            context_parts.append(f'### 知识点：{kp["kp_name"]}')
-            context_parts.append(kp['kp_content'])
-            try:
-                rels = _json.loads(kp['relations_json'] or '[]')
-                if rels:
-                    rel_str = '；'.join(
-                        f"{r.get('type', '')} → {r.get('target', '')}"
-                        for r in rels
-                        if r.get('target')
-                    )
-                    if rel_str:
-                        context_parts.append(f'关联关系：{rel_str}')
-            except Exception:
-                pass
-            context_parts.append('')
-            total_chars += len(kp['kp_name'] or '') + len(kp['kp_content'] or '')
-        context = '\n'.join(context_parts)
+        # 按题目数采样KP（+关联KP），避免塞入过多无关知识点
+        if total_q > 0 and len(kps_data) > total_q:
+            selected_kps = _sample_kps_with_relations(kps_data, total_q)
+        else:
+            selected_kps = kps_data
 
-        try:
-            content, ctx_chars = _call_deepseek(context, question_list)
-            return jsonify({
-                'success': True,
-                'content': content,
-                'stats': {
-                    'kps_used': len(kps_data),
-                    'context_chars': ctx_chars,
-                },
-            })
-        except Exception as e:
-            return jsonify({'error': f'DeepSeek API 调用失败：{str(e)}'}), 500
+        context = _build_context(selected_kps)
+
+        # 估算 token 溢出：输出约 total_q×350；输入约字符数/2
+        est_out = total_q * 350 if total_q > 0 else 8192
+        full_prompt = (
+            prompt_template
+            .replace('{context}', context)
+            .replace('{question_list}', question_list)
+        )
+        est_in = len(full_prompt) // 2
+
+        if est_out <= 7500 and est_in <= 40000:
+            # 正常单批出题
+            try:
+                content, ctx_chars = _call_deepseek(context, question_list)
+                return jsonify({
+                    'success': True,
+                    'content': content,
+                    'stats': {
+                        'kps_total': len(kps_data),
+                        'kps_sampled': len(selected_kps),
+                        'context_chars': ctx_chars,
+                        'estimated_output_tokens': est_out,
+                    },
+                })
+            except Exception as e:
+                return jsonify({'error': f'DeepSeek API 调用失败：{str(e)}'}), 500
+
+        # 估算溢出 → 自动切换分批模式
+        auto_batched = True
+        batch_mode = True
+        batch_size = max(5, total_q // 2)
+        sparse_mode = len(kps_data) > total_q * 3
 
     # ── 公共辅助：按批次分配题数 ──────────────────────────────────────────────
     def _split_question_list(batch_idx, total_batches):
@@ -3163,14 +3185,10 @@ def ds_generate():
 
     # ── 稀疏随机采样模式（知识点数 > 题目数 * 3） ────────────────────────────
     if sparse_mode:
-        import random as _random
         import math as _math
 
         # 批次数 = ceil(总题数 / batch_size)，batch_size 此时表示"每批题数"
         batch_count = max(1, _math.ceil(total_q / batch_size))
-
-        # 构建 kp_name → row 的快速查询字典，用于关联KP扩展
-        kp_index = {kp['kp_name']: kp for kp in kps_data}
 
         def _sample_kps_for_batch(batch_q_count):
             """随机采样 batch_q_count 个KP，并扩展其关联KP，去重后返回列表。"""
@@ -3257,6 +3275,7 @@ def ds_generate():
                 'batch_count': batch_count,
                 'batch_size': batch_size,
                 'sparse_mode': True,
+                'auto_batched': auto_batched,
                 'batch_stats': batch_stats,
             },
         })
@@ -3308,6 +3327,7 @@ def ds_generate():
             'kps_total': len(kps_data),
             'batch_count': batch_count,
             'batch_size': batch_size,
+            'auto_batched': auto_batched,
             'batch_stats': batch_stats,
         },
     })
