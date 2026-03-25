@@ -284,7 +284,7 @@ def preview_filter(pool_id):
             'difficulty': r['difficulty'],
             'language': r['language'],
             'knowledge_point': r['knowledge_point'],
-            'content_preview': _strip_html(r['content'])[:80],
+            'content_preview': _strip_html(r['content'])[:200],
         }
         for r in rows
     ]
@@ -299,8 +299,12 @@ def add_to_pool(pool_id):
         return jsonify({'error': '题库池不存在'}), 404
 
     data = request.get_json(silent=True) or {}
-    qs, params = _build_filter_query(data, pool_id, exclude_pool=True)
-    rows = _fetch(qs, **params)
+    direct_ids = data.get('question_ids')  # 直接指定 ID 列表（来自预览勾选）
+    if direct_ids:
+        rows = [{'question_id': qid} for qid in direct_ids if qid]
+    else:
+        qs, params = _build_filter_query(data, pool_id, exclude_pool=True)
+        rows = _fetch(qs, **params)
 
     added = 0
     now = _now_str()
@@ -386,6 +390,11 @@ def _build_filter_query(data, pool_id, exclude_pool=False):
     if tags:
         conds.append('q.tags LIKE :tags')
         params['tags'] = f'%{tags}%'
+
+    search = (data.get('search') or '').strip()
+    if search:
+        conds.append('q.content LIKE :search')
+        params['search'] = f'%{search}%'
 
     if data.get('exclude_used', True):
         conds.append('(q.is_used = 0 OR q.is_used IS NULL)')
