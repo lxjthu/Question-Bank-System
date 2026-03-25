@@ -1499,6 +1499,17 @@
                                 <label style="display:block; margin-bottom:5px; font-weight:500; color:var(--primary-color);">
                                     参考文档 <span style="font-weight:normal; font-size:0.8rem; color:#888;">（可多选）</span>
                                 </label>
+                                <input type="text" id="rag-doc-search" placeholder="搜索文档..."
+                                    style="width:100%; padding:7px 10px; border:1px solid #ddd; border-radius:6px; font-size:0.88rem; margin-bottom:4px; box-sizing:border-box;"
+                                    oninput="filterRagDocs()">
+                                <div style="display:flex;gap:4px;margin-bottom:4px;">
+                                    <button onclick="ragSelectAllDocs()"
+                                        style="font-size:0.72rem;padding:2px 8px;border:1px solid #bbb;border-radius:3px;background:#fff;cursor:pointer;color:#555;"
+                                        onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background='#fff'">全选</button>
+                                    <button onclick="ragDeselectAllDocs()"
+                                        style="font-size:0.72rem;padding:2px 8px;border:1px solid #bbb;border-radius:3px;background:#fff;cursor:pointer;color:#555;"
+                                        onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background='#fff'">全不选</button>
+                                </div>
                                 <div id="rag-doc-checkboxes"
                                     style="border:1px solid #ddd; border-radius:6px; padding:8px; max-height:100px; overflow-y:auto; background:#fff; font-size:0.9rem; text-align:left;">
                                     <span style="color:#bbb;">上传文档后在此选择</span>
@@ -1515,6 +1526,14 @@
                                     <input type="text" id="rag-chapter-search" placeholder="搜索章节..."
                                         style="width:100%; padding:7px 10px; border:1px solid #ddd; border-radius:6px; font-size:0.88rem; margin-bottom:4px;"
                                         oninput="filterRagChapters()">
+                                    <div style="display:flex;gap:4px;margin-bottom:4px;">
+                                        <button onclick="ragSelectAllChapters()"
+                                            style="font-size:0.72rem;padding:2px 8px;border:1px solid #bbb;border-radius:3px;background:#fff;cursor:pointer;color:#555;"
+                                            onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background='#fff'">全选</button>
+                                        <button onclick="ragDeselectAllChapters()"
+                                            style="font-size:0.72rem;padding:2px 8px;border:1px solid #bbb;border-radius:3px;background:#fff;cursor:pointer;color:#555;"
+                                            onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background='#fff'">全不选</button>
+                                    </div>
                                     <div id="rag-chapter-list"
                                         style="border:1px solid #ddd; border-radius:6px; padding:6px; max-height:130px; overflow-y:auto; background:#fff; font-size:0.85rem; text-align:left;">
                                         <span style="color:#bbb;">选择文档后加载章节</span>
@@ -1528,6 +1547,14 @@
                                     <input type="text" id="rag-section-search" placeholder="搜索知识点..."
                                         style="width:100%; padding:7px 10px; border:1px solid #ddd; border-radius:6px; font-size:0.88rem; margin-bottom:4px;"
                                         oninput="filterRagSections()">
+                                    <div style="display:flex;gap:4px;margin-bottom:4px;">
+                                        <button onclick="ragSelectAllSections()"
+                                            style="font-size:0.72rem;padding:2px 8px;border:1px solid #bbb;border-radius:3px;background:#fff;cursor:pointer;color:#555;"
+                                            onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background='#fff'">全选</button>
+                                        <button onclick="ragDeselectAllSections()"
+                                            style="font-size:0.72rem;padding:2px 8px;border:1px solid #bbb;border-radius:3px;background:#fff;cursor:pointer;color:#555;"
+                                            onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background='#fff'">全不选</button>
+                                    </div>
                                     <div id="rag-section-list"
                                         style="border:1px solid #ddd; border-radius:6px; padding:6px; max-height:130px; overflow-y:auto; background:#fff; font-size:0.85rem; text-align:left;">
                                         <span style="color:#bbb;">选择文档后加载</span>
@@ -1686,6 +1713,15 @@
                     <button id="rag-generate-btn" class="btn btn-success" onclick="ragGenerate()" style="padding:12px 40px; font-size:1.1rem;">
                         <i class="fas fa-magic"></i> 一键出题
                     </button>
+                    <div style="margin-top:10px; display:flex; align-items:center; justify-content:center; gap:12px; flex-wrap:wrap;">
+                        <label style="font-size:0.85rem; cursor:pointer; user-select:none;">
+                            <input type="checkbox" id="rag-batch-mode" onchange="toggleBatchSize()">
+                            分批出题
+                        </label>
+                        <span id="rag-batch-size-wrap" style="display:none; font-size:0.85rem;">
+                            每批知识点数：<input type="number" id="rag-batch-size" value="20" min="5" max="50" style="width:60px; padding:2px 4px; border:1px solid #ccc; border-radius:4px;">
+                        </span>
+                    </div>
                     <div id="rag-generate-info" style="font-size:0.8rem; color:#888; margin-top:6px;"></div>
                 </div>
 
@@ -4450,6 +4486,7 @@ Important notes:
 Now please start generating questions. Output question content directly without any preamble.`;
 
         // ── 状态变量 ────────────────────────────────────────────────────────────
+        let _ragAllDocs = [];       // 已完成文档列表（done/paused）
         let _ragAllChapters = [];   // [{num, name}, ...]
         let _ragAllSections = [];   // [{num, name}, ...]
         let _ragAllKps = [];        // DS 模式知识点列表
@@ -4559,25 +4596,53 @@ Now please start generating questions. Output question content directly without 
         }
 
         function renderDsDocCheckboxes(docs) {
-            const el = document.getElementById('rag-doc-checkboxes');
-            if (!el) return;
-            const doneDocs = (docs || []).filter(d => d.status === 'done' || d.status === 'paused');
-            if (doneDocs.length === 0) {
-                el.innerHTML = '<span style="color:#bbb;">请先上传文档并点击「提取」按钮</span>';
+            _ragAllDocs = (docs || []).filter(d => d.status === 'done' || d.status === 'paused');
+            if (_ragAllDocs.length === 0) {
+                const el = document.getElementById('rag-doc-checkboxes');
+                if (el) el.innerHTML = '<span style="color:#bbb;">请先上传文档并点击「提取」按钮</span>';
                 _ragAllChapters = [];
                 _ragAllSections = [];
                 renderRagChapterList([]);
                 renderRagSectionList([]);
                 return;
             }
-            el.innerHTML = doneDocs.map(d => `
-                <label style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;font-size:0.85rem;">
-                    <input type="checkbox" class="rag-doc-cb" value="${escapeHtml(d.doc_id)}" checked
+            filterRagDocs();  // 根据当前搜索词渲染（同时触发 updateRagMeta）
+        }
+
+        function filterRagDocs() {
+            const q = (document.getElementById('rag-doc-search')?.value || '').toLowerCase();
+            const filtered = q ? _ragAllDocs.filter(d => d.doc_id.toLowerCase().includes(q)) : _ragAllDocs;
+            _renderDocList(filtered);
+        }
+
+        function _renderDocList(items) {
+            const el = document.getElementById('rag-doc-checkboxes');
+            if (!el) return;
+            if (!items || items.length === 0) {
+                el.innerHTML = '<span style="color:#bbb;">' + (_ragAllDocs.length === 0 ? '请先上传文档并点击「提取」按钮' : '无匹配结果') + '</span>';
+                return;
+            }
+            // 保留已有勾选状态
+            const prevChecked = new Set([...document.querySelectorAll('.rag-doc-cb:checked')].map(cb => cb.value));
+            el.innerHTML = items.map(d => {
+                const checked = prevChecked.size > 0 ? prevChecked.has(d.doc_id) : true;
+                return `<label style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;font-size:0.85rem;">
+                    <input type="checkbox" class="rag-doc-cb" value="${escapeHtml(d.doc_id)}" ${checked ? 'checked' : ''}
                         onchange="updateRagMeta()">
                     ${escapeHtml(d.doc_id)}
                     <span style="color:#aaa;font-size:0.75rem;">(${d.kp_count || 0}个KP)</span>
-                </label>
-            `).join('');
+                </label>`;
+            }).join('');
+            updateRagMeta();
+        }
+
+        function ragSelectAllDocs() {
+            document.querySelectorAll('.rag-doc-cb').forEach(cb => { cb.checked = true; });
+            updateRagMeta();
+        }
+
+        function ragDeselectAllDocs() {
+            document.querySelectorAll('.rag-doc-cb').forEach(cb => { cb.checked = false; });
             updateRagMeta();
         }
 
@@ -6071,6 +6136,12 @@ Now please start generating questions. Output question content directly without 
 
         // ── DS 出题 ────────────────────────────────────────────────────────────────
 
+        function toggleBatchSize() {
+            const cb = document.getElementById('rag-batch-mode');
+            const wrap = document.getElementById('rag-batch-size-wrap');
+            if (wrap) wrap.style.display = cb?.checked ? 'inline' : 'none';
+        }
+
         async function dsGenerate() {
             const btn      = document.getElementById('rag-generate-btn');
             const infoEl   = document.getElementById('rag-generate-info');
@@ -6087,6 +6158,9 @@ Now please start generating questions. Output question content directly without 
                 return;
             }
 
+            const batchMode = document.getElementById('rag-batch-mode')?.checked || false;
+            const batchSize = parseInt(document.getElementById('rag-batch-size')?.value) || 20;
+
             const docIds      = [...document.querySelectorAll('.rag-doc-cb:checked')].map(cb => cb.value);
             const chapters    = [...document.querySelectorAll('.rag-chapter-cb:checked')].map(cb => cb.value);
             const kpNames     = [...document.querySelectorAll('.rag-section-cb:checked')].map(cb => cb.value);
@@ -6096,7 +6170,11 @@ Now please start generating questions. Output question content directly without 
 
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 出题中...';
-            if (infoEl) infoEl.textContent = 'DeepSeek 正在根据知识图谱生成题目，可能需要 30～120 秒...';
+            if (infoEl) {
+                infoEl.textContent = batchMode
+                    ? `DeepSeek 正在并行出题，请稍候（批次越多等待越长）...`
+                    : 'DeepSeek 正在根据知识图谱生成题目，可能需要 30～120 秒...';
+            }
             if (resultEl) resultEl.value = '';
 
             try {
@@ -6112,6 +6190,8 @@ Now please start generating questions. Output question content directly without 
                         cognitive_dimension_filter: cdFilter,
                         prompt: promptTemplate,
                         question_list: questionList,
+                        batch_mode: batchMode,
+                        batch_size: batchSize,
                     }),
                 });
                 const data = await resp.json();
@@ -6124,7 +6204,11 @@ Now please start generating questions. Output question content directly without 
                     _ragSavedResult = content;  // 生成结果作为初始撤销基线
                     if (infoEl) {
                         const stats = data.stats || {};
-                        infoEl.textContent = `生成完成！使用了 ${stats.kps_used || 0} 个知识点（${stats.context_chars || 0} 字知识图谱上下文）。`;
+                        if (batchMode) {
+                            infoEl.textContent = `生成完成！共 ${stats.batch_count || 0} 批并行，覆盖 ${stats.kps_total || 0} 个知识点。`;
+                        } else {
+                            infoEl.textContent = `生成完成！使用了 ${stats.kps_used || 0} 个知识点（${stats.context_chars || 0} 字知识图谱上下文）。`;
+                        }
                     }
                 }
             } catch (e) {
@@ -6221,6 +6305,24 @@ Now please start generating questions. Output question content directly without 
             const q = (document.getElementById('rag-chapter-search')?.value || '').toLowerCase();
             const filtered = q ? _ragAllChapters.filter(c => c.name.toLowerCase().includes(q)) : _ragAllChapters;
             renderRagChapterList(filtered);
+        }
+
+        function ragSelectAllChapters() {
+            document.querySelectorAll('.rag-chapter-cb').forEach(cb => { cb.checked = true; });
+            filterRagSections();
+        }
+
+        function ragDeselectAllChapters() {
+            document.querySelectorAll('.rag-chapter-cb').forEach(cb => { cb.checked = false; });
+            filterRagSections();
+        }
+
+        function ragSelectAllSections() {
+            document.querySelectorAll('.rag-section-cb').forEach(cb => { cb.checked = true; });
+        }
+
+        function ragDeselectAllSections() {
+            document.querySelectorAll('.rag-section-cb').forEach(cb => { cb.checked = false; });
         }
 
         function filterRagSections() {
