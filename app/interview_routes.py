@@ -789,6 +789,140 @@ def release_set(set_id):
     return jsonify({'ok': True})
 
 
+@interview_bp.route('/api/interview/sessions/<int:session_id>/quality-check', methods=['POST'])
+def quality_check_session(session_id):
+    """用 DeepSeek 检查本场次所有套题题目的质量。
+
+    检查项目：
+    1. 题干答案混淆/重叠（答案混入题干，或 reference_answer 为空但题干已含答案）
+    2. 英文题干语法错误（content_en 字段）
+    """
+    import time as _time
+
+    from app.rag_routes import _get_deepseek_key
+    api_key = _get_deepseek_key()
+    if not api_key:
+        return jsonify({'error': '未配置 DeepSeek API Key，请在「API 配置」中填写'}), 400
+
+    # ── 收集本场次全部唯一题目 ─────────────────────────────────────────────────
+    sets = _fetch("SELECT question_ids_json FROM interview_sets WHERE session_id=:sid", sid=session_id)
+    if not sets:
+        return jsonify({'error': '场次不存在或尚未生成套题'}), 404
+
+    all_qids = []
+    for s in sets:
+        try:
+            all_qids.extend(json.loads(s['question_ids_json'] or '[]'))
+        except Exception:
+            pass
+    unique_qids = list(dict.fromkeys(qid for qid in all_qids if qid))
+    if not unique_qids:
+        return jsonify({'error': '该场次无题目'}), 400
+
+    questions = []
+    for qid in unique_qids:
+        q = _fetch_one(
+            "SELECT question_id, content, content_en, reference_answer FROM questions WHERE question_id=:qid",
+            qid=qid
+        )
+        if q:
+            questions.append({
+                'question_id': q['question_id'],
+                'content': _strip_html(q['content'] or ''),
+                'content_en': _strip_html(q['content_en'] or ''),
+                'reference_answer': _strip_html(q['reference_answer'] or ''),
+            })
+
+    # ── 分批调用 DeepSeek ─────────────────────────────────────────────────────
+    try:
+        from openai import OpenAI as _OAI
+    except ImportError:
+        return jsonify({'error': '缺少 openai 依赖，请 pip install openai'}), 500
+
+    ds = _OAI(api_key=api_key, base_url='https://api.deepseek.com', timeout=120)
+    BATCH = 8
+    all_results = []
+    for i in range(0, len(questions), BATCH):
+        batch_results = _qc_call_deepseek(ds, questions[i:i+BATCH])
+        all_results.extend(batch_results)
+        if i + BATCH < len(questions):
+            _time.sleep(0.4)
+
+    # ── 过滤误报（suggested 与 original 完全相同，或 suggested 为空）──────────
+    for r in all_results:
+        r['issues'] = [
+            iss for iss in r.get('issues', [])
+            if iss.get('suggested', '').strip()
+            and iss.get('suggested', '').strip() != iss.get('original', '').strip()
+        ]
+
+    issues_only = [r for r in all_results if r.get('issues')]
+    return jsonify({
+        'total_checked': len(questions),
+        'issues_found': len(issues_only),
+        'results': issues_only,
+    })
+
+
+_QC_SYSTEM = """你是专业面试题库质检员。只检查以下两类明确错误，发现则报告，否则issues数组为空。
+
+1. stem_answer_confusion（题干答案混淆）：
+   - 题干(content)字段中包含完整答案内容（如"X是指…包括…特点…"这类定义式内容被混入题干）
+   - reference_answer为"（空）"但题干里已经包含了答案性陈述
+   - content字段包含多个互不相关的独立问题（数据导入错误）
+
+2. grammar_error（英文语法错误）：
+   - 仅检查content_en（英文题干），content_en为空则跳过
+   - 只报告明确的语法错误：主谓不一致、冠词误用、明确的介词错误、句子结构不完整等
+   - 不报告主观措辞偏好，只报告明确错误
+
+注意：
+- 简答题参考答案详细展开是正常的，不算混淆
+- 参考答案较长不是问题
+- 不要报告基于推测的问题，只报告有明确证据的错误
+- 只返回JSON，不加markdown代码块"""
+
+_QC_USER_TPL = """检查以下{n}道题目，返回JSON结果。
+
+题目列表：
+{qs_json}
+
+返回格式（严格JSON）：
+{{"results":[{{"question_id":"...","issues":[{{"type":"stem_answer_confusion或grammar_error","field":"content或content_en或reference_answer","description":"问题描述","original":"原文节选","suggested":"修正后的完整内容"}}]}}]}}"""
+
+
+def _qc_call_deepseek(ds_client, batch):
+    """调用 DeepSeek 检查一批题目，返回 results 列表。"""
+    payload = []
+    for q in batch:
+        payload.append({
+            'question_id': q['question_id'],
+            'content': q['content'],
+            'content_en': q['content_en'] if q['content_en'] else '',
+            'reference_answer': q['reference_answer'] if q['reference_answer'] else '（空）',
+        })
+    user_msg = _QC_USER_TPL.format(
+        n=len(payload),
+        qs_json=json.dumps(payload, ensure_ascii=False, indent=2)
+    )
+    try:
+        resp = ds_client.chat.completions.create(
+            model='deepseek-chat',
+            temperature=0.1,
+            max_tokens=4096,
+            messages=[
+                {'role': 'system', 'content': _QC_SYSTEM},
+                {'role': 'user', 'content': user_msg},
+            ],
+        )
+        raw = resp.choices[0].message.content.strip()
+        raw = re.sub(r'^```(?:json)?\s*', '', raw)
+        raw = re.sub(r'\s*```$', '', raw)
+        return json.loads(raw).get('results', [])
+    except Exception as e:
+        return [{'question_id': q['question_id'], 'issues': [], '_error': str(e)} for q in batch]
+
+
 @interview_bp.route('/api/interview/sessions/<int:session_id>', methods=['DELETE'])
 def delete_session(session_id):
     """删除指定场次及其所有套题，并重置受影响题目的 drawn 状态。"""
