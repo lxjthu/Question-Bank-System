@@ -65,7 +65,9 @@
 - **完整题干展示与在线编辑** — 面试池题目列表直接显示**完整题干文本**（无截断）；每行「查看/编辑」按钮弹出 Modal，可在线修改题干、答案、参考答案、解析并保存
 - **套题配置** — 每池可配置套题槽位结构（题型+语言偏好+难度偏好+备注），持久化保存
 - **批量生成套题** — 输入面试人数×备用倍数（如 10 人×3＝30 套），Fisher-Yates 全局无重复分配，同一题不出现在两套题中；不足时按槽位逐一报警
-- **随机抽选** — 从指定场次中随机取一套未使用套题展示，自动标记已使用，答案可折叠查看
+- **历史场次删除** — 历史场次列表每行新增「删除场次」按钮，删除后级联清除所有套题并自动重置受影响题目的 `drawn` 状态
+- **套题替换与编辑** — 查看套题时每道题旁提供「编辑」（在线改题干/答案）和「替换」（从同池 `drawn=0` 同题型候选中选用）操作，替换后自动维护 `drawn` 状态
+- **随机抽选全屏展示** — 点击「随机抽取」后连续抽取最多 3 套，弹出覆盖全屏的优雅展示页面（深色主题、大字体 1.25rem、无答案、A/B/C 彩色标识），专为面试者设计；顶部固定「关闭展示」按钮
 - **套题状态管理** — 逐套/批量标记已使用，释放时重置题目在池中的可抽状态
 - **Word 导出** — 套题导出为富文本 Word（图片/表格保留），可选含答案，每套分页
 - **Excel 跨机器导入导出** — 题库池与套题记录均可导出/导入 Excel；跨机器导入时题目不存在则自动新建
@@ -172,7 +174,7 @@ python -m pytest tests/ -v
 │   ├── routes.py                   # 题库/试卷/题型等 API 路由
 │   ├── rag_routes.py               # RAG 知识库 & 出题 API（RAG 8 端点 + DS 直出 7 端点）
 │   ├── kg_routes.py                # 知识图谱可视化 API（3 个端点）
-│   ├── interview_routes.py         # 面试抽题 API（31 个端点）
+│   ├── interview_routes.py         # 面试抽题 API（34 个端点）
 │   ├── utils.py                    # Word 模板生成、试卷导出、HTML↔Word 转换
 │   ├── docx_importer.py            # .docx 富内容解析器（图片+表格+软换行）
 │   └── templates/
@@ -315,11 +317,14 @@ python -m pytest tests/ -v
 | `POST` | `/api/interview/pools/<id>/check` | 校验题目数量是否满足生成 N 套的需求 |
 | `GET` | `/api/interview/sessions` | 获取所有面试场次（含套题统计） |
 | `POST` | `/api/interview/sessions` | 创建场次并批量生成套题（返回 422+warnings 若不足） |
+| `DELETE` | `/api/interview/sessions/<id>` | 删除场次（级联删套题 + 重置 drawn + 同步 interview 状态）**v1.24** |
 | `GET` | `/api/interview/sessions/<id>/sets` | 获取场次下所有套题（分页，支持 `is_used` 过滤） |
 | `POST` | `/api/interview/sessions/<id>/draw` | 从场次随机抽取一套未使用套题并标记已使用 |
 | `GET` | `/api/interview/sessions/<id>/export-xlsx` | 导出场次套题为 Excel（双 Sheet） |
 | `POST` | `/api/interview/sessions/import-xlsx` | 从 Excel 导入套题记录（含自动建题） |
 | `GET` | `/api/interview/sets/<id>` | 获取单套题详情（含完整题目信息） |
+| `GET` | `/api/interview/sets/<id>/candidates` | 获取指定槽位的候选替换题（同池、drawn=0、同题型）**v1.24** |
+| `POST` | `/api/interview/sets/<id>/replace` | 替换套题中某槽位题目（slot_index + new_question_id）**v1.24** |
 | `POST` | `/api/interview/sets/<id>/use` | 标记套题为已使用 |
 | `POST` | `/api/interview/sets/<id>/release` | 释放套题（重置题目 drawn 状态） |
 | `POST` | `/api/interview/sets/batch-use` | 批量标记套题为已使用 |
