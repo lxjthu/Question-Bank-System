@@ -8,6 +8,26 @@ from datetime import datetime
 
 bp = Blueprint('main', __name__)
 
+import re as _re
+
+
+# ─── 语言检测辅助函数 ──────────────────────────────────────────────────────────
+
+def _detect_language(content: str, content_en: str | None) -> str:
+    """根据 content 文本和 content_en 字段判断题目语言。
+
+    规则：
+    - content 去除 HTML 后无中文字符 → 纯英文题目 → 'en'
+      （即使 AI 把英文同时写入了 content_en，也不误判为双语）
+    - content 含中文 + content_en 非空 → 中英双语 → 'both'
+    - content 含中文 + 无 content_en → 纯中文 → 'zh'
+    """
+    plain = _re.sub(r'<[^>]+>', ' ', content or '')
+    has_chinese = any('\u4e00' <= c <= '\u9fff' for c in plain)
+    if not has_chinese:
+        return 'en'
+    return 'both' if content_en else 'zh'
+
 
 # ─── 查重辅助函数 ────────────────────────────────────────────────────────────
 
@@ -193,10 +213,11 @@ def add_question():
 
     content_en = data.get('content_en')
     options_en = data.get('options_en')
-    language = data.get('language', 'zh')
-    # Auto-detect bilingual
-    if content_en and language == 'zh':
-        language = 'both'
+    # Use explicitly provided language; if not provided, auto-detect from content
+    if 'language' in data and data['language']:
+        language = data['language']
+    else:
+        language = _detect_language(data.get('content', ''), content_en)
 
     question = QuestionModel(
         question_id=data.get('question_id'),
@@ -273,9 +294,9 @@ def update_question(question_id):
         question.tags = data['tags']
     if 'difficulty' in data:
         question.difficulty = data['difficulty']
-    # Auto-upgrade language to 'both' if content_en is provided
-    if question.content_en and question.language == 'zh':
-        question.language = 'both'
+    # Auto-detect language when language field is not explicitly provided
+    if 'language' not in data:
+        question.language = _detect_language(question.content or '', question.content_en)
     question.updated_at = datetime.now()
 
     db.session.commit()
@@ -713,7 +734,7 @@ def import_questions():
                     question_id = f"q_{now.strftime('%Y%m%d_%H%M%S')}_{i}"
                     content_en = q_data.get('content_en') or None
                     options_en = q_data.get('options_en') or []
-                    lang = 'both' if content_en else 'zh'
+                    lang = _detect_language(q_data.get('content', ''), content_en)
                     model = QuestionModel(
                         question_id=question_id,
                         question_type=q_data['type'],
@@ -766,7 +787,7 @@ def import_questions():
                     question_id = f"q_{now.strftime('%Y%m%d_%H%M%S')}_txt_{i}"
                     content_en = q_data.get('content_en') or None
                     options_en = q_data.get('options_en') or []
-                    lang = 'both' if content_en else 'zh'
+                    lang = _detect_language(q_data.get('content', ''), content_en)
                     model = QuestionModel(
                         question_id=question_id,
                         question_type=q_data['type'],
@@ -821,7 +842,7 @@ def import_questions():
                         knowledge_point=q_data.get('knowledge_point') or None,
                         tags=q_data.get('tags') or None,
                         difficulty=q_data.get('difficulty') or None,
-                        language='zh',
+                        language=_detect_language(q_data.get('content', ''), None),
                         metadata_json='{}',
                         imported_at=now,
                         created_at=now,
