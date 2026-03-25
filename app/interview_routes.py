@@ -789,6 +789,158 @@ def release_set(set_id):
     return jsonify({'ok': True})
 
 
+@interview_bp.route('/api/interview/sessions/<int:session_id>', methods=['DELETE'])
+def delete_session(session_id):
+    """删除指定场次及其所有套题，并重置受影响题目的 drawn 状态。"""
+    sess = _fetch_one("SELECT pool_id FROM interview_sessions WHERE id=:sid", sid=session_id)
+    if not sess:
+        return jsonify({'error': '场次不存在'}), 404
+    pool_id = sess['pool_id']
+
+    # 收集该场次所有套题中的题目 ID
+    sets = _fetch("SELECT question_ids_json FROM interview_sets WHERE session_id=:sid", sid=session_id)
+    affected_qids = []
+    for s in sets:
+        try:
+            affected_qids.extend([q for q in json.loads(s['question_ids_json'] or '[]') if q])
+        except Exception:
+            pass
+
+    # 删除套题和场次
+    _run("DELETE FROM interview_sets WHERE session_id=:sid", sid=session_id)
+    _run("DELETE FROM interview_sessions WHERE id=:sid", sid=session_id)
+
+    # 重新计算 drawn 状态：遍历剩余所有套题，找出仍在套题中的题目
+    remaining_sets = _fetch("SELECT question_ids_json FROM interview_sets")
+    still_in_set = set()
+    for s in remaining_sets:
+        try:
+            for qid in json.loads(s['question_ids_json'] or '[]'):
+                if qid:
+                    still_in_set.add(qid)
+        except Exception:
+            pass
+
+    for qid in set(affected_qids):
+        if qid not in still_in_set:
+            _run(
+                "UPDATE interview_pool_questions SET drawn=0, drawn_at=NULL WHERE pool_id=:pid AND question_id=:qid",
+                pid=pool_id, qid=qid
+            )
+
+    _sync_question_interview_status(list(set(affected_qids)))
+    return jsonify({'ok': True})
+
+
+@interview_bp.route('/api/interview/sets/<int:set_id>/candidates', methods=['GET'])
+def get_replacement_candidates(set_id):
+    """获取指定槽位的可替换候选题目（同池、未被使用、同题型）。"""
+    slot_index = request.args.get('slot_index', default=0, type=int)
+
+    s = _fetch_one("SELECT * FROM interview_sets WHERE id=:id", id=set_id)
+    if not s:
+        return jsonify({'error': '套题不存在'}), 404
+
+    sess = _fetch_one("SELECT pool_id, config_id FROM interview_sessions WHERE id=:sid", sid=s['session_id'])
+    if not sess:
+        return jsonify({'error': '场次不存在'}), 404
+    pool_id = sess['pool_id']
+
+    question_ids = json.loads(s['question_ids_json'] or '[]')
+
+    # 从配置中获取该槽位的题型
+    question_type = None
+    if sess['config_id']:
+        cfg = _fetch_one("SELECT slots_json FROM interview_configs WHERE id=:id", id=sess['config_id'])
+        if cfg:
+            try:
+                slots = json.loads(cfg['slots_json'] or '[]')
+                if slot_index < len(slots):
+                    question_type = slots[slot_index].get('question_type')
+            except Exception:
+                pass
+
+    # 查询同池中 drawn=0 的题目，在 Python 层过滤
+    candidates_raw = _fetch(
+        """SELECT ipq.question_id, q.content, q.question_type, q.subject,
+                  q.difficulty, q.language, q.knowledge_point
+           FROM interview_pool_questions ipq
+           JOIN questions q ON q.question_id = ipq.question_id
+           WHERE ipq.pool_id = :pid AND ipq.drawn = 0""",
+        pid=pool_id
+    )
+
+    excluded = set(qid for qid in question_ids if qid)
+    candidates = [
+        c for c in candidates_raw
+        if c['question_id'] not in excluded
+        and (not question_type or c['question_type'] == question_type)
+    ]
+    # 为每道题添加内容预览
+    for c in candidates:
+        c['content_preview'] = _strip_html(c['content'] or '')[:120]
+
+    return jsonify({
+        'candidates': candidates[:60],
+        'question_type': question_type,
+        'current_qid': question_ids[slot_index] if slot_index < len(question_ids) else None,
+    })
+
+
+@interview_bp.route('/api/interview/sets/<int:set_id>/replace', methods=['POST'])
+def replace_question_in_set(set_id):
+    """替换套题中某槽位的题目。"""
+    data = request.get_json(silent=True) or {}
+    slot_index = data.get('slot_index')
+    new_qid = (data.get('new_question_id') or '').strip()
+
+    if slot_index is None or not new_qid:
+        return jsonify({'error': '缺少 slot_index 或 new_question_id'}), 400
+
+    s = _fetch_one("SELECT * FROM interview_sets WHERE id=:id", id=set_id)
+    if not s:
+        return jsonify({'error': '套题不存在'}), 404
+
+    sess = _fetch_one("SELECT pool_id FROM interview_sessions WHERE id=:sid", sid=s['session_id'])
+    if not sess:
+        return jsonify({'error': '场次不存在'}), 404
+    pool_id = sess['pool_id']
+
+    question_ids = json.loads(s['question_ids_json'] or '[]')
+    if slot_index >= len(question_ids):
+        return jsonify({'error': '槽位索引越界'}), 400
+
+    old_qid = question_ids[slot_index]
+    question_ids[slot_index] = new_qid
+
+    # 更新 question_ids_json
+    _run("UPDATE interview_sets SET question_ids_json=:qj WHERE id=:id",
+         qj=json.dumps(question_ids), id=set_id)
+
+    # 重置旧题目的 drawn（若其不在任何其他套题中）
+    if old_qid:
+        remaining_sets = _fetch("SELECT question_ids_json FROM interview_sets WHERE id != :id", id=set_id)
+        old_still_in_set = any(
+            old_qid in json.loads(rs['question_ids_json'] or '[]')
+            for rs in remaining_sets
+        )
+        if not old_still_in_set:
+            _run(
+                "UPDATE interview_pool_questions SET drawn=0, drawn_at=NULL WHERE pool_id=:pid AND question_id=:qid",
+                pid=pool_id, qid=old_qid
+            )
+
+    # 标记新题目为已使用
+    _run(
+        "UPDATE interview_pool_questions SET drawn=1, drawn_at=:t WHERE pool_id=:pid AND question_id=:qid",
+        t=_now_str(), pid=pool_id, qid=new_qid
+    )
+
+    affected = [q for q in [old_qid, new_qid] if q]
+    _sync_question_interview_status(affected)
+    return jsonify({'ok': True, 'question_ids': question_ids})
+
+
 @interview_bp.route('/api/interview/sets/batch-use', methods=['POST'])
 def batch_use_sets():
     data = request.get_json(silent=True) or {}
