@@ -1420,12 +1420,16 @@ def ds_extract(doc_id):
         arch_json_str = (existing_arch['architecture_json'] if existing_arch else '') or '{}'
 
         if resume:
-            extracted_nums = {
-                r[0] for r in conn.execute(
-                    "SELECT DISTINCT chapter_num FROM ds_kps WHERE doc_id=?", (doc_id,),
+            # ds_kps 中 chapter_num=L1父章号，section_name=L2节名（对应 ds_chapters.chapter_name）
+            # 按 (parent_chapter_num, chapter_name) 精确匹配，只跳过已提取的节
+            extracted_sections = {
+                (r[0], r[1] or '') for r in conn.execute(
+                    "SELECT DISTINCT chapter_num, section_name FROM ds_kps WHERE doc_id=?",
+                    (doc_id,),
                 ).fetchall()
             }
-            chapters = [sec for sec in all_sections if sec['chapter_num'] not in extracted_nums]
+            chapters = [sec for sec in all_sections
+                        if (sec['parent_chapter_num'], sec['chapter_name']) not in extracted_sections]
         else:
             chapters = list(all_sections)
 
@@ -1532,6 +1536,9 @@ def ds_extract(doc_id):
                 """单节提取，只返回结果，不写 DB。
                 ch 包含 chapter_name（节名）、parent_chapter_num（父章序号）。
                 """
+                # 已排队但尚未开始的任务：若已请求暂停则直接跳过，不发 API 请求
+                if _ds_tasks.get(task_id, {}).get('pause_requested'):
+                    return []
                 ch_text = ch['raw_text']
                 if len(ch_text) > 8000:
                     ch_text = ch_text[:8000] + '\n\n[（内容过长，已截断）]'
@@ -1629,6 +1636,12 @@ def ds_extract(doc_id):
                             + (f'（{len(failed_chapters)} 章失败）' if failed_chapters else '')
                         ),
                     })
+
+                    # 每完成一个 future 后检查暂停标志，取消队列中尚未开始的任务并退出循环
+                    if _ds_tasks.get(task_id, {}).get('pause_requested'):
+                        for pending in future_to_ch:
+                            pending.cancel()
+                        break
 
             # ── 收尾 ──────────────────────────────────────────────────────────
             # 检查是否触发了暂停
@@ -2760,7 +2773,7 @@ def ds_pause_task(task_id):
     task = _ds_tasks.get(task_id)
     if task is None:
         return jsonify({'error': '任务不存在'}), 404
-    if task.get('status') != 'running':
+    if task.get('status') not in ('analyzing', 'extracting', 'running'):
         return jsonify({'error': f'任务当前状态为 {task.get("status")}，无法暂停'}), 400
     _ds_tasks[task_id]['pause_requested'] = True
     return jsonify({'success': True, 'message': '暂停请求已发送，将在当前章节完成后暂停'})
@@ -3001,52 +3014,62 @@ def ds_generate():
     if not kps_data:
         return jsonify({'error': '未找到知识点数据，请先完成知识点提取'}), 400
 
-    # ── 构建知识图谱 context ──────────────────────────────────────────────────
-    context_parts: list = []
-    current_chapter = None
-    total_chars = 0
-    for kp in kps_data:
-        if total_chars > 7000:
-            context_parts.append('\n（已达上下文长度上限，后续知识点省略）')
-            break
-        if kp['chapter_name'] != current_chapter:
-            current_chapter = kp['chapter_name']
-            context_parts.append(f'\n## {current_chapter}\n')
-        context_parts.append(f'### 知识点：{kp["kp_name"]}')
-        context_parts.append(kp['kp_content'])
-        try:
-            rels = _json.loads(kp['relations_json'] or '[]')
-            if rels:
-                rel_str = '；'.join(
-                    f"{r.get('type', '')} → {r.get('target', '')}"
-                    for r in rels
-                    if r.get('target')
-                )
-                if rel_str:
-                    context_parts.append(f'关联关系：{rel_str}')
-        except Exception:
-            pass
-        context_parts.append('')
-        total_chars += len(kp['kp_content'])
-    context = '\n'.join(context_parts)
+    # ── 解析分批参数 ──────────────────────────────────────────────────────────
+    batch_mode = data.get('batch_mode', False)
+    batch_size = int(data.get('batch_size', 20) or 20)
+    if batch_size < 1:
+        batch_size = 20
 
-    # ── 替换占位符并调用 DeepSeek ─────────────────────────────────────────────
-    final_prompt = (
-        prompt_template
-        .replace('{context}', context)
-        .replace('{question_list}', question_list)
-    )
+    # 提前解析 question_list，用于判断稀疏模式
+    import re as _re
+    _ql_pattern = _re.compile(r'(\d+)\s*道')
+    ql_counts = _ql_pattern.findall(question_list)
+    ql_parts = _re.split(r'\d+\s*道', question_list)
+    total_q = sum(int(c) for c in ql_counts) if ql_counts else 0
 
-    try:
-        api_key = _get_deepseek_key()
-        if not api_key:
-            return jsonify({
-                'error': '未设置 DEEPSEEK_API_KEY，请在 API 配置中填写'
-            }), 400
+    # 稀疏模式：分批启用 且 知识点数量远多于题目数（> total_q * 3）
+    # 此时每批随机采样，而非顺序切片
+    sparse_mode = batch_mode and (total_q > 0) and (len(kps_data) > total_q * 3)
 
+    api_key = _get_deepseek_key()
+    if not api_key:
+        return jsonify({'error': '未设置 DEEPSEEK_API_KEY，请在 API 配置中填写'}), 400
+
+    def _build_context(kps_list):
+        """将知识点列表构建为 context 字符串（无截断）。"""
+        parts: list = []
+        cur_chapter = None
+        for kp in kps_list:
+            if kp['chapter_name'] != cur_chapter:
+                cur_chapter = kp['chapter_name']
+                parts.append(f'\n## {cur_chapter}\n')
+            parts.append(f'### 知识点：{kp["kp_name"]}')
+            parts.append(kp['kp_content'])
+            try:
+                rels = _json.loads(kp['relations_json'] or '[]')
+                if rels:
+                    rel_str = '；'.join(
+                        f"{r.get('type', '')} → {r.get('target', '')}"
+                        for r in rels
+                        if r.get('target')
+                    )
+                    if rel_str:
+                        parts.append(f'关联关系：{rel_str}')
+            except Exception:
+                pass
+            parts.append('')
+        return '\n'.join(parts)
+
+    def _call_deepseek(context_str, ql_str):
+        """调用 DeepSeek，返回 (content, chars)。失败时抛出异常。"""
         from openai import OpenAI
-        client = OpenAI(api_key=api_key, base_url='https://api.deepseek.com')
-        response = client.chat.completions.create(
+        oa_client = OpenAI(api_key=api_key, base_url='https://api.deepseek.com')
+        final_prompt = (
+            prompt_template
+            .replace('{context}', context_str)
+            .replace('{question_list}', ql_str)
+        )
+        response = oa_client.chat.completions.create(
             model='deepseek-chat',
             messages=[
                 {
@@ -3055,17 +3078,224 @@ def ds_generate():
                 },
                 {'role': 'user', 'content': final_prompt},
             ],
-            max_tokens=8000,
+            max_tokens=16000,
             temperature=0.7,
         )
         content = response.choices[0].message.content
+        return content, len(context_str)
+
+    # ── 非分批模式（上限提升至 30000） ───────────────────────────────────────
+    if not batch_mode:
+        context_parts: list = []
+        current_chapter = None
+        total_chars = 0
+        for kp in kps_data:
+            if total_chars > 30000:
+                context_parts.append('\n（已达上下文长度上限，后续知识点省略）')
+                break
+            if kp['chapter_name'] != current_chapter:
+                current_chapter = kp['chapter_name']
+                context_parts.append(f'\n## {current_chapter}\n')
+            context_parts.append(f'### 知识点：{kp["kp_name"]}')
+            context_parts.append(kp['kp_content'])
+            try:
+                rels = _json.loads(kp['relations_json'] or '[]')
+                if rels:
+                    rel_str = '；'.join(
+                        f"{r.get('type', '')} → {r.get('target', '')}"
+                        for r in rels
+                        if r.get('target')
+                    )
+                    if rel_str:
+                        context_parts.append(f'关联关系：{rel_str}')
+            except Exception:
+                pass
+            context_parts.append('')
+            total_chars += len(kp['kp_name'] or '') + len(kp['kp_content'] or '')
+        context = '\n'.join(context_parts)
+
+        try:
+            content, ctx_chars = _call_deepseek(context, question_list)
+            return jsonify({
+                'success': True,
+                'content': content,
+                'stats': {
+                    'kps_used': len(kps_data),
+                    'context_chars': ctx_chars,
+                },
+            })
+        except Exception as e:
+            return jsonify({'error': f'DeepSeek API 调用失败：{str(e)}'}), 500
+
+    # ── 公共辅助：按批次分配题数 ──────────────────────────────────────────────
+    def _split_question_list(batch_idx, total_batches):
+        """为第 batch_idx 批（0-based）分配题数，最后一批补差值。"""
+        if not ql_counts:
+            return question_list  # 无法解析时原样传递
+        result_parts = []
+        for i, part in enumerate(ql_parts[:-1]):
+            total = int(ql_counts[i])
+            per_batch = max(1, round(total / total_batches))
+            if batch_idx == total_batches - 1:
+                already = per_batch * (total_batches - 1)
+                count = max(1, total - already)
+            else:
+                count = per_batch
+            result_parts.append(f'{part}{count}道')
+        return ''.join(result_parts) + ql_parts[-1]
+
+    def _call_one_batch(batch_kps, batch_ql, batch_idx):
+        ctx = _build_context(batch_kps)
+        content, chars = _call_deepseek(ctx, batch_ql)
+        return batch_idx, content, chars, True, None
+
+    # ── 稀疏随机采样模式（知识点数 > 题目数 * 3） ────────────────────────────
+    if sparse_mode:
+        import random as _random
+        import math as _math
+
+        # 批次数 = ceil(总题数 / batch_size)，batch_size 此时表示"每批题数"
+        batch_count = max(1, _math.ceil(total_q / batch_size))
+
+        # 构建 kp_name → row 的快速查询字典，用于关联KP扩展
+        kp_index = {kp['kp_name']: kp for kp in kps_data}
+
+        def _sample_kps_for_batch(batch_q_count):
+            """随机采样 batch_q_count 个KP，并扩展其关联KP，去重后返回列表。"""
+            sampled = _random.sample(kps_data, min(batch_q_count, len(kps_data)))
+            seen = {kp['kp_name'] for kp in sampled}
+            result = list(sampled)
+            for kp in sampled:
+                try:
+                    rels = _json_mod.loads(kp['relations_json'] or '[]')
+                    for r in rels:
+                        target = r.get('target', '').strip()
+                        if target and target not in seen and target in kp_index:
+                            result.append(kp_index[target])
+                            seen.add(target)
+                except Exception:
+                    pass
+            return result
+
+        from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+        results = {}
+        # 预先为每批采样，保证各批样本在提交前确定
+        batch_samples = [
+            _sample_kps_for_batch(
+                # 每批采样数 = 该批分配的题目数之和
+                sum(
+                    max(1, round(int(ql_counts[i]) / batch_count))
+                    if idx < batch_count - 1
+                    else max(1, int(ql_counts[i]) - max(1, round(int(ql_counts[i]) / batch_count)) * (batch_count - 1))
+                    for i in range(len(ql_counts))
+                ) if ql_counts else batch_size
+            )
+            for idx in range(batch_count)
+        ]
+
+        with ThreadPoolExecutor(max_workers=min(batch_count, 5)) as executor:
+            futures = {
+                executor.submit(
+                    _call_one_batch,
+                    batch_samples[idx],
+                    _split_question_list(idx, batch_count),
+                    idx
+                ): idx
+                for idx in range(batch_count)
+            }
+            for f in _as_completed(futures):
+                try:
+                    idx, content, chars, ok, err = f.result()
+                except Exception as exc:
+                    idx = futures[f]
+                    results[idx] = (None, 0, False, str(exc))
+                    continue
+                results[idx] = (content, chars, ok, None)
+
+        # 计算各批题目范围，用于标题显示
+        merged_parts = []
+        batch_stats = []
+        q_cursor = 1
+        for idx in range(batch_count):
+            batch_ql = _split_question_list(idx, batch_count)
+            batch_q = sum(
+                int(c) for c in _ql_pattern.findall(batch_ql)
+            ) if _ql_pattern.findall(batch_ql) else 0
+            q_end = q_cursor + batch_q - 1
+            kp_cnt = len(batch_samples[idx])
+            content, chars, ok, err = results.get(idx, (None, 0, False, '未收到结果'))
+            if ok:
+                merged_parts.append(
+                    f'## 第{idx + 1}批（随机采样 {kp_cnt} 个知识点，题目 {q_cursor}-{q_end}）\n\n{content}'
+                )
+                batch_stats.append({'batch': idx + 1, 'kps': kp_cnt, 'chars': chars, 'ok': True})
+            else:
+                merged_parts.append(
+                    f'## 第{idx + 1}批（随机采样 {kp_cnt} 个知识点，题目 {q_cursor}-{q_end}）\n\n⚠️ 本批生成失败：{err}'
+                )
+                batch_stats.append({'batch': idx + 1, 'kps': kp_cnt, 'chars': 0, 'ok': False, 'error': err})
+            q_cursor = q_end + 1
+
+        merged_content = '\n\n---\n\n'.join(merged_parts)
         return jsonify({
             'success': True,
-            'content': content,
+            'content': merged_content,
             'stats': {
-                'kps_used': len(kps_data),
-                'context_chars': len(context),
+                'kps_total': len(kps_data),
+                'batch_count': batch_count,
+                'batch_size': batch_size,
+                'sparse_mode': True,
+                'batch_stats': batch_stats,
             },
         })
-    except Exception as e:
-        return jsonify({'error': f'DeepSeek API 调用失败：{str(e)}'}), 500
+
+    # ── 普通分批并行模式 ──────────────────────────────────────────────────────
+    batches = [kps_data[i:i + batch_size] for i in range(0, len(kps_data), batch_size)]
+    batch_count = len(batches)
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+    results = {}
+    with ThreadPoolExecutor(max_workers=min(batch_count, 5)) as executor:
+        futures = {
+            executor.submit(
+                _call_one_batch,
+                batch,
+                _split_question_list(idx, batch_count),
+                idx
+            ): idx
+            for idx, batch in enumerate(batches)
+        }
+        for f in _as_completed(futures):
+            try:
+                idx, content, chars, ok, err = f.result()
+            except Exception as exc:
+                idx = futures[f]
+                results[idx] = (None, 0, False, str(exc))
+                continue
+            results[idx] = (content, chars, ok, None)
+
+    # 按批次序号合并结果
+    merged_parts = []
+    batch_stats = []
+    for idx in range(batch_count):
+        start_kp = idx * batch_size + 1
+        end_kp = min((idx + 1) * batch_size, len(kps_data))
+        content, chars, ok, err = results.get(idx, (None, 0, False, '未收到结果'))
+        if ok:
+            merged_parts.append(f'## 第{idx + 1}批（知识点 {start_kp}-{end_kp}）\n\n{content}')
+            batch_stats.append({'batch': idx + 1, 'kps': end_kp - start_kp + 1, 'chars': chars, 'ok': True})
+        else:
+            merged_parts.append(f'## 第{idx + 1}批（知识点 {start_kp}-{end_kp}）\n\n⚠️ 本批生成失败：{err}')
+            batch_stats.append({'batch': idx + 1, 'kps': end_kp - start_kp + 1, 'chars': 0, 'ok': False, 'error': err})
+
+    merged_content = '\n\n---\n\n'.join(merged_parts)
+    return jsonify({
+        'success': True,
+        'content': merged_content,
+        'stats': {
+            'kps_total': len(kps_data),
+            'batch_count': batch_count,
+            'batch_size': batch_size,
+            'batch_stats': batch_stats,
+        },
+    })
