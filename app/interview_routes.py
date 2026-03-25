@@ -19,7 +19,7 @@ import io
 from datetime import datetime
 from html.parser import HTMLParser
 
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, request, jsonify, send_file, Response, stream_with_context
 
 from app.db_models import db, QuestionModel
 
@@ -789,6 +789,33 @@ def release_set(set_id):
     return jsonify({'ok': True})
 
 
+@interview_bp.route('/api/interview/sessions/<int:session_id>/release-all', methods=['POST'])
+def release_all_used_sets(session_id):
+    """一键释放本场次所有已使用的套题，重置 drawn 状态。"""
+    used_sets = _fetch(
+        "SELECT id, question_ids_json FROM interview_sets WHERE session_id=:sid AND is_used=1",
+        sid=session_id
+    )
+    if not used_sets:
+        return jsonify({'ok': True, 'released': 0})
+
+    all_qids = []
+    for s in used_sets:
+        _run("UPDATE interview_sets SET is_used=0, used_at=NULL WHERE id=:id", id=s['id'])
+        qids = json.loads(s['question_ids_json']) if s['question_ids_json'] else []
+        all_qids.extend(q for q in qids if q)
+
+    # 重置所有涉及题目的 drawn 状态
+    unique_qids = list(dict.fromkeys(all_qids))
+    for qid in unique_qids:
+        _run(
+            "UPDATE interview_pool_questions SET drawn=0, drawn_at=NULL WHERE question_id=:qid",
+            qid=qid
+        )
+    _sync_question_interview_status(unique_qids)
+    return jsonify({'ok': True, 'released': len(used_sets)})
+
+
 @interview_bp.route('/api/interview/sessions/<int:session_id>/quality-check', methods=['POST'])
 def quality_check_session(session_id):
     """用 DeepSeek 检查本场次所有套题题目的质量。
@@ -862,6 +889,93 @@ def quality_check_session(session_id):
         'issues_found': len(issues_only),
         'results': issues_only,
     })
+
+
+@interview_bp.route('/api/interview/sessions/<int:session_id>/quality-check/stream', methods=['GET'])
+def quality_check_session_stream(session_id):
+    """SSE 流式质量检查：逐批推送进度，最后推送完整结果。"""
+    import time as _time
+
+    def _sse(obj):
+        return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+    @stream_with_context
+    def generate():
+        from app.rag_routes import _get_deepseek_key
+        api_key = _get_deepseek_key()
+        if not api_key:
+            yield _sse({'type': 'error', 'message': '未配置 DeepSeek API Key，请在「API 配置」中填写'})
+            return
+
+        sets = _fetch("SELECT question_ids_json FROM interview_sets WHERE session_id=:sid", sid=session_id)
+        if not sets:
+            yield _sse({'type': 'error', 'message': '场次不存在或尚未生成套题'})
+            return
+
+        all_qids = []
+        for s in sets:
+            try:
+                all_qids.extend(json.loads(s['question_ids_json'] or '[]'))
+            except Exception:
+                pass
+        unique_qids = list(dict.fromkeys(qid for qid in all_qids if qid))
+        if not unique_qids:
+            yield _sse({'type': 'error', 'message': '该场次无题目'})
+            return
+
+        questions = []
+        for qid in unique_qids:
+            q = _fetch_one(
+                "SELECT question_id, content, content_en, reference_answer FROM questions WHERE question_id=:qid",
+                qid=qid
+            )
+            if q:
+                questions.append({
+                    'question_id': q['question_id'],
+                    'content': _strip_html(q['content'] or ''),
+                    'content_en': _strip_html(q['content_en'] or ''),
+                    'reference_answer': _strip_html(q['reference_answer'] or ''),
+                })
+
+        total = len(questions)
+        yield _sse({'type': 'start', 'total': total})
+
+        try:
+            from openai import OpenAI as _OAI
+        except ImportError:
+            yield _sse({'type': 'error', 'message': '缺少 openai 依赖，请 pip install openai'})
+            return
+
+        ds = _OAI(api_key=api_key, base_url='https://api.deepseek.com', timeout=120)
+        BATCH = 8
+        all_results = []
+
+        for i in range(0, total, BATCH):
+            batch = questions[i:i + BATCH]
+            batch_end = min(i + BATCH, total)
+            yield _sse({'type': 'progress', 'checked': i, 'total': total,
+                        'batch_start': i + 1, 'batch_end': batch_end})
+            try:
+                batch_results = _qc_call_deepseek(ds, batch)
+                all_results.extend(batch_results)
+            except Exception as e:
+                yield _sse({'type': 'error', 'message': f'第 {i+1}~{batch_end} 题调用失败：{e}'})
+                return
+            if i + BATCH < total:
+                _time.sleep(0.4)
+
+        for r in all_results:
+            r['issues'] = [
+                iss for iss in r.get('issues', [])
+                if iss.get('suggested', '').strip()
+                and iss.get('suggested', '').strip() != iss.get('original', '').strip()
+            ]
+        issues_only = [r for r in all_results if r.get('issues')]
+        yield _sse({'type': 'done', 'total_checked': total,
+                    'issues_found': len(issues_only), 'results': issues_only})
+
+    return Response(generate(), mimetype='text/event-stream',
+                    headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
 
 _QC_SYSTEM = """你是专业面试题库质检员。只检查以下两类明确错误，发现则报告，否则issues数组为空。
@@ -1010,12 +1124,12 @@ def get_replacement_candidates(set_id):
         if c['question_id'] not in excluded
         and (not question_type or c['question_type'] == question_type)
     ]
-    # 为每道题添加内容预览
+    # 为每道题添加内容预览（用于前端搜索和展示）
     for c in candidates:
-        c['content_preview'] = _strip_html(c['content'] or '')[:120]
+        c['content_preview'] = _strip_html(c['content'] or '')[:200]
 
     return jsonify({
-        'candidates': candidates[:60],
+        'candidates': candidates[:300],
         'question_type': question_type,
         'current_qid': question_ids[slot_index] if slot_index < len(question_ids) else None,
     })
@@ -1532,11 +1646,10 @@ def import_pool_xlsx(pool_id):
     return jsonify({'ok': True, 'added': added, 'skipped': skipped, 'created_questions': created})
 
 
-@interview_bp.route('/api/interview/sessions/import-xlsx', methods=['POST'])
-def import_sets_xlsx():
+@interview_bp.route('/api/interview/sessions/import-xlsx/prepare', methods=['POST'])
+def prepare_import_sets_xlsx():
     """
-    从 Excel 导入套题记录（Sheet1: 套题列表, Sheet2: 题目详情）。
-    自动还原 session 和 sets 记录，若题目不存在则从 Sheet2 新建。
+    预检 Excel 文件：解析题目数、套题数，并返回现有题库池列表供前端决策。
     """
     if 'file' not in request.files:
         return jsonify({'error': '未上传文件'}), 400
@@ -1544,13 +1657,73 @@ def import_sets_xlsx():
     if not f.filename.endswith('.xlsx'):
         return jsonify({'error': '只支持 .xlsx 格式'}), 400
 
-    pool_id = request.form.get('pool_id')
-    if not pool_id:
-        return jsonify({'error': '缺少 pool_id 参数'}), 400
-    pool_id = int(pool_id)
-    pool = _fetch_one("SELECT id FROM interview_pools WHERE id=:id", id=pool_id)
-    if not pool:
-        return jsonify({'error': '题库池不存在'}), 404
+    try:
+        import openpyxl
+    except ImportError:
+        return jsonify({'error': '缺少 openpyxl 依赖'}), 500
+
+    wb = openpyxl.load_workbook(f, read_only=True)
+
+    question_count = 0
+    if '题目详情' in wb.sheetnames:
+        rows2 = list(wb['题目详情'].iter_rows(values_only=True))
+        question_count = max(0, len(rows2) - 1)
+
+    set_count = 0
+    if '套题列表' in wb.sheetnames:
+        rows1 = list(wb['套题列表'].iter_rows(values_only=True))
+        set_count = max(0, len(rows1) - 1)
+
+    pools = _fetch("SELECT id, pool_name FROM interview_pools ORDER BY id")
+    return jsonify({
+        'ok': True,
+        'question_count': question_count,
+        'set_count': set_count,
+        'existing_pools': [{'id': p['id'], 'pool_name': p['pool_name']} for p in pools],
+    })
+
+
+@interview_bp.route('/api/interview/sessions/import-xlsx', methods=['POST'])
+def import_sets_xlsx():
+    """
+    从 Excel 导入套题记录（Sheet1: 套题列表, Sheet2: 题目详情）。
+    支持 pool_mode=new（自动建池）或 pool_mode=existing（加入已有池）。
+    场次名由调用方通过 session_name 参数指定。
+    """
+    if 'file' not in request.files:
+        return jsonify({'error': '未上传文件'}), 400
+    f = request.files['file']
+    if not f.filename.endswith('.xlsx'):
+        return jsonify({'error': '只支持 .xlsx 格式'}), 400
+
+    session_name = (request.form.get('session_name') or '').strip()
+    if not session_name:
+        return jsonify({'error': '缺少场次名称'}), 400
+
+    pool_mode = request.form.get('pool_mode', 'new')
+
+    if pool_mode == 'existing':
+        pool_id_str = request.form.get('pool_id')
+        if not pool_id_str:
+            return jsonify({'error': '缺少 pool_id 参数'}), 400
+        pool_id = int(pool_id_str)
+        pool_row = _fetch_one("SELECT id, pool_name FROM interview_pools WHERE id=:id", id=pool_id)
+        if not pool_row:
+            return jsonify({'error': '题库池不存在'}), 404
+        pool_name = pool_row['pool_name']
+    else:
+        # 新建题库池
+        new_pool_name = f'{session_name}-题库池'
+        _run(
+            "INSERT INTO interview_pools (pool_name, description, created_at) VALUES (:n, :d, :t)",
+            n=new_pool_name, d='由套题导入自动创建', t=_now_str()
+        )
+        pool_row = _fetch_one(
+            "SELECT id FROM interview_pools WHERE pool_name=:n ORDER BY id DESC LIMIT 1",
+            n=new_pool_name
+        )
+        pool_id = pool_row['id']
+        pool_name = new_pool_name
 
     try:
         import openpyxl
@@ -1586,10 +1759,15 @@ def import_sets_xlsx():
                         'explanation': str(_c2(row, 'explanation') or ''),
                     }
 
-    # 确保题目存在
+    # 确保题目存在，并将题目加入目标题库池
     now_dt = datetime.now()
+    now = _now_str()
     created_questions = 0
+    questions_added = 0
+    questions_skipped = 0
+
     for qid, qdata in q_detail_map.items():
+        # 确保题目在 questions 表中存在
         if not QuestionModel.query.filter_by(question_id=qid).first():
             if not qdata['content']:
                 continue
@@ -1611,6 +1789,21 @@ def import_sets_xlsx():
             )
             db.session.add(new_q)
             created_questions += 1
+
+        # 检查题目是否已在目标池中，决定跳过还是加入
+        existing = _fetch_one(
+            "SELECT id FROM interview_pool_questions WHERE pool_id=:pid AND question_id=:qid",
+            pid=pool_id, qid=qid
+        )
+        if existing:
+            questions_skipped += 1
+        else:
+            _run(
+                "INSERT OR IGNORE INTO interview_pool_questions (pool_id, question_id, drawn, added_at) VALUES (:p, :q, 0, :t)",
+                p=pool_id, q=qid, t=now
+            )
+            questions_added += 1
+
     try:
         db.session.commit()
     except Exception:
@@ -1633,15 +1826,14 @@ def import_sets_xlsx():
         except ValueError:
             return ''
 
-    # 创建一个导入场次
-    now = _now_str()
+    # 创建导入场次（使用用户自定义场次名）
     from sqlalchemy import text
     with db.engine.begin() as conn:
         result = conn.execute(text("""
             INSERT INTO interview_sessions
               (pool_id, config_id, session_name, interview_count, sets_multiplier, score_per_slot_json, created_at)
             VALUES (:pid, NULL, :sn, 0, 1, '{}', :t)
-        """), {'pid': pool_id, 'sn': f'[导入] {datetime.now().strftime("%Y-%m-%d %H:%M")}', 't': now})
+        """), {'pid': pool_id, 'sn': session_name, 't': now})
         session_id = result.lastrowid
 
     sets_imported = 0
@@ -1669,6 +1861,11 @@ def import_sets_xlsx():
     return jsonify({
         'ok': True,
         'session_id': session_id,
+        'session_name': session_name,
+        'pool_id': pool_id,
+        'pool_name': pool_name,
         'sets_imported': sets_imported,
         'created_questions': created_questions,
+        'questions_added': questions_added,
+        'questions_skipped': questions_skipped,
     })

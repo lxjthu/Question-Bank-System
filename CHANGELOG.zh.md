@@ -1,5 +1,27 @@
 # 更新日志
 
+## 1.27.0 - 2026-03-25
+
+### 新功能
+
+- **套题导入流程重构** — 导入套题 Excel 时改为两步流程：① 用户输入自定义场次名；② 系统检查是否有已有题库池：无池自动新建（命名为 `{场次名}-题库池`），有池弹出选择对话框（新建独立池 / 加入已有池）。加入已有池时自动比对重复题目并跳过（计数显示），导入完成后自动跳转套题管理面板并展示摘要
+- **质量检查 SSE 实时进度** — 质量检查从同步 POST 改为 SSE 流式接口（`GET /quality-check/stream`），检查过程实时推送进度：紫→蓝渐变进度条 + "正在检查第 X / N 题" + 批次说明；关闭弹窗自动断开 SSE 连接
+- **一键释放已使用套题** — 套题管理场次卡片在有已使用套题时显示绿色「一键释放 (N)」按钮，一次性重置该场次全部已使用套题及关联题目 `drawn` 状态
+- **替换候选搜索筛选** — 套题替换候选列表内置搜索框，可按题干关键词或知识点实时过滤（客户端过滤），候选上限从 60 提升至 300；知识点以蓝色标签展示，筛选结果数实时更新
+
+### 后端新增 API
+
+- `POST /api/interview/sessions/import-xlsx/prepare` — 预检 Excel，返回题目数、套题数及现有题库池列表
+- `GET /api/interview/sessions/<id>/quality-check/stream` — SSE 流式质量检查，逐批推送 `start`/`progress`/`done`/`error` 事件
+- `POST /api/interview/sessions/<id>/release-all` — 一键释放场次内全部已使用套题，返回 `{ok, released}`
+
+### 后端变更
+
+- `POST /api/interview/sessions/import-xlsx`：参数从 `pool_id`（必填）改为 `session_name` + `pool_mode` + `pool_id`（可选）；新增返回字段 `questions_added`/`questions_skipped`/`pool_name`
+- `GET /api/interview/sets/<set_id>/candidates`：候选上限 60→300，`content_preview` 截断 120→200 字符
+
+---
+
 ## 1.26.0 - 2026-03-25
 
 ### 新功能

@@ -2087,7 +2087,8 @@
                                 </div>
                                 <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
                                     <label style="font-size:0.83rem;color:#555;">导入套题：</label>
-                                    <select id="iv-imp-sets-pool" style="padding:5px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.83rem;min-width:160px;"></select>
+                                    <input type="text" id="iv-imp-sets-name" placeholder="场次名称（必填）"
+                                           style="padding:5px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.83rem;min-width:160px;">
                                     <input type="file" id="iv-imp-sets-file" accept=".xlsx" style="font-size:0.82rem;">
                                     <button onclick="ivImportSetsXlsx()" class="btn btn-primary"
                                             style="padding:5px 14px;font-size:0.83rem;">
@@ -2122,6 +2123,35 @@
                             </div>
                         </div>
 
+                    </div>
+                </div>
+
+                <!-- 套题导入选池 Modal -->
+                <div id="iv-import-pool-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);
+                     z-index:9999;align-items:center;justify-content:center;">
+                    <div style="background:#fff;border-radius:10px;max-width:460px;width:92%;padding:24px;
+                                box-shadow:0 8px 32px rgba(0,0,0,0.22);position:relative;">
+                        <div style="font-size:1rem;font-weight:700;color:#333;margin-bottom:8px;">
+                            <i class="fas fa-layer-group" style="color:#3498db;margin-right:6px;"></i>选择题库池
+                        </div>
+                        <div id="iv-import-pool-info" style="font-size:0.84rem;color:#555;margin-bottom:16px;"></div>
+                        <div style="margin-bottom:14px;">
+                            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;cursor:pointer;margin-bottom:10px;">
+                                <input type="radio" name="iv-pool-mode" value="new" checked onchange="ivImportPoolModeChange(this.value)">
+                                <span id="iv-import-new-pool-label">新建独立题库池</span>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;cursor:pointer;">
+                                <input type="radio" name="iv-pool-mode" value="existing" onchange="ivImportPoolModeChange(this.value)">
+                                加入已有题库池
+                            </label>
+                        </div>
+                        <div id="iv-import-pool-select-row" style="display:none;margin-bottom:14px;">
+                            <select id="iv-import-pool-select" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.88rem;"></select>
+                        </div>
+                        <div style="display:flex;gap:10px;justify-content:flex-end;">
+                            <button onclick="ivImportPoolCancel()" class="btn btn-secondary" style="padding:6px 16px;font-size:0.88rem;">取消</button>
+                            <button onclick="ivImportPoolConfirm()" class="btn btn-primary" style="padding:6px 16px;font-size:0.88rem;">确认导入</button>
+                        </div>
                     </div>
                 </div>
 
@@ -2199,7 +2229,7 @@
                             <span style="font-size:1rem;font-weight:700;color:#333;">
                                 <i class="fas fa-microscope" style="color:#8e44ad;margin-right:6px;"></i>套题质量检查
                             </span>
-                            <button onclick="document.getElementById('iv-qc-modal').style.display='none'"
+                            <button onclick="ivCloseQcModal()"
                                     style="border:none;background:none;font-size:1.3rem;cursor:pointer;color:#888;padding:0 4px;">✕</button>
                         </div>
                         <div id="iv-qc-body" style="min-height:60px;"></div>
@@ -8464,7 +8494,7 @@ async function ivLoadPools() {
 
 function ivPopulatePoolSelects() {
     const selects = ['iv-pool-select', 'iv-config-pool-select', 'iv-sess-pool',
-                     'iv-exp-pool', 'iv-imp-pool', 'iv-imp-sets-pool'];
+                     'iv-exp-pool', 'iv-imp-pool'];
     selects.forEach(sid => {
         const sel = document.getElementById(sid);
         if (!sel) return;
@@ -9021,6 +9051,10 @@ function ivRenderSessionList() {
                         style="padding:4px 10px;font-size:0.8rem;border:1px solid #8e44ad;color:#8e44ad;background:#fff;border-radius:4px;cursor:pointer;">
                     <i class="fas fa-microscope"></i> 检查
                 </button>
+                ${sess.used_sets > 0 ? `<button onclick="ivReleaseAllSets(${sess.id},'${escHtml(sess.session_name)}')"
+                        style="padding:4px 10px;font-size:0.8rem;border:1px solid #27ae60;color:#27ae60;background:#fff;border-radius:4px;cursor:pointer;">
+                    <i class="fas fa-unlock-alt"></i> 一键释放 (${sess.used_sets})
+                </button>` : ''}
                 <button onclick="ivDeleteSession(${sess.id})"
                         style="padding:4px 10px;font-size:0.8rem;border:1px solid #e74c3c;color:#e74c3c;background:#fff;border-radius:4px;cursor:pointer;">
                     <i class="fas fa-trash-alt"></i> 删除场次
@@ -9095,6 +9129,19 @@ async function ivReleaseSet(setId, sessionId) {
     ivRenderSessionList();
 }
 
+async function ivReleaseAllSets(sessionId, sessionName) {
+    const sess = ivSessions.find(s => s.id === sessionId);
+    const count = sess ? sess.used_sets : 0;
+    if (!confirm(`将「${sessionName}」中全部 ${count} 套已使用套题一键释放？\n释放后所有题目重置为可用，可重新被抽取。`)) return;
+    const res = await fetch(`/api/interview/sessions/${sessionId}/release-all`, {method:'POST'});
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || '释放失败'); return; }
+    const div = document.getElementById(`iv-sets-${sessionId}`);
+    if (div && div.style.display !== 'none') ivToggleSets(sessionId);
+    await ivLoadSessions();
+    ivRenderSessionList();
+}
+
 async function ivDeleteSession(sessionId) {
     const sessObj = ivSessions.find(s => s.id === sessionId);
     const sessionName = sessObj ? sessObj.session_name : '';
@@ -9111,79 +9158,138 @@ async function ivDeleteSession(sessionId) {
 // ── 质量检查 ──────────────────────────────────────────────────────────────────
 
 let ivQcFixes = [];   // [{question_id, field, suggested, checkboxId}]
+let _ivQcEs = null;   // 当前 EventSource 实例
 
-async function ivQualityCheck(sessionId) {
+function ivCloseQcModal() {
+    if (_ivQcEs) { _ivQcEs.close(); _ivQcEs = null; }
+    document.getElementById('iv-qc-modal').style.display = 'none';
+}
+
+function _ivQcProgressHtml(checked, total) {
+    const pct = total > 0 ? Math.round(checked / total * 100) : 0;
+    return `
+    <div style="padding:20px 4px;">
+        <div style="text-align:center;font-size:0.88rem;color:#555;margin-bottom:14px;">
+            <i class="fas fa-microscope" style="color:#8e44ad;margin-right:6px;"></i>
+            正在检查第 <b id="iv-qc-cur">${checked}</b> / <b>${total}</b> 题…
+        </div>
+        <div style="background:#eee;border-radius:6px;height:10px;overflow:hidden;margin-bottom:8px;">
+            <div id="iv-qc-bar" style="background:linear-gradient(90deg,#8e44ad,#3498db);height:100%;
+                 width:${pct}%;transition:width 0.4s ease;border-radius:6px;"></div>
+        </div>
+        <div id="iv-qc-batch-tip" style="text-align:center;font-size:0.78rem;color:#aaa;"></div>
+    </div>`;
+}
+
+function ivQualityCheck(sessionId) {
     const modal = document.getElementById('iv-qc-modal');
     const body  = document.getElementById('iv-qc-body');
     const footer = document.getElementById('iv-qc-footer');
     ivQcFixes = [];
     footer.style.display = 'none';
-    body.innerHTML = '<div style="padding:20px;text-align:center;color:#888;"><i class="fas fa-spinner fa-spin"></i> 正在调用 DeepSeek 检查中，请稍候…</div>';
+    body.innerHTML = _ivQcProgressHtml(0, 0).replace('正在检查第 <b id="iv-qc-cur">0</b> / <b>0</b> 题…',
+        '<i class="fas fa-spinner fa-spin" style="color:#8e44ad;"></i> 连接中…');
     modal.style.display = 'flex';
 
-    try {
-        const res = await fetch(`/api/interview/sessions/${sessionId}/quality-check`, {method:'POST'});
-        const data = await res.json();
-        if (!res.ok) { body.innerHTML = `<div style="color:#e74c3c;padding:12px;">${data.error || '检查失败'}</div>`; return; }
+    if (_ivQcEs) { _ivQcEs.close(); }
+    const es = new EventSource(`/api/interview/sessions/${sessionId}/quality-check/stream`);
+    _ivQcEs = es;
+    let totalQ = 0;
 
-        if (!data.results || !data.results.length) {
-            body.innerHTML = `<div style="padding:16px;text-align:center;">
-                <i class="fas fa-check-circle" style="color:#27ae60;font-size:2rem;"></i>
-                <div style="margin-top:8px;font-size:0.9rem;color:#555;">
-                    全部 ${data.total_checked} 道题目检查通过，未发现问题！
-                </div></div>`;
-            return;
+    es.onmessage = (e) => {
+        let d;
+        try { d = JSON.parse(e.data); } catch { return; }
+
+        if (d.type === 'start') {
+            totalQ = d.total;
+            body.innerHTML = _ivQcProgressHtml(0, totalQ);
+
+        } else if (d.type === 'progress') {
+            totalQ = d.total;
+            const pct = Math.round(d.checked / totalQ * 100);
+            const bar = document.getElementById('iv-qc-bar');
+            const cur = document.getElementById('iv-qc-cur');
+            const tip = document.getElementById('iv-qc-batch-tip');
+            if (bar) bar.style.width = pct + '%';
+            if (cur) cur.textContent = d.checked;
+            if (tip) tip.textContent = `正在检查第 ${d.batch_start} ~ ${d.batch_end} 题（每批 8 题，调用 DeepSeek）`;
+
+        } else if (d.type === 'done') {
+            es.close(); _ivQcEs = null;
+            _ivQcRenderResults(d);
+
+        } else if (d.type === 'error') {
+            es.close(); _ivQcEs = null;
+            body.innerHTML = `<div style="color:#e74c3c;padding:12px;">${escHtml(d.message)}</div>`;
         }
+    };
 
-        // 渲染问题列表
-        let cbIdx = 0;
-        const typeLabel = {stem_answer_confusion:'题干答案混淆', grammar_error:'英文语法错误'};
-        const typeColor = {stem_answer_confusion:'#e74c3c', grammar_error:'#e67e22'};
+    es.onerror = () => {
+        es.close(); _ivQcEs = null;
+        if (document.getElementById('iv-qc-bar')) {
+            body.innerHTML = `<div style="color:#e74c3c;padding:12px;">连接中断，请重试。</div>`;
+        }
+    };
+}
 
-        let html = `<div style="font-size:0.83rem;color:#555;margin-bottom:14px;">
-            共检查 <b>${data.total_checked}</b> 道题目，发现 <b style="color:#e74c3c;">${data.issues_found}</b> 道有问题。勾选要修复的项目后点击「应用选中修复」。
-        </div>`;
+function _ivQcRenderResults(data) {
+    const body   = document.getElementById('iv-qc-body');
+    const footer = document.getElementById('iv-qc-footer');
 
-        for (const r of data.results) {
-            for (const issue of r.issues) {
-                const cbId = `iv-qc-cb-${cbIdx++}`;
-                const color = typeColor[issue.type] || '#888';
-                const label = typeLabel[issue.type] || issue.type;
-                ivQcFixes.push({question_id: r.question_id, field: issue.field,
-                                suggested: issue.suggested, checkboxId: cbId});
-                html += `
-                <div style="background:#fafafa;border:1px solid #e5e5e5;border-radius:8px;padding:12px 14px;margin-bottom:10px;">
-                    <div style="display:flex;align-items:flex-start;gap:10px;">
-                        <input type="checkbox" id="${cbId}" checked style="margin-top:3px;flex-shrink:0;cursor:pointer;"
-                               onchange="ivQcUpdateSelTip()">
-                        <div style="flex:1;">
-                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
-                                <span style="background:${color}22;color:${color};padding:2px 10px;border-radius:10px;font-size:0.78rem;font-weight:600;">${label}</span>
-                                <span style="font-size:0.75rem;color:#999;">字段：${issue.field}</span>
-                                <span style="font-size:0.75rem;color:#bbb;">${r.question_id}</span>
+    if (!data.results || !data.results.length) {
+        body.innerHTML = `<div style="padding:16px;text-align:center;">
+            <i class="fas fa-check-circle" style="color:#27ae60;font-size:2rem;"></i>
+            <div style="margin-top:8px;font-size:0.9rem;color:#555;">
+                全部 ${data.total_checked} 道题目检查通过，未发现问题！
+            </div></div>`;
+        return;
+    }
+
+    let cbIdx = 0;
+    const typeLabel = {stem_answer_confusion:'题干答案混淆', grammar_error:'英文语法错误'};
+    const typeColor = {stem_answer_confusion:'#e74c3c', grammar_error:'#e67e22'};
+
+    let html = `<div style="font-size:0.83rem;color:#555;margin-bottom:14px;">
+        共检查 <b>${data.total_checked}</b> 道题目，发现 <b style="color:#e74c3c;">${data.issues_found}</b> 道有问题。勾选要修复的项目后点击「应用选中修复」。
+    </div>`;
+
+    for (const r of data.results) {
+        for (const issue of r.issues) {
+            const cbId = `iv-qc-cb-${cbIdx++}`;
+            const color = typeColor[issue.type] || '#888';
+            const label = typeLabel[issue.type] || issue.type;
+            ivQcFixes.push({question_id: r.question_id, field: issue.field,
+                            suggested: issue.suggested, checkboxId: cbId});
+            html += `
+            <div style="background:#fafafa;border:1px solid #e5e5e5;border-radius:8px;padding:12px 14px;margin-bottom:10px;">
+                <div style="display:flex;align-items:flex-start;gap:10px;">
+                    <input type="checkbox" id="${cbId}" checked style="margin-top:3px;flex-shrink:0;cursor:pointer;"
+                           onchange="ivQcUpdateSelTip()">
+                    <div style="flex:1;">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+                            <span style="background:${color}22;color:${color};padding:2px 10px;border-radius:10px;font-size:0.78rem;font-weight:600;">${label}</span>
+                            <span style="font-size:0.75rem;color:#999;">字段：${issue.field}</span>
+                            <span style="font-size:0.75rem;color:#bbb;">${r.question_id}</span>
+                        </div>
+                        <div style="font-size:0.82rem;color:#555;margin-bottom:6px;">${issue.description}</div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.8rem;">
+                            <div style="background:#fff3f3;border-radius:5px;padding:8px;">
+                                <div style="font-size:0.72rem;color:#e74c3c;font-weight:600;margin-bottom:4px;">原文</div>
+                                <div style="color:#555;line-height:1.5;word-break:break-word;">${escHtml(issue.original || '')}</div>
                             </div>
-                            <div style="font-size:0.82rem;color:#555;margin-bottom:6px;">${issue.description}</div>
-                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.8rem;">
-                                <div style="background:#fff3f3;border-radius:5px;padding:8px;">
-                                    <div style="font-size:0.72rem;color:#e74c3c;font-weight:600;margin-bottom:4px;">原文</div>
-                                    <div style="color:#555;line-height:1.5;word-break:break-word;">${escHtml(issue.original || '')}</div>
-                                </div>
-                                <div style="background:#f0fff4;border-radius:5px;padding:8px;">
-                                    <div style="font-size:0.72rem;color:#27ae60;font-weight:600;margin-bottom:4px;">修复建议</div>
-                                    <div style="color:#333;line-height:1.5;word-break:break-word;">${escHtml(issue.suggested || '')}</div>
-                                </div>
+                            <div style="background:#f0fff4;border-radius:5px;padding:8px;">
+                                <div style="font-size:0.72rem;color:#27ae60;font-weight:600;margin-bottom:4px;">修复建议</div>
+                                <div style="color:#333;line-height:1.5;word-break:break-word;">${escHtml(issue.suggested || '')}</div>
                             </div>
                         </div>
                     </div>
-                </div>`;
-            }
+                </div>
+            </div>`;
         }
-        body.innerHTML = html;
-        footer.style.display = 'flex';
-        ivQcUpdateSelTip();
-    } catch(e) {
-        body.innerHTML = `<div style="color:#e74c3c;padding:12px;">请求失败：${e}</div>`;
     }
+    body.innerHTML = html;
+    footer.style.display = 'flex';
+    ivQcUpdateSelTip();
 }
 
 function escHtml(s) {
@@ -9302,6 +9408,44 @@ function ivViewSetEditQuestion(questionId) {
         .catch(() => alert('加载题目失败'));
 }
 
+const _ivCandidatesCache = {}; // key: `${setId}_${slotIndex}` → candidates[]
+
+function _ivRenderCandidateItems(candidates, setId, slotIndex) {
+    if (!candidates.length) {
+        return '<div style="color:#aaa;font-size:0.8rem;padding:8px 0;">无匹配题目</div>';
+    }
+    return candidates.map(c => `
+        <div style="background:#fff;border:1px solid #e5e5e5;border-radius:5px;padding:8px 10px;display:flex;align-items:flex-start;gap:8px;">
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:0.8rem;color:#444;line-height:1.55;word-break:break-word;">${escHtml(c.content_preview || '')}</div>
+                ${c.knowledge_point ? `<div style="font-size:0.72rem;color:#3498db;margin-top:3px;">
+                    <i class="fas fa-tag" style="font-size:0.65rem;"></i> ${escHtml(c.knowledge_point)}</div>` : ''}
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;">
+                ${c.difficulty ? `<span style="font-size:0.7rem;color:#999;">${escHtml(c.difficulty)}</span>` : ''}
+                <button onclick="ivDoReplace(${setId},${slotIndex},'${c.question_id}')"
+                        style="padding:3px 10px;font-size:0.75rem;border:none;background:#e67e22;color:#fff;border-radius:4px;cursor:pointer;white-space:nowrap;">
+                    选用
+                </button>
+            </div>
+        </div>`).join('');
+}
+
+function ivFilterCandidates(setId, slotIndex, keyword) {
+    const key = `${setId}_${slotIndex}`;
+    const all = _ivCandidatesCache[key] || [];
+    const kw = keyword.trim().toLowerCase();
+    const filtered = kw
+        ? all.filter(c =>
+            (c.content_preview || '').toLowerCase().includes(kw) ||
+            (c.knowledge_point || '').toLowerCase().includes(kw))
+        : all;
+    const tip = document.getElementById(`iv-replace-tip-${setId}-${slotIndex}`);
+    if (tip) tip.textContent = kw ? `筛选结果：${filtered.length} 道` : `共 ${all.length} 道可选`;
+    const container = document.getElementById(`iv-replace-list-${setId}-${slotIndex}`);
+    if (container) container.innerHTML = _ivRenderCandidateItems(filtered, setId, slotIndex);
+}
+
 async function ivViewSetReplace(setId, slotIndex) {
     const panel = document.getElementById(`iv-replace-panel-${slotIndex}`);
     if (!panel) return;
@@ -9313,25 +9457,29 @@ async function ivViewSetReplace(setId, slotIndex) {
         const data = await res.json();
         const candidates = data.candidates || [];
         const questionType = data.question_type || '任意题型';
+        const key = `${setId}_${slotIndex}`;
+        _ivCandidatesCache[key] = candidates;
+
         if (!candidates.length) {
             panel.innerHTML = '<div style="color:#e74c3c;font-size:0.82rem;padding:8px;">暂无可替换的同题型题目（需要有 drawn=0 的题目）</div>';
             return;
         }
         panel.innerHTML = `
             <div style="background:#fffbf0;border:1px solid #f0d080;border-radius:6px;padding:10px;">
-                <div style="font-size:0.8rem;font-weight:600;color:#b7800a;margin-bottom:8px;">
-                    <i class="fas fa-exchange-alt"></i> 选择替换题目（${questionType}，共 ${candidates.length} 道可选）
+                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
+                    <div style="font-size:0.8rem;font-weight:600;color:#b7800a;">
+                        <i class="fas fa-exchange-alt"></i> 选择替换题目（${escHtml(questionType)}）
+                    </div>
+                    <span id="iv-replace-tip-${setId}-${slotIndex}" style="font-size:0.75rem;color:#888;">共 ${candidates.length} 道可选</span>
                 </div>
-                <div style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">
-                    ${candidates.map(c => `
-                        <div style="background:#fff;border:1px solid #e5e5e5;border-radius:5px;padding:8px 10px;display:flex;align-items:center;gap:8px;">
-                            <div style="flex:1;font-size:0.8rem;color:#444;line-height:1.5;">${c.content_preview || ''}</div>
-                            <span style="font-size:0.72rem;color:#999;white-space:nowrap;">${c.difficulty||''}</span>
-                            <button onclick="ivDoReplace(${setId},${slotIndex},'${c.question_id}')"
-                                    style="padding:3px 10px;font-size:0.75rem;border:none;background:#e67e22;color:#fff;border-radius:4px;cursor:pointer;white-space:nowrap;">
-                                选用
-                            </button>
-                        </div>`).join('')}
+                <div style="margin-bottom:8px;">
+                    <input type="text" placeholder="搜索题干、知识点…"
+                           oninput="ivFilterCandidates(${setId},${slotIndex},this.value)"
+                           style="width:100%;box-sizing:border-box;padding:5px 10px;border:1px solid #e0c860;border-radius:4px;font-size:0.82rem;outline:none;">
+                </div>
+                <div id="iv-replace-list-${setId}-${slotIndex}"
+                     style="max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">
+                    ${_ivRenderCandidateItems(candidates, setId, slotIndex)}
                 </div>
             </div>`;
     } catch(e) { panel.innerHTML = '加载失败'; }
@@ -9523,24 +9671,93 @@ async function ivExportSetsXlsx() {
     window.open(`/api/interview/sessions/${sessId}/export-xlsx`, '_blank');
 }
 
+// 套题导入 —— 步骤1：validate → prepare → 决策
+let _ivImportFile = null;       // 暂存文件，等待选池后使用
+let _ivImportSessionName = '';  // 暂存场次名
+
 async function ivImportSetsXlsx() {
-    const poolId = document.getElementById('iv-imp-sets-pool')?.value;
+    const sessionName = (document.getElementById('iv-imp-sets-name')?.value || '').trim();
     const file = document.getElementById('iv-imp-sets-file')?.files[0];
     const msg = document.getElementById('iv-imp-sets-msg');
-    if (!poolId) { alert('请选择关联题库池'); return; }
+    if (!sessionName) { alert('请填写场次名称'); return; }
     if (!file) { alert('请选择 Excel 文件'); return; }
-    msg.style.color='#888'; msg.textContent='导入中…';
+
+    msg.style.color='#888'; msg.textContent='解析文件…';
+    _ivImportFile = file;
+    _ivImportSessionName = sessionName;
+
+    // 上传到 prepare 接口，解析文件统计数据和现有池
     const fd = new FormData();
     fd.append('file', file);
-    fd.append('pool_id', poolId);
+    try {
+        const res = await fetch('/api/interview/sessions/import-xlsx/prepare', {method:'POST', body:fd});
+        const data = await res.json();
+        if (!res.ok) { msg.style.color='#e74c3c'; msg.textContent=data.error||'解析失败'; return; }
+        msg.style.color='#888'; msg.textContent='';
+
+        if (data.existing_pools.length === 0) {
+            // 无已有池 → 直接新建池并导入
+            await _ivDoImport('new', null);
+        } else {
+            // 有已有池 → 弹出选择对话框
+            const info = document.getElementById('iv-import-pool-info');
+            info.textContent = `文件包含 ${data.set_count} 套题、${data.question_count} 道题目。系统已有 ${data.existing_pools.length} 个题库池，请选择处理方式：`;
+            // 填充已有池下拉
+            const sel = document.getElementById('iv-import-pool-select');
+            sel.innerHTML = data.existing_pools.map(p => `<option value="${p.id}">${p.pool_name}</option>`).join('');
+            // 重置到新建模式
+            document.querySelector('input[name="iv-pool-mode"][value="new"]').checked = true;
+            document.getElementById('iv-import-pool-select-row').style.display = 'none';
+            document.getElementById('iv-import-new-pool-label').textContent = `新建独立题库池（将命名为"${sessionName}-题库池"）`;
+            document.getElementById('iv-import-pool-modal').style.display = 'flex';
+        }
+    } catch(e) { msg.style.color='#e74c3c'; msg.textContent='解析失败：'+e; }
+}
+
+function ivImportPoolModeChange(mode) {
+    document.getElementById('iv-import-pool-select-row').style.display = mode === 'existing' ? 'block' : 'none';
+}
+
+function ivImportPoolCancel() {
+    document.getElementById('iv-import-pool-modal').style.display = 'none';
+    _ivImportFile = null;
+    _ivImportSessionName = '';
+}
+
+async function ivImportPoolConfirm() {
+    document.getElementById('iv-import-pool-modal').style.display = 'none';
+    const mode = document.querySelector('input[name="iv-pool-mode"]:checked')?.value || 'new';
+    const poolId = mode === 'existing' ? document.getElementById('iv-import-pool-select').value : null;
+    await _ivDoImport(mode, poolId);
+}
+
+// 套题导入 —— 步骤2：执行实际导入
+async function _ivDoImport(poolMode, poolId) {
+    const msg = document.getElementById('iv-imp-sets-msg');
+    if (!_ivImportFile) return;
+    msg.style.color='#888'; msg.textContent='导入中…';
+    const fd = new FormData();
+    fd.append('file', _ivImportFile);
+    fd.append('session_name', _ivImportSessionName);
+    fd.append('pool_mode', poolMode);
+    if (poolId) fd.append('pool_id', poolId);
     try {
         const res = await fetch('/api/interview/sessions/import-xlsx', {method:'POST', body:fd});
         const data = await res.json();
         if (!res.ok) { msg.style.color='#e74c3c'; msg.textContent=data.error||'导入失败'; return; }
         msg.style.color='#27ae60';
-        msg.textContent = `导入完成：${data.sets_imported} 套，新建题目 ${data.created_questions} 道`;
+        const skipTip = data.questions_skipped > 0 ? `，已有题目 ${data.questions_skipped} 道（跳过）` : '';
+        msg.textContent = `导入完成：场次「${data.session_name}」，${data.sets_imported} 套，题库池「${data.pool_name}」，新增 ${data.questions_added} 道${skipTip}`;
+        _ivImportFile = null;
+        _ivImportSessionName = '';
+        document.getElementById('iv-imp-sets-name').value = '';
+        document.getElementById('iv-imp-sets-file').value = '';
+        await ivLoadPools();
         await ivLoadSessions();
         ivLoadDrawSessions();
+        // 跳转到套题管理面板，高亮展示新导入的场次
+        ivSwitchPanel('iv-session', document.querySelector('.iv-nav-btn[data-panel="iv-session"]'));
+        ivRenderSessionList();
     } catch(e) { msg.style.color='#e74c3c'; msg.textContent='导入失败：'+e; }
 }
 
