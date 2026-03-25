@@ -9,6 +9,27 @@ from datetime import datetime
 bp = Blueprint('main', __name__)
 
 
+# ─── 查重辅助函数 ────────────────────────────────────────────────────────────
+
+def _ngram_set(text: str, n: int = 2) -> set:
+    """生成字符级 n-gram 集合，用于相似度计算。去除所有空白后处理。"""
+    t = ''.join(text.split())
+    return {t[i:i+n] for i in range(len(t) - n + 1)}
+
+
+def _is_similar(new_text: str, existing_ngrams: list, threshold: float = 0.7) -> bool:
+    """Jaccard 相似度 >= threshold 则认为重复。"""
+    ng_new = _ngram_set(new_text)
+    if not ng_new:
+        return False
+    for ng_ex in existing_ngrams:
+        inter = len(ng_new & ng_ex)
+        union = len(ng_new | ng_ex)
+        if union > 0 and inter / union >= threshold:
+            return True
+    return False
+
+
 @bp.route('/')
 def index():
     """Main page route"""
@@ -650,6 +671,13 @@ def import_questions():
                 if row[0]
             )
 
+            # 新增：构建库内题目的 n-gram 列表，用于相似度查重（仅取前200字）
+            existing_ngrams = [
+                _ngram_set((row[0] or '')[:200])
+                for row in db.session.query(QuestionModel.content).all()
+                if row[0]
+            ]
+
             questions_data = []
             models = []
             skipped = 0
@@ -677,7 +705,11 @@ def import_questions():
                     if content_text in existing_contents:
                         skipped += 1
                         continue
+                    if _is_similar(content_text[:200], existing_ngrams):
+                        skipped += 1
+                        continue
                     existing_contents.add(content_text)  # prevent duplicates within this batch
+                    existing_ngrams.append(_ngram_set(content_text[:200]))
                     question_id = f"q_{now.strftime('%Y%m%d_%H%M%S')}_{i}"
                     content_en = q_data.get('content_en') or None
                     options_en = q_data.get('options_en') or []
@@ -726,7 +758,11 @@ def import_questions():
                     if content_text in existing_contents:
                         skipped += 1
                         continue
+                    if _is_similar(content_text[:200], existing_ngrams):
+                        skipped += 1
+                        continue
                     existing_contents.add(content_text)  # prevent duplicates within this batch
+                    existing_ngrams.append(_ngram_set(content_text[:200]))
                     question_id = f"q_{now.strftime('%Y%m%d_%H%M%S')}_txt_{i}"
                     content_en = q_data.get('content_en') or None
                     options_en = q_data.get('options_en') or []
@@ -765,7 +801,11 @@ def import_questions():
                     if content_text in existing_contents:
                         skipped += 1
                         continue
+                    if _is_similar(content_text[:200], existing_ngrams):
+                        skipped += 1
+                        continue
                     existing_contents.add(content_text)
+                    existing_ngrams.append(_ngram_set(content_text[:200]))
                     question_id = f"q_{now.strftime('%Y%m%d_%H%M%S')}_xlsx_{i}"
                     model = QuestionModel(
                         question_id=question_id,
@@ -794,7 +834,7 @@ def import_questions():
                 imported = len(models)
                 os.remove(file_path) if os.path.exists(file_path) else None
                 return jsonify({
-                    'message': 'Questions imported successfully',
+                    'message': f'成功导入 {imported} 题，跳过重复 {skipped} 题（含相似题）',
                     'imported': imported,
                     'count': imported,
                     'skipped': skipped,
@@ -808,7 +848,7 @@ def import_questions():
 
             imported = len(models)
             return jsonify({
-                'message': 'Questions imported successfully',
+                'message': f'成功导入 {imported} 题，跳过重复 {skipped} 题（含相似题）',
                 'imported': imported,
                 'count': imported,   # backward compat alias
                 'skipped': skipped,
