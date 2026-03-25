@@ -2021,9 +2021,12 @@
                                         border-radius:5px;font-size:0.85rem;min-width:200px;">
                                     <option value="">-- 选择场次 --</option>
                                 </select>
+                                <label style="font-size:0.83rem;color:#555;white-space:nowrap;">抽取套数：</label>
+                                <input type="number" id="iv-draw-count" min="1" max="20" value="1"
+                                       style="width:60px;padding:5px 8px;border:1px solid #ddd;border-radius:5px;font-size:0.85rem;text-align:center;">
                                 <button onclick="ivDrawSet()" class="btn btn-primary"
                                         style="padding:6px 16px;font-size:0.85rem;">
-                                    <i class="fas fa-random"></i> 随机抽取一套
+                                    <i class="fas fa-random"></i> 随机抽取
                                 </button>
                                 <span id="iv-draw-msg" style="font-size:0.8rem;color:#888;"></span>
                             </div>
@@ -9223,11 +9226,12 @@ async function ivDrawSet() {
     const sessionId = document.getElementById('iv-draw-session-select')?.value;
     const msg = document.getElementById('iv-draw-msg');
     if (!sessionId) { alert('请先选择场次'); return; }
+    const drawCount = Math.max(1, parseInt(document.getElementById('iv-draw-count')?.value) || 1);
     msg.style.color = '#888'; msg.textContent = '抽取中…';
 
-    // 连续抽取最多 3 套（全部标记为已使用）
+    // 连续抽取指定套数（全部标记为已使用）
     const drawnSets = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < drawCount; i++) {
         try {
             const res = await fetch(`/api/interview/sessions/${sessionId}/draw`, {method:'POST'});
             if (!res.ok) break; // 没有更多可用套题了
@@ -9259,7 +9263,7 @@ function ivShowDrawFullscreen(sets, sessionName) {
     document.getElementById('iv-fs-session-name').textContent = sessionName ? `· ${sessionName}` : '';
     const container = document.getElementById('iv-fs-sets-container');
 
-    const accentColors = ['#3498db','#27ae60','#9b59b6'];
+    const accentColors = ['#3498db','#27ae60','#9b59b6','#e67e22','#e74c3c','#1abc9c','#2980b9','#8e44ad','#16a085','#d35400'];
 
     container.innerHTML = sets.map((setData, si) => {
         const qs = setData.questions || [];
