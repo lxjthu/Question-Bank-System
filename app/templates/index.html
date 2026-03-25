@@ -8988,7 +8988,7 @@ function ivRenderSessionList() {
                         style="padding:4px 10px;font-size:0.8rem;border:1px solid #2980b9;color:#2980b9;background:#fff;border-radius:4px;cursor:pointer;">
                     <i class="fas fa-list"></i> 查看套题
                 </button>
-                <button onclick="ivDeleteSession(${sess.id}, '${(sess.session_name||'').replace(/'/g,'\\'')}')"
+                <button onclick="ivDeleteSession(${sess.id})"
                         style="padding:4px 10px;font-size:0.8rem;border:1px solid #e74c3c;color:#e74c3c;background:#fff;border-radius:4px;cursor:pointer;">
                     <i class="fas fa-trash-alt"></i> 删除场次
                 </button>
@@ -9062,7 +9062,9 @@ async function ivReleaseSet(setId, sessionId) {
     ivRenderSessionList();
 }
 
-async function ivDeleteSession(sessionId, sessionName) {
+async function ivDeleteSession(sessionId) {
+    const sessObj = ivSessions.find(s => s.id === sessionId);
+    const sessionName = sessObj ? sessObj.session_name : '';
     if (!confirm(`确定删除场次「${sessionName}」及其所有套题？\n删除后题目的占用状态将自动重置，此操作不可撤销。`)) return;
     try {
         const res = await fetch(`/api/interview/sessions/${sessionId}`, {method:'DELETE'});
@@ -9099,7 +9101,8 @@ async function ivViewSet(setId, sessionId) {
                                 style="padding:3px 10px;font-size:0.75rem;border:1px solid #2980b9;color:#2980b9;background:#fff;border-radius:4px;cursor:pointer;">
                             <i class="fas fa-edit"></i> 编辑
                         </button>
-                        <button onclick="ivViewSetReplace(${setId},${i},'${(q.question_type||'').replace(/'/g,"\\'")}')"
+                        <button data-sid="${setId}" data-slot="${i}"
+                                onclick="ivViewSetReplace(parseInt(this.dataset.sid),parseInt(this.dataset.slot))"
                                 style="padding:3px 10px;font-size:0.75rem;border:1px solid #e67e22;color:#e67e22;background:#fff;border-radius:4px;cursor:pointer;">
                             <i class="fas fa-exchange-alt"></i> 替换
                         </button>
@@ -9138,7 +9141,7 @@ function ivViewSetEditQuestion(questionId) {
         .catch(() => alert('加载题目失败'));
 }
 
-async function ivViewSetReplace(setId, slotIndex, questionType) {
+async function ivViewSetReplace(setId, slotIndex) {
     const panel = document.getElementById(`iv-replace-panel-${slotIndex}`);
     if (!panel) return;
     if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
@@ -9148,6 +9151,7 @@ async function ivViewSetReplace(setId, slotIndex, questionType) {
         const res = await fetch(`/api/interview/sets/${setId}/candidates?slot_index=${slotIndex}`);
         const data = await res.json();
         const candidates = data.candidates || [];
+        const questionType = data.question_type || '任意题型';
         if (!candidates.length) {
             panel.innerHTML = '<div style="color:#e74c3c;font-size:0.82rem;padding:8px;">暂无可替换的同题型题目（需要有 drawn=0 的题目）</div>';
             return;
@@ -9155,7 +9159,7 @@ async function ivViewSetReplace(setId, slotIndex, questionType) {
         panel.innerHTML = `
             <div style="background:#fffbf0;border:1px solid #f0d080;border-radius:6px;padding:10px;">
                 <div style="font-size:0.8rem;font-weight:600;color:#b7800a;margin-bottom:8px;">
-                    <i class="fas fa-exchange-alt"></i> 选择替换题目（${questionType || '任意题型'}，共 ${candidates.length} 道可选）
+                    <i class="fas fa-exchange-alt"></i> 选择替换题目（${questionType}，共 ${candidates.length} 道可选）
                 </div>
                 <div style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;">
                     ${candidates.map(c => `
