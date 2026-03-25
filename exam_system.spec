@@ -20,6 +20,8 @@ with open('VERSION', 'r', encoding='utf-8') as _f:
 docx_datas = collect_data_files('docx')
 # Jinja2 内置模板
 jinja2_datas = collect_data_files('jinja2')
+# openpyxl 内置 XML 模板（必须包含，否则运行时找不到内部数据文件）
+openpyxl_datas = collect_data_files('openpyxl')
 
 a = Analysis(
     ['launcher.py'],
@@ -28,9 +30,10 @@ a = Analysis(
     datas=[
         # Flask 模板（HTML 页面）
         ('app/templates', 'app/templates'),
-        # python-docx + jinja2 内部数据
+        # python-docx + jinja2 + openpyxl 内部数据
         *docx_datas,
         *jinja2_datas,
+        *openpyxl_datas,
     ],
     hiddenimports=[
         # SQLAlchemy 方言（必须显式声明，否则运行时找不到 SQLite 驱动）
@@ -66,6 +69,23 @@ a = Analysis(
         'anyio',
         'certifi',
         'charset_normalizer',
+        # openpyxl（Excel 导出/导入，动态 import 需显式声明）
+        'openpyxl',
+        'openpyxl.styles',
+        'openpyxl.styles.fills',
+        'openpyxl.styles.fonts',
+        'openpyxl.styles.borders',
+        'openpyxl.styles.alignment',
+        'openpyxl.styles.numbers',
+        'openpyxl.utils',
+        'openpyxl.utils.cell',
+        'openpyxl.writer',
+        'openpyxl.writer.excel',
+        'openpyxl.reader',
+        'openpyxl.reader.excel',
+        'openpyxl.workbook',
+        'openpyxl.worksheet',
+        'openpyxl.worksheet.worksheet',
         # 标准库可能被遗漏
         'email.mime.text',
         'email.mime.multipart',
@@ -84,7 +104,7 @@ a = Analysis(
         'transformers',
         'paddle', 'paddleocr',
         'numpy', 'scipy', 'sklearn', 'scikit_learn',
-        'matplotlib', 'pandas',
+        'matplotlib', 'pandas',  # pandas 已从代码中移除，保持排除以减小包体
         'IPython', 'jupyter', 'ipykernel',
         'PyQt5', 'PyQt6', 'PySide6',
         'tkinter', '_tkinter',

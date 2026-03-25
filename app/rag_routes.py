@@ -2513,14 +2513,11 @@ def ds_import_xlsx():
         file    — .xlsx 文件
     """
     import io as _io
+    import math as _math
     try:
         import openpyxl as _openpyxl
     except ImportError:
         return jsonify({'error': '请先安装 openpyxl：pip install openpyxl'}), 500
-    try:
-        import pandas as _pd
-    except ImportError:
-        return jsonify({'error': '请先安装 pandas：pip install pandas'}), 500
 
     _init_ds_db()
     doc_id = request.args.get('doc_id', '').strip()
@@ -2541,40 +2538,55 @@ def ds_import_xlsx():
     if doc_check is None:
         return jsonify({'error': f'文档 {doc_id} 不存在'}), 404
 
-    # ── 读取 Excel ────────────────────────────────────────────────────────────
-    try:
-        file_bytes = _io.BytesIO(f.read())
-        df = _pd.read_excel(file_bytes, sheet_name='知识点', header=None)
-    except Exception as e:
-        return jsonify({'error': f'Excel 读取失败：{e}'}), 400
-
-    # 前两行：说明行（row 0）、表头行（row 1）；数据从 row 2 开始
-    if len(df) < 3:
-        return jsonify({'error': 'Excel 数据为空'}), 400
-    df = df.iloc[2:].copy().reset_index(drop=True)
+    # ── 读取 Excel（纯 openpyxl，不依赖 pandas） ─────────────────────────────
     _COLS = ['ID', 'L1', 'L2', 'L3', 'L4', 'L5', 'L6',
              '节点类型', '教学要点', '知识类型', '认知维度', '前序知识点ID', '关联知识点ID']
-    if len(df.columns) < len(_COLS):
-        return jsonify({'error': f'Excel 列数不足，期望 {len(_COLS)} 列'}), 400
-    df.columns = _COLS + list(df.columns[len(_COLS):])
 
     def _str(v):
-        """将单元格值转为干净字符串，NaN/None → ''"""
-        if _pd.isna(v):
+        """将单元格值转为干净字符串，None/空/NaN → ''"""
+        if v is None:
+            return ''
+        if isinstance(v, float) and _math.isnan(v):
             return ''
         s = str(v).strip()
         return '' if s.lower() == 'nan' else s
 
+    try:
+        file_bytes = _io.BytesIO(f.read())
+        wb = _openpyxl.load_workbook(file_bytes, read_only=True, data_only=True)
+        if '知识点' not in wb.sheetnames:
+            return jsonify({'error': 'Excel 中未找到「知识点」工作表'}), 400
+        ws = wb['知识点']
+        all_rows = list(ws.iter_rows(values_only=True))
+    except Exception as e:
+        return jsonify({'error': f'Excel 读取失败：{e}'}), 400
+
+    # 前两行：说明行（row 0）、表头行（row 1）；数据从 row 2 开始
+    if len(all_rows) < 3:
+        return jsonify({'error': 'Excel 数据为空'}), 400
+    data_rows = all_rows[2:]
+
+    if len(all_rows[0]) < len(_COLS):
+        return jsonify({'error': f'Excel 列数不足，期望 {len(_COLS)} 列'}), 400
+
+    col_idx = {name: i for i, name in enumerate(_COLS)}
+
+    def _cell(row, col_name):
+        """按列名取单元格值，超出范围返回 ''"""
+        i = col_idx.get(col_name, -1)
+        if i < 0 or i >= len(row):
+            return ''
+        return _str(row[i])
+
     # ── 构建 export_id → name 映射（含知识单元和知识点） ─────────────────────
     id_to_name: dict = {}
-    for _, row in df.iterrows():
-        eid = _str(row['ID'])
+    for row in data_rows:
+        eid = _cell(row, 'ID')
         if not eid:
             continue
-        # 找该行第一个非空 Lx 值
         name = ''
         for col in ['L1', 'L2', 'L3', 'L4', 'L5', 'L6']:
-            v = _str(row[col])
+            v = _cell(row, col)
             if v:
                 name = v
                 break
@@ -2607,13 +2619,13 @@ def ds_import_xlsx():
     kp_rows = []  # [{kp_name, chapter_name, section_name, sub_section_name, ...}, ...]
     display_name_new = ''
 
-    for _, row in df.iterrows():
-        node_type = _str(row['节点类型'])
+    for row in data_rows:
+        node_type = _cell(row, '节点类型')
         # 找该行是哪一级
         level = None
         name  = ''
         for li, col in enumerate(['L1', 'L2', 'L3', 'L4', 'L5', 'L6'], start=1):
-            v = _str(row[col])
+            v = _cell(row, col)
             if v:
                 level = li
                 name  = v
@@ -2637,11 +2649,11 @@ def ds_import_xlsx():
             continue
 
         if node_type == '知识点':
-            tf  = _str(row['教学要点'])
-            kt  = _str(row['知识类型'])
-            cd  = _str(row['认知维度'])
-            pre = _str(row['前序知识点ID'])
-            rel = _str(row['关联知识点ID'])
+            tf  = _cell(row, '教学要点')
+            kt  = _cell(row, '知识类型')
+            cd  = _cell(row, '认知维度')
+            pre = _cell(row, '前序知识点ID')
+            rel = _cell(row, '关联知识点ID')
             kp_rows.append({
                 'kp_name':         name,
                 'chapter_name':    cur_l2,
