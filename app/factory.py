@@ -48,6 +48,12 @@ def create_app(config_name=None):
     except Exception:
         pass
 
+    try:
+        from app.interview_routes import interview_bp
+        app.register_blueprint(interview_bp)
+    except Exception:
+        pass
+
     # ── 退出端点（打包版 EXE 使用，彻底结束进程）────────────────────────────────
     @app.route('/api/shutdown', methods=['POST'])
     def _shutdown():
@@ -70,6 +76,50 @@ def _migrate_db():
         ('exams', 'confirmed_at', 'DATETIME'),
         ('questions', 'imported_at', 'DATETIME'),
     ]
+    new_tables = [
+        """CREATE TABLE IF NOT EXISTS interview_pools (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pool_name VARCHAR(128) NOT NULL,
+            description TEXT DEFAULT '',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS interview_pool_questions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pool_id INTEGER NOT NULL,
+            question_id VARCHAR(64) NOT NULL,
+            drawn BOOLEAN DEFAULT 0,
+            drawn_at DATETIME,
+            added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(pool_id, question_id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS interview_configs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pool_id INTEGER NOT NULL,
+            config_name VARCHAR(128) DEFAULT 'default',
+            slots_json TEXT NOT NULL DEFAULT '[]',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS interview_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pool_id INTEGER NOT NULL,
+            config_id INTEGER,
+            session_name VARCHAR(256) NOT NULL,
+            interview_count INTEGER NOT NULL DEFAULT 1,
+            sets_multiplier INTEGER NOT NULL DEFAULT 3,
+            score_per_slot_json TEXT DEFAULT '{}',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )""",
+        """CREATE TABLE IF NOT EXISTS interview_sets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            set_code VARCHAR(32) NOT NULL,
+            question_ids_json TEXT NOT NULL DEFAULT '[]',
+            is_used BOOLEAN DEFAULT 0,
+            used_at DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )""",
+    ]
     with db.engine.connect() as conn:
         for table, col, col_def in new_cols:
             try:
@@ -77,6 +127,12 @@ def _migrate_db():
                 conn.commit()
             except Exception:
                 pass  # Column already exists
+        for ddl in new_tables:
+            try:
+                conn.execute(text(ddl))
+                conn.commit()
+            except Exception:
+                pass
 
 
 def _seed_question_types():

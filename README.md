@@ -56,6 +56,20 @@
 - **API 配置界面** — 页面内配置 PaddleOCR 和 DeepSeek API Key，保存至 `.env` 文件
 - **提示词模板管理** — 「知识图谱」出题页与「题库导入」AI 提示词区均支持命名保存：点击「保存当前」输入名称即可；已保存模板显示在选择器"我的提示词"分组，随时切换；重名时提示覆盖或自动追加日期后缀（如 `我的提示词 2026-03-18`）；自定义模板可删除，默认模板（中文/双语/English）始终保留且不可删除；数据存储于浏览器 `localStorage`，刷新不丢失
 
+### 面试抽题（「面试抽题」标签页）
+
+专为面试场景设计的题目管理与抽选系统，与普通题库和试卷管理完全独立：
+
+- **多命名题库池** — 支持创建多个命名池（如「春招池」「秋招池」），各池独立管理，不影响主题库的 `is_used` 状态
+- **题库筛选入池** — 按科目/题型/难度/语言/知识点/标签多维筛选，预览命中后批量加入池；自动排除已在池中的题目
+- **套题配置** — 每池可配置套题槽位结构（题型+语言偏好+难度偏好+备注），持久化保存
+- **批量生成套题** — 输入面试人数×备用倍数（如 10 人×3＝30 套），Fisher-Yates 全局无重复分配，同一题不出现在两套题中；不足时按槽位逐一报警
+- **随机抽选** — 从指定场次中随机取一套未使用套题展示，自动标记已使用，答案可折叠查看
+- **套题状态管理** — 逐套/批量标记已使用，释放时重置题目在池中的可抽状态
+- **Word 导出** — 套题导出为富文本 Word（图片/表格保留），可选含答案，每套分页
+- **Excel 跨机器导入导出** — 题库池与套题记录均可导出/导入 Excel；跨机器导入时题目不存在则自动新建
+- **警告系统** — 题目不足/题型缺失时模态弹窗，含一键跳转操作按钮
+
 ### 知识图谱可视化
 
 #### AI 智能出题内嵌图谱（DS 直出模式）
@@ -91,7 +105,7 @@
 | 文档处理 | python-docx |
 | 富文本编辑器 | Quill.js 1.3.7（CDN） |
 | 可视化 | D3.js v7（CDN，力导向图） |
-| 测试框架 | pytest（115 个用例，全部通过） |
+| 测试框架 | pytest（173 个用例，全部通过） |
 | 前端 | 原生 HTML/CSS/JS 单页应用 |
 | AI 出题（DS 直出） | DeepSeek API + SQLite（ds_knowledge.db，无嵌入模型）|
 | AI 出题（RAG） | DeepSeek API + BGE-large-zh-v1.5 + Qdrant（本地）+ BM25（rank_bm25 + jieba）|
@@ -152,15 +166,16 @@ python -m pytest tests/ -v
 ├── exports/                        # 导出文件目录
 ├── rag_uploads/                    # 用户上传的知识库文档
 ├── app/
-│   ├── factory.py                  # Flask 应用工厂（注册 3 个 Blueprint）
+│   ├── factory.py                  # Flask 应用工厂（注册 4 个 Blueprint）
 │   ├── db_models.py                # SQLAlchemy ORM 模型定义
 │   ├── routes.py                   # 题库/试卷/题型等 API 路由
 │   ├── rag_routes.py               # RAG 知识库 & 出题 API（RAG 8 端点 + DS 直出 7 端点）
 │   ├── kg_routes.py                # 知识图谱可视化 API（3 个端点）
+│   ├── interview_routes.py         # 面试抽题 API（31 个端点）
 │   ├── utils.py                    # Word 模板生成、试卷导出、HTML↔Word 转换
 │   ├── docx_importer.py            # .docx 富内容解析器（图片+表格+软换行）
 │   └── templates/
-│       ├── index.html              # 主页 SPA（7 个标签页）
+│       ├── index.html              # 主页 SPA（8 个标签页）
 │       └── kg.html                 # 知识图谱可视化页面（D3.js）
 ├── rag_pipeline/                   # RAG 向量检索与出题 Pipeline
 │   ├── config.py                   # 路径、模型名、检索参数配置
@@ -191,7 +206,10 @@ python -m pytest tests/ -v
     ├── test_question_types.py      # 题型管理测试（10）
     ├── test_batch_delete.py        # 批量删除测试（5）
     ├── test_usage_management.py    # 使用管理测试（7）
-    └── test_course_settings.py     # 课程设置测试（11）
+    ├── test_course_settings.py     # 课程设置测试（11）
+    ├── test_bilingual.py           # 双语题目测试（8）
+    ├── test_batch_generate_dedup.py # 分批出题/查重测试（19）
+    └── test_interview.py           # 面试抽题测试（43）
 ```
 
 ## API 接口一览
@@ -274,6 +292,37 @@ python -m pytest tests/ -v
 | `GET` | `/kg` | 知识图谱可视化页面 |
 | `GET` | `/api/kg/graph` | 图谱节点 + 边数据（D3.js 格式，支持 `doc_id` 过滤） |
 | `GET` | `/api/kg/chunks` | 指定节点的原文 chunk 列表（支持分页） |
+
+### 面试抽题
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/interview/pools` | 获取所有题库池（含题目数量统计） |
+| `POST` | `/api/interview/pools` | 新建题库池 |
+| `PUT` | `/api/interview/pools/<id>` | 更新题库池名称/描述 |
+| `DELETE` | `/api/interview/pools/<id>` | 删除题库池（级联清除池中题目记录） |
+| `GET` | `/api/interview/pools/<id>/questions` | 获取池中题目列表（分页，支持 `drawn` 过滤） |
+| `GET` | `/api/interview/pools/<id>/stats` | 统计池中各题型可用数量 |
+| `POST` | `/api/interview/pools/<id>/questions/preview` | 按条件预览可加入的题目（不实际写入） |
+| `POST` | `/api/interview/pools/<id>/questions/add` | 按条件批量加入题目 |
+| `POST` | `/api/interview/pools/<id>/questions/remove` | 从池中移除指定题目 |
+| `DELETE` | `/api/interview/pools/<id>/questions` | 清空池中全部题目 |
+| `GET` | `/api/interview/pools/<id>/questions/export-xlsx` | 导出题库池为 Excel |
+| `POST` | `/api/interview/pools/<id>/questions/import-xlsx` | 从 Excel 导入题库池（跨机器自动建题） |
+| `GET` | `/api/interview/pools/<id>/config` | 获取套题槽位配置 |
+| `PUT` | `/api/interview/pools/<id>/config` | 保存套题槽位配置 |
+| `POST` | `/api/interview/pools/<id>/check` | 校验题目数量是否满足生成 N 套的需求 |
+| `GET` | `/api/interview/sessions` | 获取所有面试场次（含套题统计） |
+| `POST` | `/api/interview/sessions` | 创建场次并批量生成套题（返回 422+warnings 若不足） |
+| `GET` | `/api/interview/sessions/<id>/sets` | 获取场次下所有套题（分页，支持 `is_used` 过滤） |
+| `POST` | `/api/interview/sessions/<id>/draw` | 从场次随机抽取一套未使用套题并标记已使用 |
+| `GET` | `/api/interview/sessions/<id>/export-xlsx` | 导出场次套题为 Excel（双 Sheet） |
+| `POST` | `/api/interview/sessions/import-xlsx` | 从 Excel 导入套题记录（含自动建题） |
+| `GET` | `/api/interview/sets/<id>` | 获取单套题详情（含完整题目信息） |
+| `POST` | `/api/interview/sets/<id>/use` | 标记套题为已使用 |
+| `POST` | `/api/interview/sets/<id>/release` | 释放套题（重置题目 drawn 状态） |
+| `POST` | `/api/interview/sets/batch-use` | 批量标记套题为已使用 |
+| `POST` | `/api/interview/export/word` | 导出选定套题为 Word 文档 |
 
 ## 导入格式说明
 
