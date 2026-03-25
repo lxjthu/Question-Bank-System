@@ -53,6 +53,9 @@ class QuestionModel(db.Model):
     is_used = db.Column(db.Boolean, default=False, index=True)
     used_date = db.Column(db.DateTime)
     imported_at = db.Column(db.DateTime, nullable=True)
+    interview_pool = db.Column(db.Boolean, default=False)   # 已加入某面试题库池
+    interview_set  = db.Column(db.Boolean, default=False)   # 已被分配进某套题
+    interview_used = db.Column(db.Boolean, default=False)   # 所在套题已被标记使用
     created_at = db.Column(db.DateTime)
     updated_at = db.Column(db.DateTime)
 
@@ -76,6 +79,9 @@ class QuestionModel(db.Model):
             'is_used': self.is_used,
             'used_date': self.used_date.isoformat() if self.used_date else None,
             'imported_at': self.imported_at.strftime('%Y-%m-%d %H:%M') if self.imported_at else None,
+            'interview_pool': bool(self.interview_pool),
+            'interview_set':  bool(self.interview_set),
+            'interview_used': bool(self.interview_used),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

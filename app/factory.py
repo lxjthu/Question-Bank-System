@@ -75,6 +75,9 @@ def _migrate_db():
         ('exams', 'is_confirmed', 'BOOLEAN DEFAULT 0'),
         ('exams', 'confirmed_at', 'DATETIME'),
         ('questions', 'imported_at', 'DATETIME'),
+        ('questions', 'interview_pool', 'BOOLEAN DEFAULT 0'),
+        ('questions', 'interview_set', 'BOOLEAN DEFAULT 0'),
+        ('questions', 'interview_used', 'BOOLEAN DEFAULT 0'),
     ]
     new_tables = [
         """CREATE TABLE IF NOT EXISTS interview_pools (

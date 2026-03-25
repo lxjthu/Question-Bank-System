@@ -95,6 +95,56 @@ def _strip_html(html):
     return ' '.join(p.parts).strip()
 
 
+def _sync_question_interview_status(qids):
+    """重新计算并更新指定题目的三个面试状态字段。
+
+    - interview_pool : 当前在任意面试题库池中
+    - interview_set  : 已被分配进任意套题
+    - interview_used : 所在套题已被标记为已使用
+
+    在任何会改变这三个状态的操作后调用：
+    加入/移出池、生成套题、标记使用、释放套题、删除池。
+    """
+    qids = [q for q in (qids or []) if q]
+    if not qids:
+        return
+
+    # 1. 哪些题目当前在池中
+    pool_rows = _fetch("SELECT DISTINCT question_id FROM interview_pool_questions")
+    pool_qids = {r['question_id'] for r in pool_rows}
+
+    # 2. 哪些题目在套题中 / 在已使用套题中（解析 JSON 数组列）
+    all_sets = _fetch("SELECT question_ids_json, is_used FROM interview_sets")
+    set_qids = set()
+    used_qids = set()
+    for s in all_sets:
+        try:
+            ids = json.loads(s['question_ids_json']) if s['question_ids_json'] else []
+            for qid in ids:
+                if qid:
+                    set_qids.add(qid)
+                    if s['is_used']:
+                        used_qids.add(qid)
+        except Exception:
+            pass
+
+    from sqlalchemy import text
+    with db.engine.begin() as conn:
+        for qid in qids:
+            conn.execute(text("""
+                UPDATE questions
+                SET interview_pool = :ip,
+                    interview_set  = :is_,
+                    interview_used = :iu
+                WHERE question_id = :qid
+            """), {
+                'ip':  1 if qid in pool_qids  else 0,
+                'is_': 1 if qid in set_qids   else 0,
+                'iu':  1 if qid in used_qids  else 0,
+                'qid': qid,
+            })
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. 题库池管理
 # ─────────────────────────────────────────────────────────────────────────────
@@ -150,10 +200,14 @@ def delete_pool(pool_id):
     pool = _fetch_one("SELECT id FROM interview_pools WHERE id=:id", id=pool_id)
     if not pool:
         return jsonify({'error': '题库池不存在'}), 404
+    # 删前先记录池中所有题目，以便删后同步状态
+    in_pool = _fetch("SELECT question_id FROM interview_pool_questions WHERE pool_id=:pid", pid=pool_id)
+    qids_to_sync = [r['question_id'] for r in in_pool]
     _run("DELETE FROM interview_pool_questions WHERE pool_id=:pid", pid=pool_id)
     _run("DELETE FROM interview_configs WHERE pool_id=:pid", pid=pool_id)
     # 注意：不删除关联的 sessions/sets，它们保留历史记录
     _run("DELETE FROM interview_pools WHERE id=:id", id=pool_id)
+    _sync_question_interview_status(qids_to_sync)
     return jsonify({'ok': True})
 
 
@@ -250,15 +304,18 @@ def add_to_pool(pool_id):
 
     added = 0
     now = _now_str()
+    added_qids = []
     for r in rows:
         try:
             _run(
                 "INSERT OR IGNORE INTO interview_pool_questions (pool_id, question_id, added_at) VALUES (:pid, :qid, :t)",
                 pid=pool_id, qid=r['question_id'], t=now
             )
+            added_qids.append(r['question_id'])
             added += 1
         except Exception:
             pass
+    _sync_question_interview_status(added_qids)
     return jsonify({'ok': True, 'added': added})
 
 
@@ -273,6 +330,7 @@ def remove_from_pool(pool_id):
         _run("DELETE FROM interview_pool_questions WHERE pool_id=:pid AND question_id=:qid",
              pid=pool_id, qid=qid)
         removed += 1
+    _sync_question_interview_status(qids)
     return jsonify({'ok': True, 'removed': removed})
 
 
@@ -281,7 +339,10 @@ def clear_pool(pool_id):
     pool = _fetch_one("SELECT id FROM interview_pools WHERE id=:id", id=pool_id)
     if not pool:
         return jsonify({'error': '题库池不存在'}), 404
+    in_pool = _fetch("SELECT question_id FROM interview_pool_questions WHERE pool_id=:pid", pid=pool_id)
+    qids_to_sync = [r['question_id'] for r in in_pool]
     _run("DELETE FROM interview_pool_questions WHERE pool_id=:pid", pid=pool_id)
+    _sync_question_interview_status(qids_to_sync)
     return jsonify({'ok': True})
 
 
@@ -602,6 +663,10 @@ def create_session():
             """), {'sid': session_id, 'sc': set_code, 'qj': qids_json, 't': now})
             sets_created.append({'set_id': r.lastrowid, 'set_code': set_code, 'question_ids': question_ids})
 
+    # 同步所有被分配进套题的题目状态（interview_set=1）
+    all_assigned = [qid for s in sets_created for qid in s['question_ids'] if qid]
+    _sync_question_interview_status(all_assigned)
+
     return jsonify({
         'ok': True,
         'session_id': session_id,
@@ -661,6 +726,7 @@ def draw_set(session_id):
 
     qids = json.loads(chosen['question_ids_json']) if chosen['question_ids_json'] else []
     questions = _get_questions_full(qids)
+    _sync_question_interview_status([q for q in qids if q])
 
     return jsonify({
         'ok': True,
@@ -683,11 +749,13 @@ def get_set_detail(set_id):
 
 @interview_bp.route('/api/interview/sets/<int:set_id>/use', methods=['POST'])
 def mark_set_used(set_id):
-    s = _fetch_one("SELECT id FROM interview_sets WHERE id=:id", id=set_id)
+    s = _fetch_one("SELECT id, question_ids_json FROM interview_sets WHERE id=:id", id=set_id)
     if not s:
         return jsonify({'error': '套题不存在'}), 404
     now = _now_str()
     _run("UPDATE interview_sets SET is_used=1, used_at=:t WHERE id=:id", t=now, id=set_id)
+    qids = json.loads(s['question_ids_json']) if s['question_ids_json'] else []
+    _sync_question_interview_status([q for q in qids if q])
     return jsonify({'ok': True, 'used_at': now})
 
 
@@ -708,6 +776,7 @@ def release_set(set_id):
             "UPDATE interview_pool_questions SET drawn=0, drawn_at=NULL WHERE question_id=:qid",
             qid=qid
         )
+    _sync_question_interview_status(qids)
     return jsonify({'ok': True})
 
 
@@ -719,9 +788,17 @@ def batch_use_sets():
         return jsonify({'error': '未提供 set_ids'}), 400
     now = _now_str()
     updated = 0
+    all_qids = []
     for sid in set_ids:
+        s = _fetch_one("SELECT question_ids_json FROM interview_sets WHERE id=:id", id=sid)
+        if s:
+            try:
+                all_qids.extend([q for q in json.loads(s['question_ids_json'] or '[]') if q])
+            except Exception:
+                pass
         _run("UPDATE interview_sets SET is_used=1, used_at=:t WHERE id=:id", t=now, id=sid)
         updated += 1
+    _sync_question_interview_status(all_qids)
     return jsonify({'ok': True, 'updated': updated})
 
 
@@ -1152,6 +1229,11 @@ def import_pool_xlsx(pool_id):
             skipped += 1
 
     db.session.commit()
+    # 同步所有被加入池的题目状态
+    all_pool_qids = _fetch(
+        "SELECT question_id FROM interview_pool_questions WHERE pool_id=:pid", pid=pool_id
+    )
+    _sync_question_interview_status([r['question_id'] for r in all_pool_qids])
     return jsonify({'ok': True, 'added': added, 'skipped': skipped, 'created_questions': created})
 
 

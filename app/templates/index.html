@@ -2523,6 +2523,12 @@
                         question.tags ? '标签: ' + question.tags : ''
                     ].filter(Boolean).join('\n');
 
+                    const ivBadges = [
+                        question.interview_pool ? '<span style="background:#dbeafe;color:#1d4ed8;padding:1px 5px;border-radius:8px;font-size:0.7rem;margin-left:3px;" title="已加入面试题库池">面试池</span>' : '',
+                        question.interview_set  ? '<span style="background:#fef9c3;color:#854d0e;padding:1px 5px;border-radius:8px;font-size:0.7rem;margin-left:3px;" title="已分配进面试套题">套题</span>' : '',
+                        question.interview_used ? '<span style="background:#fce7f3;color:#9d174d;padding:1px 5px;border-radius:8px;font-size:0.7rem;margin-left:3px;" title="所在套题已面试使用">面试用</span>' : '',
+                    ].join('');
+
                     row.innerHTML = `
                         <td><input type="checkbox" class="question-cb" data-id="${question.question_id}"></td>
                         <td>${question.question_id.substring(0, 8)}...</td>
@@ -2530,7 +2536,7 @@
                         <td>${question.question_type}</td>
                         <td title="${escapeHtml(metaTitle)}">${escapeHtml(stripHtml(question.content).substring(0, 50))}${stripHtml(question.content).length > 50 ? '...' : ''}${bilingualIcon}</td>
                         <td>${difficultyText}</td>
-                        <td><span class="${statusClass}">${status}</span></td>
+                        <td><span class="${statusClass}">${status}</span>${ivBadges}</td>
                         <td style="font-size:0.78rem;color:#888;white-space:nowrap;">${question.imported_at || '—'}</td>
                         <td><div class="action-btns">
                             <button class="btn btn-outline btn-sm" onclick="editQuestion('${question.question_id}')">

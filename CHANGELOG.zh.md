@@ -1,5 +1,24 @@
 # 更新日志
 
+## 1.21.0 - 2026-03-25
+
+### 新功能
+
+- **题库面试状态字段** — `questions` 表新增三个面试状态字段，在题库管理列表的"状态"列中以彩色徽章展示：
+  - `interview_pool`（蓝色「面试池」）— 该题目当前在至少一个面试题库池中
+  - `interview_set`（黄色「套题」）— 该题目已被分配进某套面试套题
+  - `interview_used`（紫色「面试用」）— 该题目所在套题已被标记为面试使用
+- **自动同步** — 面试抽题模块所有关键操作（加入/移出池、生成套题、标记使用、释放套题、批量标记、Excel 导入、删除池）均调用 `_sync_question_interview_status()` 自动重新计算并写回这三个字段；字段始终与面试表实际状态保持一致
+
+### 数据库变更（自动迁移，无需手动操作）
+
+`questions` 表新增三列（`ALTER TABLE … ADD COLUMN … DEFAULT 0`，幂等）：
+- `interview_pool BOOLEAN DEFAULT 0`
+- `interview_set BOOLEAN DEFAULT 0`
+- `interview_used BOOLEAN DEFAULT 0`
+
+---
+
 ## 1.20.0 - 2026-03-25
 
 ### 新功能
