@@ -1,0 +1,20 @@
+[Unit]
+Description=Exam System Online (Gunicorn)
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/root/exam-system-online
+EnvironmentFile=/root/exam-system-online/.env
+ExecStart=/root/exam-system-online/venv/bin/gunicorn \
+    --workers 5 \
+    --bind 127.0.0.1:5000 \
+    --timeout 120 \
+    --access-logfile /var/log/exam-system-online/access.log \
+    --error-logfile  /var/log/exam-system-online/error.log \
+    wsgi:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

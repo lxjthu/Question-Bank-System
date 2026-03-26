@@ -1,0 +1,10 @@
+# 线上部署版依赖
+flask
+flask-sqlalchemy
+python-docx
+openai>=1.0
+python-dotenv>=1.0
+openpyxl>=3.0
+pandas>=2.0
+cryptography>=42.0   # Fernet API Key 加密
+gunicorn>=21.0       # 生产服务器
