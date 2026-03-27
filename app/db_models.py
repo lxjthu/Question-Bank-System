@@ -153,10 +153,11 @@ exam_questions = db.Table('exam_questions',
 class QuestionTypeModel(db.Model):
     __tablename__ = 'question_types'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    name = db.Column(db.String(64), unique=True, nullable=False)
+    name = db.Column(db.String(64), nullable=False)
     label = db.Column(db.String(64), nullable=False)
     has_options = db.Column(db.Boolean, default=False)
     is_builtin = db.Column(db.Boolean, default=False)
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)  # NULL = 内置
     created_at = db.Column(db.DateTime, default=datetime.now)
 
     def to_dict(self):
@@ -166,6 +167,7 @@ class QuestionTypeModel(db.Model):
             'label': self.label,
             'has_options': self.has_options,
             'is_builtin': self.is_builtin,
+            'owner_id': self.owner_id,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 

@@ -70,9 +70,9 @@ cp .env.example .env
 - `QuestionModel.options` / `ExamModel.config`：JSON 序列化为 Text 列
 
 **数据可见性**（`visibility` 字段）：
-- `private`：仅 owner 可见
-- `team`：team 成员可见（配合 `team_id`）
-- `guest_preview`：游客也可见
+- `private`：仅 owner 可见（**所有新建/导入题目强制为此值，前端不再暴露选择**）
+- `team`：team 成员可见（配合 `team_id`，保留字段但前端已禁止用户设置）
+- `guest_preview`：游客也可见（同上，仅历史数据可能存在）
 
 **API Key 加密**：`User.set_api_key()` / `User.get_api_key()` 使用 Fernet 对称加密，密钥来自 `FERNET_KEY` 环境变量。
 
@@ -152,6 +152,19 @@ AI 调用时优先取用户个人 Key，无则 fallback 到系统 Key（`rag_rou
 **前端入口**：
 - **设置 Modal**：仅对 vip/admin 显示 API Key 输入区，含申请链接（`platform.deepseek.com`）
 - **知识图谱面板**：admin 看到系统兜底 Key 配置卡片；vip 看到状态提示 + 跳转设置的按钮；普通用户/游客两个卡片均隐藏
+
+## 题库导入导出（Excel）
+
+- **模板文件**：项目根目录 `muban_zh.xlsx`，第3行为列头（含"题干"，代码以此定位），第4行起为数据
+- **导出路由**：`POST /api/questions/export-xlsx`，依赖模板文件；`GET /api/templates/download-xlsx` 供用户下载模板
+- **导入解析**：`_parse_xlsx_questions()`，自动检测标题行，兼容自建模板格式与外部题库格式
+- **导出超长警告**：字段超 500 字符时弹 Modal（`id="export-warn-modal"`，置于 `</body>` 前顶层避免 tab `display:none` 遮挡），支持"对其余题也执行此选择"复选框批量决策
+
+## 面试套题质量检查
+
+套题管理按钮分两种：
+- **检查**（所有用户）：`ivBasicCheck(sessionId)`，拉取套题 → 逐套调 `/api/interview/sets/{id}` → 检查题干/答案是否为空，结果展示在 `iv-qc-modal`，问题行附"查看/编辑"按钮
+- **AI检查**（仅 vip/admin）：`ivQualityCheck(sessionId)`，调 SSE 流接口 `/api/interview/sessions/{id}/quality-check/stream`
 
 ## 知识图谱 Tab 的访问控制
 

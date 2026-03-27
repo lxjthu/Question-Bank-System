@@ -690,10 +690,10 @@
         </div>
 
         <div class="nav-tabs">
-            <button class="tab-button" data-tab="template-download">
+            <button class="tab-button active" data-tab="template-download">
                 <i class="fas fa-file-import"></i> 题库导入与模板下载
             </button>
-            <button class="tab-button active" data-tab="question-bank">
+            <button class="tab-button" data-tab="question-bank">
                 <i class="fas fa-book"></i> 题库管理
             </button>
             <button class="tab-button" data-tab="exam-generation">
@@ -718,7 +718,7 @@
 
         <div class="main-content">
             <!-- Question Bank Tab -->
-            <div id="question-bank" class="tab-content active">
+            <div id="question-bank" class="tab-content">
                 <div class="form-container">
                     <h2><i class="fas fa-plus-circle"></i> 添加题目</h2>
                     <div class="form-row">
@@ -739,14 +739,6 @@
                                 <option value="zh">中文</option>
                                 <option value="en">英文</option>
                                 <option value="both">中英对照</option>
-                            </select>
-                        </div>
-                        <div class="form-group" style="max-width:140px;flex:0 0 140px;">
-                            <label for="question-visibility">可见性</label>
-                            <select id="question-visibility">
-                                <option value="private">仅自己</option>
-                                <option value="team">团队共享</option>
-                                <option value="guest_preview">所有人</option>
                             </select>
                         </div>
                     </div>
@@ -1092,27 +1084,40 @@
             </div>
 
             <!-- Template Download Tab -->
-            <div id="template-download" class="tab-content">
+            <div id="template-download" class="tab-content active">
                 <div class="template-download">
-                    <h3><i class="fas fa-file-word"></i> 试题库导入模板下载</h3>
-                    <p>下载标准格式的Word试题模板，支持批量录入题库</p>
-                    <p>模板采用标准格式，确保批量录入后可无障碍一键导入</p>
+                    <h3><i class="fas fa-file-alt"></i> 试题库导入模板下载</h3>
+                    <p>下载标准格式的模板，填写后可一键批量导入题库</p>
 
-                    <button id="download-template-btn" class="btn btn-template">
-                        <i class="fas fa-download"></i> 下载Word模板
-                    </button>
-
-                    <div style="margin-top: 20px;">
-                        <h4>模板使用说明：</h4>
-                        <ul style="text-align: left; margin-top: 10px;">
-                            <li>每道题以 [题型] 开头，题型标识符用方括号包围</li>
-                            <li>题型后可跟答案标识符（如 [A]、[ABD] 等）</li>
-                            <li>选择题答案紧跟在题型标识后，用方括号包围</li>
-                            <li>选择题选项格式：[选项字母] + 选项内容</li>
-                            <li>解析可选，用 &lt;解析&gt;...&lt;解析&gt; 包围</li>
-                            <li>参考答案用 &lt;参考答案&gt;...&lt;参考答案&gt; 包围</li>
-                            <li>中文内容用 （中文） 标注，英文内容用 （英文） 标注</li>
-                        </ul>
+                    <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:12px;">
+                        <div style="flex:1; min-width:260px; background:#f0f7ff; border:1px solid #c6d9f0; border-radius:8px; padding:16px;">
+                            <div style="font-weight:600; font-size:1rem; margin-bottom:6px;"><i class="fas fa-file-excel" style="color:#217346;"></i> Excel 模板（推荐）</div>
+                            <p style="font-size:0.88rem; color:#555; margin-bottom:12px;">结构化表格，支持单选、多选、判断、简答题；可直接用于导入与导出互转</p>
+                            <button id="download-xlsx-template-btn" class="btn btn-template">
+                                <i class="fas fa-download"></i> 下载Excel模板
+                            </button>
+                            <ul style="text-align:left; margin-top:12px; font-size:0.83rem; color:#555; padding-left:18px;">
+                                <li>题型填：单选题 / 多选题 / 判断题 / 简答题</li>
+                                <li>难度填：1（最易）~ 5（最难）</li>
+                                <li>标签格式：#知识点#标签1#标签2</li>
+                                <li>判断题答案：正确 / 错误</li>
+                                <li>选择题答案：A 或 AB 等字母</li>
+                            </ul>
+                        </div>
+                        <div style="flex:1; min-width:260px; background:#fff8f0; border:1px solid #f0dbc6; border-radius:8px; padding:16px;">
+                            <div style="font-weight:600; font-size:1rem; margin-bottom:6px;"><i class="fas fa-file-word" style="color:#2b579a;"></i> Word 模板</div>
+                            <p style="font-size:0.88rem; color:#555; margin-bottom:12px;">适合从文档批量录入，支持富文本、图片嵌入，AI 出题结果保存为 .txt 后也可导入</p>
+                            <button id="download-template-btn" class="btn btn-template">
+                                <i class="fas fa-download"></i> 下载Word模板
+                            </button>
+                            <ul style="text-align:left; margin-top:12px; font-size:0.83rem; color:#555; padding-left:18px;">
+                                <li>每道题以 [题型] 开头，用方括号包围</li>
+                                <li>选择题答案紧跟题型标识，如 [单选][A]</li>
+                                <li>解析用 &lt;解析&gt;...&lt;解析&gt; 包围</li>
+                                <li>参考答案用 &lt;参考答案&gt;...&lt;参考答案&gt; 包围</li>
+                                <li>中英双语用 （中文）（英文） 分段标注</li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
 
@@ -2231,7 +2236,6 @@
                     </div>
                 </div>
 
-                <!-- 警告弹窗 -->
                 <!-- 题目查看/编辑 Modal -->
                 <div id="iv-question-edit-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);
                      z-index:9998;align-items:flex-start;justify-content:center;overflow-y:auto;padding:30px 10px;">
@@ -2544,7 +2548,7 @@
                 knowledge_point: knowledgePoint || null,
                 tags: tags || null,
                 difficulty: difficulty || null,
-                visibility: document.getElementById('question-visibility').value || 'private',
+                visibility: 'private',
             };
 
             try {
@@ -2677,14 +2681,41 @@
                 const { warnings } = await checkResp.json();
                 const skipIds = [];
 
-                // 第二步：逐题弹窗让用户决策
-                for (const w of warnings) {
-                    const fieldDesc = w.fields.map(f => `【${f.name}】${f.length}字符`).join('、');
-                    const preview = w.content_preview ? `「${w.content_preview}…」` : '';
-                    const msg = `题目 ${preview}（${w.question_type}）\n${fieldDesc} 超出500字符限制。\n\n点击「确定」→ 截断导出\n点击「取消」→ 跳过此题`;
-                    const keep = confirm(msg);
-                    if (!keep) {
-                        skipIds.push(w.question_id);
+                // 第二步：弹窗让用户决策（支持"记住选择"）
+                if (warnings.length > 0) {
+                    const modal = document.getElementById('export-warn-modal');
+                    const body  = document.getElementById('export-warn-body');
+                    const rememberChk = document.getElementById('export-warn-remember');
+                    const btnSkip = document.getElementById('export-warn-skip');
+                    const btnKeep = document.getElementById('export-warn-keep');
+
+                    const askUser = (w) => new Promise(resolve => {
+                        const fieldDesc = w.fields.map(f => `【${f.name}】${f.length} 字符`).join('、');
+                        const preview = w.content_preview ? `「${w.content_preview}…」` : '';
+                        body.innerHTML = `题目 ${preview}（${w.question_type}）<br><span style="color:#c0392b;">${fieldDesc}</span> 超出 500 字符限制。<br><br><span style="color:#555;">截断导出：保留前500字符继续导出<br>跳过此题：从本次导出中排除该题</span>`;
+                        rememberChk.checked = false;
+                        modal.style.display = 'flex';
+                        const cleanup = (keep) => {
+                            modal.style.display = 'none';
+                            btnSkip.onclick = null;
+                            btnKeep.onclick = null;
+                            resolve({ keep, remember: rememberChk.checked });
+                        };
+                        btnSkip.onclick = () => cleanup(false);
+                        btnKeep.onclick = () => cleanup(true);
+                    });
+
+                    for (const w of warnings) {
+                        const { keep, remember } = await askUser(w);
+                        if (!keep) skipIds.push(w.question_id);
+                        if (remember) {
+                            // 对剩余所有警告题目统一应用此选择
+                            const rest = warnings.slice(warnings.indexOf(w) + 1);
+                            for (const rw of rest) {
+                                if (!keep) skipIds.push(rw.question_id);
+                            }
+                            break;
+                        }
                     }
                 }
 
@@ -2844,7 +2875,7 @@
                 // Switch to question bank tab
                 document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
                 document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-                document.querySelector('[data-tab="question-bank"]').classList.add('active');
+                document.querySelector('[data-tab="template-download"]').classList.add('active');
                 document.getElementById('question-bank').classList.add('active');
 
                 // Fill form with question data
@@ -2883,7 +2914,6 @@
                 document.getElementById('question-knowledge-point').value = question.knowledge_point || '';
                 document.getElementById('question-tags').value = question.tags || '';
                 document.getElementById('question-difficulty').value = question.difficulty || '';
-                document.getElementById('question-visibility').value = question.visibility || 'private';
                 // Open the details if bilingual/metadata exists
                 if (question.content_en || question.knowledge_point || question.tags || question.difficulty) {
                     document.getElementById('bilingual-details').open = true;
@@ -2990,6 +3020,29 @@
             } catch (error) {
                 console.error('Error:', error);
                 alert('下载模板时发生错误！');
+            }
+        });
+
+        document.getElementById('download-xlsx-template-btn').addEventListener('click', async () => {
+            try {
+                const response = await fetch('/api/templates/download-xlsx');
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'muban_zh.xlsx';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                } else {
+                    const err = await response.json().catch(() => ({}));
+                    alert('下载Excel模板失败：' + (err.error || '未知错误'));
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('下载Excel模板时发生错误！');
             }
         });
 
@@ -4398,6 +4451,7 @@
 5. 选择题的干扰项要合理，不能过于明显
 6. 简答题和论述题的参考答案要完整、准确；困难题的参考答案需体现跨知识点的整合与推理过程
 7. **题目必须独立成立**，严禁在题干中出现任何引用上传文件位置或呈现方式的表述，例如"如第X章所述""见PPT第X张幻灯片""根据上图""如材料图表所示""结合上文"等——考生在考试时只能看到题目本身，无法看到你所参考的PPT或PDF文件
+8. **字数限制**：每道题的题干（含选项）和参考答案均不超过 **500字**（含标点），超出请精简
 
 **输出格式（必须严格遵守）：**
 
@@ -4541,6 +4595,7 @@
 5. 选择题的中英文选项必须一一对应，顺序和含义完全一致
 6. 简答题和论述题的参考答案要完整、准确；困难题的参考答案需体现跨知识点的整合与推理过程
 7. **题目必须独立成立**，严禁在题干中出现任何引用上传文件位置或呈现方式的表述，例如"如第X章所述""见PPT第X张幻灯片""根据上图""如材料图表所示""结合上文"等——考生在考试时只能看到题目本身，无法看到你所参考的PPT或PDF文件
+8. **字数限制**：每道题的题干（含选项）和参考答案均不超过 **500字**（含标点），超出请精简
 
 **双语输出格式（必须严格遵守）：**
 
@@ -4697,6 +4752,7 @@ Please carefully read the uploaded file (PPT/PDF), fully understand all knowledg
 5. Distractors for choice questions must be plausible, not obviously wrong
 6. Reference answers for short answer and essay questions must be complete and accurate; hard question answers should explicitly show cross-topic integration and reasoning
 7. **Every question must be self-contained.** Do not include any references to the source material's location or presentation, such as "as discussed in Chapter X", "refer to slide Y", "as shown in the figure above", "according to the passage", or "based on the chart" — students taking the exam can only see the questions themselves, not the PPT or PDF file you are reading
+8. **Length limit**: Each question stem (including options) and reference answer must not exceed **500 characters** (including punctuation). Shorten if necessary.
 
 **Output format (must follow strictly):**
 
@@ -5050,6 +5106,7 @@ Now please start generating questions. Output question content directly without 
 4. 每道题必须标注对应知识点（写在解析里）
 5. 题目必须独立成立，严禁出现引用文件位置的表述，如"如第X章所述""见图""根据上文"等
 6. ⚠️ **严禁**在题干中出现"根据知识图谱""根据以上材料""根据所给信息"等表述——考生看不见知识图谱，题目必须自包含，所有信息在题干中直接给出
+7. **字数限制**：每道题的题干（含选项）和参考答案均不超过 **500字**（含标点），超出请精简
 
 **输出格式（必须严格遵守）：**
 
@@ -5091,6 +5148,7 @@ Now please start generating questions. Output question content directly without 
 4. 覆盖参考内容的主要知识点和核心概念
 5. 题目必须独立成立，严禁出现引用文件位置的表述
 6. ⚠️ **严禁**在题干中出现"根据知识图谱""根据以上材料""根据所给信息"等表述——考生看不见知识图谱，题目必须自包含，所有信息在题干中直接给出
+7. **字数限制**：每道题的题干（含选项）和参考答案均不超过 **500字**（含标点），超出请精简
 
 **双语输出格式（必须严格遵守）：**
 
@@ -5137,6 +5195,7 @@ Based on the above reference content, generate exam questions according to the r
 3. Cover major knowledge points and core concepts from the reference content
 4. Every question must be self-contained; do not reference the source material's location
 5. ⚠️ **Never** include phrases like "according to the knowledge graph", "based on the above material", or "from the given information" in question stems — test-takers cannot see the knowledge graph; all necessary information must be stated directly within the question itself
+6. **Length limit**: Each question stem (including options) and reference answer must not exceed **500 characters** (including punctuation). Shorten if necessary.
 
 **Output format (must follow strictly):**
 
@@ -9442,10 +9501,14 @@ function ivRenderSessionList() {
                         style="padding:4px 10px;font-size:0.8rem;border:1px solid #2980b9;color:#2980b9;background:#fff;border-radius:4px;cursor:pointer;">
                     <i class="fas fa-list"></i> 查看套题
                 </button>
-                <button onclick="ivQualityCheck(${sess.id})"
-                        style="padding:4px 10px;font-size:0.8rem;border:1px solid #8e44ad;color:#8e44ad;background:#fff;border-radius:4px;cursor:pointer;">
-                    <i class="fas fa-microscope"></i> 检查
+                <button onclick="ivBasicCheck(${sess.id})"
+                        style="padding:4px 10px;font-size:0.8rem;border:1px solid #27ae60;color:#27ae60;background:#fff;border-radius:4px;cursor:pointer;">
+                    <i class="fas fa-check-circle"></i> 检查
                 </button>
+                ${_isAiUser() ? `<button onclick="ivQualityCheck(${sess.id})"
+                        style="padding:4px 10px;font-size:0.8rem;border:1px solid #8e44ad;color:#8e44ad;background:#fff;border-radius:4px;cursor:pointer;">
+                    <i class="fas fa-microscope"></i> AI检查
+                </button>` : ''}
                 ${sess.used_sets > 0 ? `<button onclick="ivReleaseAllSets(${sess.id},'${escHtml(sess.session_name)}')"
                         style="padding:4px 10px;font-size:0.8rem;border:1px solid #27ae60;color:#27ae60;background:#fff;border-radius:4px;cursor:pointer;">
                     <i class="fas fa-unlock-alt"></i> 一键释放 (${sess.used_sets})
@@ -9574,6 +9637,81 @@ function _ivQcProgressHtml(checked, total) {
         </div>
         <div id="iv-qc-batch-tip" style="text-align:center;font-size:0.78rem;color:#aaa;"></div>
     </div>`;
+}
+
+async function ivBasicCheck(sessionId) {
+    const modal  = document.getElementById('iv-qc-modal');
+    const body   = document.getElementById('iv-qc-body');
+    const footer = document.getElementById('iv-qc-footer');
+    footer.style.display = 'none';
+    body.innerHTML = '<div style="padding:16px;text-align:center;"><i class="fas fa-spinner fa-spin" style="color:#27ae60;font-size:1.2rem;"></i> 检查中…</div>';
+    modal.style.display = 'flex';
+    if (_ivQcEs) { _ivQcEs.close(); _ivQcEs = null; }
+
+    try {
+        const setsRes = await fetch(`/api/interview/sessions/${sessionId}/sets?per_page=200`);
+        const setsData = await setsRes.json();
+        const sets = setsData.sets || [];
+
+        const issues = [];
+        for (const set of sets) {
+            const setRes = await fetch(`/api/interview/sets/${set.id}`);
+            const setData = await setRes.json();
+            const questions = setData.set?.questions || [];
+            for (const q of questions) {
+                if (!q) continue;
+                const stem = (q.content || '').replace(/<[^>]+>/g, '').trim();
+                const ans  = ((q.answer || '') + (q.reference_answer || '')).trim();
+                const problems = [];
+                if (!stem) problems.push('无题干');
+                if (!ans)  problems.push('无答案');
+                if (problems.length) {
+                    issues.push({
+                        setCode: set.set_code,
+                        setId:   set.id,
+                        sessionId,
+                        type:    q.question_type || '',
+                        preview: stem.slice(0, 50) || '（空白题干）',
+                        problems,
+                    });
+                }
+            }
+        }
+
+        const totalQ = sets.reduce((acc, s) => acc + (s.question_ids || []).filter(Boolean).length, 0);
+
+        if (!issues.length) {
+            body.innerHTML = `
+                <div style="color:#27ae60;padding:20px;text-align:center;">
+                    <i class="fas fa-check-circle" style="font-size:2rem;margin-bottom:8px;display:block;"></i>
+                    全部 <b>${totalQ}</b> 道题检查通过，题干和答案均不为空。
+                </div>`;
+        } else {
+            body.innerHTML = `
+                <div style="color:#e74c3c;margin-bottom:10px;font-size:0.88rem;">
+                    发现 <b>${issues.length}</b> 道题存在空缺，请点击「查看/编辑」补充内容：
+                </div>
+                <div style="display:flex;flex-direction:column;gap:6px;max-height:360px;overflow-y:auto;">
+                    ${issues.map(iss => `
+                    <div style="background:#fff9f9;border:1px solid #f5c6cb;border-radius:6px;padding:8px 12px;font-size:0.83rem;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                            <div style="min-width:0;">
+                                <span style="background:#eee;padding:1px 6px;border-radius:3px;font-size:0.75rem;margin-right:6px;">${escHtml(iss.setCode)}</span>
+                                <span style="color:#e74c3c;font-weight:600;">${escHtml(iss.problems.join(' · '))}</span>
+                                ${iss.type ? `<span style="color:#888;margin-left:6px;font-size:0.75rem;">${escHtml(iss.type)}</span>` : ''}
+                                <div style="color:#555;margin-top:3px;word-break:break-all;">${escHtml(iss.preview)}${iss.preview.length >= 50 ? '…' : ''}</div>
+                            </div>
+                            <button onclick="ivCloseQcModal();ivViewSet(${iss.setId},${iss.sessionId})"
+                                    style="white-space:nowrap;flex-shrink:0;padding:4px 10px;font-size:0.78rem;border:1px solid #2980b9;color:#2980b9;background:#fff;border-radius:4px;cursor:pointer;">
+                                <i class="fas fa-edit"></i> 查看/编辑
+                            </button>
+                        </div>
+                    </div>`).join('')}
+                </div>`;
+        }
+    } catch (e) {
+        body.innerHTML = `<div style="color:#e74c3c;padding:12px;">检查失败：${escHtml(String(e.message || e))}</div>`;
+    }
 }
 
 function ivQualityCheck(sessionId) {
@@ -10040,11 +10178,57 @@ async function ivExportPoolXlsx() {
     window.open(`/api/interview/pools/${poolId}/questions/export-xlsx`, '_blank');
 }
 
+function _ivShowNoPoolModal() {
+    const modal = document.getElementById('iv-no-pool-modal');
+    modal.style.display = 'flex';
+
+    document.getElementById('iv-no-pool-select-btn').onclick = () => {
+        modal.style.display = 'none';
+        // 切换到导入导出面板（若未在），滚动并高亮下拉框
+        const sel = document.getElementById('iv-imp-pool');
+        if (sel) {
+            sel.scrollIntoView({behavior:'smooth', block:'center'});
+            sel.style.outline = '2px solid #2980b9';
+            sel.focus();
+            setTimeout(() => { sel.style.outline = ''; }, 2500);
+        }
+    };
+
+    document.getElementById('iv-no-pool-create-btn').onclick = async () => {
+        modal.style.display = 'none';
+        const name = prompt('请输入新题库池名称：');
+        if (!name || !name.trim()) return;
+        try {
+            const res = await fetch('/api/interview/pools', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({pool_name: name.trim(), description: ''}),
+            });
+            if (!res.ok) { const d = await res.json(); alert(d.error || '创建失败'); return; }
+            await ivLoadPools();
+            ivPopulatePoolSelects();
+            // 选中新建的池
+            const newPool = ivPools.find(p => p.pool_name === name.trim());
+            if (newPool) {
+                const sel = document.getElementById('iv-imp-pool');
+                if (sel) sel.value = newPool.id;
+            }
+            // 继续执行导入
+            await ivImportPoolXlsx();
+        } catch(e) { alert('创建失败：' + e); }
+    };
+}
+
 async function ivImportPoolXlsx() {
     const poolId = document.getElementById('iv-imp-pool')?.value;
     const file = document.getElementById('iv-imp-pool-file')?.files[0];
     const msg = document.getElementById('iv-imp-pool-msg');
-    if (!poolId) { alert('请选择目标题库池'); return; }
+    if (!poolId) {
+        // 先确保文件已选
+        if (!file) { alert('请先选择 Excel 文件'); return; }
+        _ivShowNoPoolModal();
+        return;
+    }
     if (!file) { alert('请选择 Excel 文件'); return; }
     msg.style.color='#888'; msg.textContent='导入中…';
     const fd = new FormData();
@@ -10753,6 +10937,49 @@ async function doUpgrade() {
             </button>
         </div>
         <p id="upgrade-msg" style="font-size:0.85rem;margin-top:10px;display:none;"></p>
+    </div>
+</div>
+
+<!-- 面试题库池未选择提示 Modal -->
+<div id="iv-no-pool-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:10px;max-width:400px;width:92%;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.22);">
+        <div style="font-size:1rem;font-weight:700;color:#444;margin-bottom:10px;">
+            <i class="fas fa-layer-group" style="color:#2980b9;margin-right:6px;"></i> 尚未选择题库池
+        </div>
+        <p style="font-size:0.88rem;color:#555;margin-bottom:18px;line-height:1.6;">
+            请选择将题目导入到哪个面试题库池，或新建一个池：
+        </p>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+            <button id="iv-no-pool-select-btn" class="btn btn-outline" style="justify-content:flex-start;gap:10px;text-align:left;padding:10px 14px;">
+                <i class="fas fa-list" style="color:#2980b9;width:16px;"></i>
+                <span><b>选择已有题库池</b><br><span style="font-size:0.8rem;color:#888;">在下拉框中选择一个已有题库池</span></span>
+            </button>
+            <button id="iv-no-pool-create-btn" class="btn btn-outline" style="justify-content:flex-start;gap:10px;text-align:left;padding:10px 14px;">
+                <i class="fas fa-plus-circle" style="color:#27ae60;width:16px;"></i>
+                <span><b>新建题库池</b><br><span style="font-size:0.8rem;color:#888;">输入名称，自动创建并继续导入</span></span>
+            </button>
+        </div>
+        <div style="text-align:right;margin-top:16px;">
+            <button onclick="document.getElementById('iv-no-pool-modal').style.display='none'" class="btn btn-secondary" style="padding:6px 16px;font-size:0.85rem;">取消</button>
+        </div>
+    </div>
+</div>
+
+<!-- 导出超长字段警告 Modal（放在 body 顶层，避免被 tab display:none 影响） -->
+<div id="export-warn-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:10px;max-width:480px;width:92%;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.22);">
+        <div style="font-size:1rem;font-weight:700;color:#c0392b;margin-bottom:10px;">
+            <i class="fas fa-exclamation-triangle"></i> 字段超出500字符限制
+        </div>
+        <div id="export-warn-body" style="font-size:0.9rem;color:#444;margin-bottom:14px;line-height:1.6;"></div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:0.87rem;color:#555;margin-bottom:18px;cursor:pointer;">
+            <input type="checkbox" id="export-warn-remember" style="width:15px;height:15px;cursor:pointer;">
+            对其余超限题目也执行此选择
+        </label>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+            <button id="export-warn-skip" class="btn btn-outline" style="min-width:90px;">跳过此题</button>
+            <button id="export-warn-keep" class="btn btn-primary" style="min-width:90px;">截断导出</button>
+        </div>
     </div>
 </div>
 

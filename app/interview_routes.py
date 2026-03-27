@@ -22,6 +22,7 @@ from html.parser import HTMLParser
 from flask import Blueprint, request, jsonify, send_file, Response, stream_with_context
 
 from app.db_models import db, QuestionModel
+from app.auth_routes import login_required, guest_readonly, get_current_user
 
 interview_bp = Blueprint('interview', __name__)
 
@@ -95,13 +96,14 @@ def _strip_html(html):
     return ' '.join(p.parts).strip()
 
 
-def _sync_question_interview_status(qids):
+def _sync_question_interview_status(qids, owner_id=None):
     """重新计算并更新指定题目的三个面试状态字段。
 
-    - interview_pool : 当前在任意面试题库池中
-    - interview_set  : 已被分配进任意套题
+    - interview_pool : 当前在该用户的面试题库池中
+    - interview_set  : 已被分配进该用户的套题
     - interview_used : 所在套题已被标记为已使用
 
+    owner_id: 当前操作用户的 id，只基于该用户的池/场次计算状态。
     在任何会改变这三个状态的操作后调用：
     加入/移出池、生成套题、标记使用、释放套题、删除池。
     """
@@ -109,12 +111,28 @@ def _sync_question_interview_status(qids):
     if not qids:
         return
 
-    # 1. 哪些题目当前在池中
-    pool_rows = _fetch("SELECT DISTINCT question_id FROM interview_pool_questions")
+    # 1. 哪些题目当前在池中（限当前用户的池）
+    if owner_id is not None:
+        pool_rows = _fetch(
+            "SELECT DISTINCT ipq.question_id FROM interview_pool_questions ipq "
+            "JOIN interview_pools ip ON ip.id = ipq.pool_id "
+            "WHERE ip.owner_id=:uid",
+            uid=owner_id,
+        )
+    else:
+        pool_rows = _fetch("SELECT DISTINCT question_id FROM interview_pool_questions")
     pool_qids = {r['question_id'] for r in pool_rows}
 
-    # 2. 哪些题目在套题中 / 在已使用套题中（解析 JSON 数组列）
-    all_sets = _fetch("SELECT question_ids_json, is_used FROM interview_sets")
+    # 2. 哪些题目在套题中 / 在已使用套题中（限当前用户的场次）
+    if owner_id is not None:
+        all_sets = _fetch(
+            "SELECT ist.question_ids_json, ist.is_used FROM interview_sets ist "
+            "JOIN interview_sessions iss ON iss.id = ist.session_id "
+            "WHERE iss.owner_id=:uid",
+            uid=owner_id,
+        )
+    else:
+        all_sets = _fetch("SELECT question_ids_json, is_used FROM interview_sets")
     set_qids = set()
     used_qids = set()
     for s in all_sets:
@@ -150,9 +168,13 @@ def _sync_question_interview_status(qids):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @interview_bp.route('/api/interview/pools', methods=['GET'])
+@login_required
 def list_pools():
-    pools = _fetch("SELECT * FROM interview_pools ORDER BY id")
-    # 附加每个池的题目数量
+    user = get_current_user()
+    if user.role == 'admin':
+        pools = _fetch("SELECT * FROM interview_pools ORDER BY id")
+    else:
+        pools = _fetch("SELECT * FROM interview_pools WHERE owner_id=:uid ORDER BY id", uid=user.id)
     for p in pools:
         row = _fetch_one(
             "SELECT COUNT(*) AS cnt FROM interview_pool_questions WHERE pool_id=:pid",
@@ -168,25 +190,63 @@ def list_pools():
 
 
 @interview_bp.route('/api/interview/pools', methods=['POST'])
+@login_required
+@guest_readonly
 def create_pool():
+    user = get_current_user()
     data = request.get_json(silent=True) or {}
     name = (data.get('pool_name') or '').strip()
     if not name:
         return jsonify({'error': '池名称不能为空'}), 400
     desc = (data.get('description') or '').strip()
     _run(
-        "INSERT INTO interview_pools (pool_name, description, created_at) VALUES (:n, :d, :t)",
-        n=name, d=desc, t=_now_str()
+        "INSERT INTO interview_pools (pool_name, description, created_at, owner_id) VALUES (:n, :d, :t, :uid)",
+        n=name, d=desc, t=_now_str(), uid=user.id
     )
-    pool = _fetch_one("SELECT * FROM interview_pools WHERE pool_name=:n ORDER BY id DESC LIMIT 1", n=name)
+    pool = _fetch_one("SELECT * FROM interview_pools WHERE pool_name=:n AND owner_id=:uid ORDER BY id DESC LIMIT 1",
+                      n=name, uid=user.id)
     return jsonify({'pool': pool}), 201
 
 
-@interview_bp.route('/api/interview/pools/<int:pool_id>', methods=['PUT'])
-def update_pool(pool_id):
+def _check_pool_access(pool_id, user):
+    """返回 (pool dict, None) 或 (None, (error_msg, status_code))。admin 可访问所有池。"""
     pool = _fetch_one("SELECT * FROM interview_pools WHERE id=:id", id=pool_id)
     if not pool:
-        return jsonify({'error': '题库池不存在'}), 404
+        return None, ('题库池不存在', 404)
+    if user.role != 'admin' and pool.get('owner_id') != user.id:
+        return None, ('无权访问他人题库池', 403)
+    return pool, None
+
+
+def _check_session_access(session_id, user):
+    """返回 (session dict, None) 或 (None, (error_msg, status_code))。admin 可访问所有场次。"""
+    sess = _fetch_one("SELECT * FROM interview_sessions WHERE id=:sid", sid=session_id)
+    if not sess:
+        return None, ('场次不存在', 404)
+    if user.role != 'admin' and sess.get('owner_id') != user.id:
+        return None, ('无权访问他人场次', 403)
+    return sess, None
+
+
+def _check_set_access(set_id, user):
+    """返回 (set dict, sess dict, None) 或 (None, None, (error_msg, status_code))。"""
+    s = _fetch_one("SELECT * FROM interview_sets WHERE id=:id", id=set_id)
+    if not s:
+        return None, None, ('套题不存在', 404)
+    sess, err = _check_session_access(s['session_id'], user)
+    if err:
+        return None, None, err
+    return s, sess, None
+
+
+@interview_bp.route('/api/interview/pools/<int:pool_id>', methods=['PUT'])
+@login_required
+@guest_readonly
+def update_pool(pool_id):
+    user = get_current_user()
+    pool, err = _check_pool_access(pool_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
     data = request.get_json(silent=True) or {}
     name = (data.get('pool_name') or pool['pool_name']).strip()
     desc = (data.get('description') or pool['description'] or '').strip()
@@ -196,10 +256,13 @@ def update_pool(pool_id):
 
 
 @interview_bp.route('/api/interview/pools/<int:pool_id>', methods=['DELETE'])
+@login_required
+@guest_readonly
 def delete_pool(pool_id):
-    pool = _fetch_one("SELECT id FROM interview_pools WHERE id=:id", id=pool_id)
-    if not pool:
-        return jsonify({'error': '题库池不存在'}), 404
+    user = get_current_user()
+    pool, err = _check_pool_access(pool_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
     # 删前先记录池中所有题目，以便删后同步状态
     in_pool = _fetch("SELECT question_id FROM interview_pool_questions WHERE pool_id=:pid", pid=pool_id)
     qids_to_sync = [r['question_id'] for r in in_pool]
@@ -207,7 +270,7 @@ def delete_pool(pool_id):
     _run("DELETE FROM interview_configs WHERE pool_id=:pid", pid=pool_id)
     # 注意：不删除关联的 sessions/sets，它们保留历史记录
     _run("DELETE FROM interview_pools WHERE id=:id", id=pool_id)
-    _sync_question_interview_status(qids_to_sync)
+    _sync_question_interview_status(qids_to_sync, owner_id=user.id)
     return jsonify({'ok': True})
 
 
@@ -216,10 +279,12 @@ def delete_pool(pool_id):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @interview_bp.route('/api/interview/pools/<int:pool_id>/questions', methods=['GET'])
+@login_required
 def list_pool_questions(pool_id):
-    pool = _fetch_one("SELECT id FROM interview_pools WHERE id=:id", id=pool_id)
-    if not pool:
-        return jsonify({'error': '题库池不存在'}), 404
+    user = get_current_user()
+    pool, err = _check_pool_access(pool_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
 
     page = max(1, int(request.args.get('page', 1)))
     per_page = min(100, int(request.args.get('per_page', 20)))
@@ -246,10 +311,12 @@ def list_pool_questions(pool_id):
 
 
 @interview_bp.route('/api/interview/pools/<int:pool_id>/stats', methods=['GET'])
+@login_required
 def pool_stats(pool_id):
-    pool = _fetch_one("SELECT id FROM interview_pools WHERE id=:id", id=pool_id)
-    if not pool:
-        return jsonify({'error': '题库池不存在'}), 404
+    user = get_current_user()
+    pool, err = _check_pool_access(pool_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
 
     rows = _fetch("""
         SELECT q.question_type,
@@ -266,14 +333,16 @@ def pool_stats(pool_id):
 
 
 @interview_bp.route('/api/interview/pools/<int:pool_id>/questions/preview', methods=['POST'])
+@login_required
 def preview_filter(pool_id):
     """预览筛选结果（不实际加入池），返回命中题目数量和摘要列表。"""
-    pool = _fetch_one("SELECT id FROM interview_pools WHERE id=:id", id=pool_id)
-    if not pool:
-        return jsonify({'error': '题库池不存在'}), 404
+    user = get_current_user()
+    pool, err = _check_pool_access(pool_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
 
     data = request.get_json(silent=True) or {}
-    qs, params = _build_filter_query(data, pool_id, exclude_pool=True)
+    qs, params = _build_filter_query(data, pool_id, owner_id=user.id, exclude_pool=True)
     rows = _fetch(qs, **params)
     # 返回轻量摘要
     preview = [
@@ -292,18 +361,20 @@ def preview_filter(pool_id):
 
 
 @interview_bp.route('/api/interview/pools/<int:pool_id>/questions/add', methods=['POST'])
+@login_required
 def add_to_pool(pool_id):
     """按筛选条件将题目批量加入池。"""
-    pool = _fetch_one("SELECT id FROM interview_pools WHERE id=:id", id=pool_id)
-    if not pool:
-        return jsonify({'error': '题库池不存在'}), 404
+    user = get_current_user()
+    pool, err = _check_pool_access(pool_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
 
     data = request.get_json(silent=True) or {}
     direct_ids = data.get('question_ids')  # 直接指定 ID 列表（来自预览勾选）
     if direct_ids:
         rows = [{'question_id': qid} for qid in direct_ids if qid]
     else:
-        qs, params = _build_filter_query(data, pool_id, exclude_pool=True)
+        qs, params = _build_filter_query(data, pool_id, owner_id=user.id, exclude_pool=True)
         rows = _fetch(qs, **params)
 
     added = 0
@@ -319,12 +390,17 @@ def add_to_pool(pool_id):
             added += 1
         except Exception:
             pass
-    _sync_question_interview_status(added_qids)
+    _sync_question_interview_status(added_qids, owner_id=user.id)
     return jsonify({'ok': True, 'added': added})
 
 
 @interview_bp.route('/api/interview/pools/<int:pool_id>/questions/remove', methods=['POST'])
+@login_required
 def remove_from_pool(pool_id):
+    user = get_current_user()
+    pool, err = _check_pool_access(pool_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
     data = request.get_json(silent=True) or {}
     qids = data.get('question_ids', [])
     if not qids:
@@ -334,26 +410,31 @@ def remove_from_pool(pool_id):
         _run("DELETE FROM interview_pool_questions WHERE pool_id=:pid AND question_id=:qid",
              pid=pool_id, qid=qid)
         removed += 1
-    _sync_question_interview_status(qids)
+    _sync_question_interview_status(qids, owner_id=user.id)
     return jsonify({'ok': True, 'removed': removed})
 
 
 @interview_bp.route('/api/interview/pools/<int:pool_id>/questions', methods=['DELETE'])
+@login_required
 def clear_pool(pool_id):
-    pool = _fetch_one("SELECT id FROM interview_pools WHERE id=:id", id=pool_id)
-    if not pool:
-        return jsonify({'error': '题库池不存在'}), 404
+    user = get_current_user()
+    pool, err = _check_pool_access(pool_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
     in_pool = _fetch("SELECT question_id FROM interview_pool_questions WHERE pool_id=:pid", pid=pool_id)
     qids_to_sync = [r['question_id'] for r in in_pool]
     _run("DELETE FROM interview_pool_questions WHERE pool_id=:pid", pid=pool_id)
-    _sync_question_interview_status(qids_to_sync)
+    _sync_question_interview_status(qids_to_sync, owner_id=user.id)
     return jsonify({'ok': True})
 
 
-def _build_filter_query(data, pool_id, exclude_pool=False):
+def _build_filter_query(data, pool_id, owner_id=None, exclude_pool=False):
     """Build SELECT query from filter dict. Returns (sql, params_dict)."""
     conds = ['1=1']
     params = {}
+    if owner_id is not None:
+        conds.append('q.owner_id = :owner_id')
+        params['owner_id'] = owner_id
 
     subjects = data.get('subjects') or []
     if subjects:
@@ -421,7 +502,12 @@ def _build_filter_query(data, pool_id, exclude_pool=False):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @interview_bp.route('/api/interview/pools/<int:pool_id>/config', methods=['GET'])
+@login_required
 def get_config(pool_id):
+    user = get_current_user()
+    pool, err = _check_pool_access(pool_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
     cfg = _fetch_one(
         "SELECT * FROM interview_configs WHERE pool_id=:pid ORDER BY updated_at DESC LIMIT 1",
         pid=pool_id
@@ -433,10 +519,12 @@ def get_config(pool_id):
 
 
 @interview_bp.route('/api/interview/pools/<int:pool_id>/config', methods=['PUT'])
+@login_required
 def save_config(pool_id):
-    pool = _fetch_one("SELECT id FROM interview_pools WHERE id=:id", id=pool_id)
-    if not pool:
-        return jsonify({'error': '题库池不存在'}), 404
+    user = get_current_user()
+    pool, err = _check_pool_access(pool_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
 
     data = request.get_json(silent=True) or {}
     slots = data.get('slots', [])
@@ -474,8 +562,13 @@ def save_config(pool_id):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @interview_bp.route('/api/interview/pools/<int:pool_id>/check', methods=['POST'])
+@login_required
 def check_pool(pool_id):
     """校验池中可用题目是否满足生成 N 套题的需求。"""
+    user = get_current_user()
+    pool, err = _check_pool_access(pool_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
     data = request.get_json(silent=True) or {}
     total_sets = int(data.get('total_sets', 1))
 
@@ -542,8 +635,13 @@ def check_pool(pool_id):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @interview_bp.route('/api/interview/sessions', methods=['GET'])
+@login_required
 def list_sessions():
-    rows = _fetch("SELECT * FROM interview_sessions ORDER BY id DESC")
+    user = get_current_user()
+    if user.role == 'admin':
+        rows = _fetch("SELECT * FROM interview_sessions ORDER BY id DESC")
+    else:
+        rows = _fetch("SELECT * FROM interview_sessions WHERE owner_id=:uid ORDER BY id DESC", uid=user.id)
     for sess in rows:
         total = _fetch_one(
             "SELECT COUNT(*) AS cnt FROM interview_sets WHERE session_id=:sid",
@@ -562,6 +660,7 @@ def list_sessions():
 
 
 @interview_bp.route('/api/interview/sessions', methods=['POST'])
+@login_required
 def create_session():
     """创建面试场次并批量生成套题。"""
     data = request.get_json(silent=True) or {}
@@ -582,9 +681,10 @@ def create_session():
 
     total_sets = interview_count * sets_multiplier
 
-    pool = _fetch_one("SELECT id FROM interview_pools WHERE id=:id", id=pool_id)
-    if not pool:
-        return jsonify({'error': '题库池不存在'}), 404
+    user = get_current_user()
+    pool, perr = _check_pool_access(pool_id, user)
+    if perr:
+        return jsonify({'error': perr[0]}), perr[1]
 
     cfg = _fetch_one(
         "SELECT id, slots_json FROM interview_configs WHERE pool_id=:pid LIMIT 1",
@@ -644,12 +744,13 @@ def create_session():
     with db.engine.begin() as conn:
         result = conn.execute(text("""
             INSERT INTO interview_sessions
-              (pool_id, config_id, session_name, interview_count, sets_multiplier, score_per_slot_json, created_at)
-            VALUES (:pid, :cid, :sn, :ic, :sm, :sp, :t)
+              (pool_id, config_id, session_name, interview_count, sets_multiplier, score_per_slot_json, created_at, owner_id)
+            VALUES (:pid, :cid, :sn, :ic, :sm, :sp, :t, :uid)
         """), {
             'pid': pool_id, 'cid': cfg['id'], 'sn': session_name,
             'ic': interview_count, 'sm': sets_multiplier,
-            'sp': json.dumps(score_per_slot, ensure_ascii=False), 't': now
+            'sp': json.dumps(score_per_slot, ensure_ascii=False), 't': now,
+            'uid': user.id
         })
         session_id = result.lastrowid
 
@@ -674,7 +775,7 @@ def create_session():
 
     # 同步所有被分配进套题的题目状态（interview_set=1）
     all_assigned = [qid for s in sets_created for qid in s['question_ids'] if qid]
-    _sync_question_interview_status(all_assigned)
+    _sync_question_interview_status(all_assigned, owner_id=user.id)
 
     return jsonify({
         'ok': True,
@@ -690,7 +791,12 @@ def create_session():
 # ─────────────────────────────────────────────────────────────────────────────
 
 @interview_bp.route('/api/interview/sessions/<int:session_id>/sets', methods=['GET'])
+@login_required
 def list_sets(session_id):
+    user = get_current_user()
+    _, err = _check_session_access(session_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
     page = max(1, int(request.args.get('page', 1)))
     per_page = min(100, int(request.args.get('per_page', 50)))
     used_filter = request.args.get('is_used')
@@ -717,8 +823,13 @@ def list_sets(session_id):
 
 
 @interview_bp.route('/api/interview/sessions/<int:session_id>/draw', methods=['POST'])
+@login_required
 def draw_set(session_id):
     """从指定场次中随机抽取一套未使用的套题并标记为已使用。"""
+    user = get_current_user()
+    _, err = _check_session_access(session_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
     available = _fetch(
         "SELECT id, set_code, question_ids_json FROM interview_sets WHERE session_id=:sid AND is_used=0",
         sid=session_id
@@ -735,7 +846,7 @@ def draw_set(session_id):
 
     qids = json.loads(chosen['question_ids_json']) if chosen['question_ids_json'] else []
     questions = _get_questions_full(qids)
-    _sync_question_interview_status([q for q in qids if q])
+    _sync_question_interview_status([q for q in qids if q], owner_id=user.id)
 
     return jsonify({
         'ok': True,
@@ -747,33 +858,39 @@ def draw_set(session_id):
 
 
 @interview_bp.route('/api/interview/sets/<int:set_id>', methods=['GET'])
+@login_required
 def get_set_detail(set_id):
-    s = _fetch_one("SELECT * FROM interview_sets WHERE id=:id", id=set_id)
-    if not s:
-        return jsonify({'error': '套题不存在'}), 404
+    user = get_current_user()
+    s, _, err = _check_set_access(set_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
     qids = json.loads(s['question_ids_json']) if s['question_ids_json'] else []
     s['questions'] = _get_questions_full(qids)
     return jsonify({'set': s})
 
 
 @interview_bp.route('/api/interview/sets/<int:set_id>/use', methods=['POST'])
+@login_required
 def mark_set_used(set_id):
-    s = _fetch_one("SELECT id, question_ids_json FROM interview_sets WHERE id=:id", id=set_id)
-    if not s:
-        return jsonify({'error': '套题不存在'}), 404
+    user = get_current_user()
+    s, _, err = _check_set_access(set_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
     now = _now_str()
     _run("UPDATE interview_sets SET is_used=1, used_at=:t WHERE id=:id", t=now, id=set_id)
     qids = json.loads(s['question_ids_json']) if s['question_ids_json'] else []
-    _sync_question_interview_status([q for q in qids if q])
+    _sync_question_interview_status([q for q in qids if q], owner_id=user.id)
     return jsonify({'ok': True, 'used_at': now})
 
 
 @interview_bp.route('/api/interview/sets/<int:set_id>/release', methods=['POST'])
+@login_required
 def release_set(set_id):
     """释放套题：将套题标记为未使用，并重置池中对应题目的 drawn 状态。"""
-    s = _fetch_one("SELECT * FROM interview_sets WHERE id=:id", id=set_id)
-    if not s:
-        return jsonify({'error': '套题不存在'}), 404
+    user = get_current_user()
+    s, _, err = _check_set_access(set_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
 
     _run("UPDATE interview_sets SET is_used=0, used_at=NULL WHERE id=:id", id=set_id)
 
@@ -785,13 +902,18 @@ def release_set(set_id):
             "UPDATE interview_pool_questions SET drawn=0, drawn_at=NULL WHERE question_id=:qid",
             qid=qid
         )
-    _sync_question_interview_status(qids)
+    _sync_question_interview_status(qids, owner_id=user.id)
     return jsonify({'ok': True})
 
 
 @interview_bp.route('/api/interview/sessions/<int:session_id>/release-all', methods=['POST'])
+@login_required
 def release_all_used_sets(session_id):
     """一键释放本场次所有已使用的套题，重置 drawn 状态。"""
+    user = get_current_user()
+    _, err = _check_session_access(session_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
     used_sets = _fetch(
         "SELECT id, question_ids_json FROM interview_sets WHERE session_id=:sid AND is_used=1",
         sid=session_id
@@ -812,11 +934,12 @@ def release_all_used_sets(session_id):
             "UPDATE interview_pool_questions SET drawn=0, drawn_at=NULL WHERE question_id=:qid",
             qid=qid
         )
-    _sync_question_interview_status(unique_qids)
+    _sync_question_interview_status(unique_qids, owner_id=user.id)
     return jsonify({'ok': True, 'released': len(used_sets)})
 
 
 @interview_bp.route('/api/interview/sessions/<int:session_id>/quality-check', methods=['POST'])
+@login_required
 def quality_check_session(session_id):
     """用 DeepSeek 检查本场次所有套题题目的质量。
 
@@ -824,6 +947,11 @@ def quality_check_session(session_id):
     1. 题干答案混淆/重叠（答案混入题干，或 reference_answer 为空但题干已含答案）
     2. 英文题干语法错误（content_en 字段）
     """
+    user = get_current_user()
+    _, err = _check_session_access(session_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
+
     import time as _time
 
     from app.rag_routes import _get_deepseek_key
@@ -892,8 +1020,14 @@ def quality_check_session(session_id):
 
 
 @interview_bp.route('/api/interview/sessions/<int:session_id>/quality-check/stream', methods=['GET'])
+@login_required
 def quality_check_session_stream(session_id):
     """SSE 流式质量检查：逐批推送进度，最后推送完整结果。"""
+    user = get_current_user()
+    _, err = _check_session_access(session_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
+
     import time as _time
 
     def _sse(obj):
@@ -1038,11 +1172,13 @@ def _qc_call_deepseek(ds_client, batch):
 
 
 @interview_bp.route('/api/interview/sessions/<int:session_id>', methods=['DELETE'])
+@login_required
 def delete_session(session_id):
     """删除指定场次及其所有套题，并重置受影响题目的 drawn 状态。"""
-    sess = _fetch_one("SELECT pool_id FROM interview_sessions WHERE id=:sid", sid=session_id)
-    if not sess:
-        return jsonify({'error': '场次不存在'}), 404
+    user = get_current_user()
+    sess, err = _check_session_access(session_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
     pool_id = sess['pool_id']
 
     # 收集该场次所有套题中的题目 ID
@@ -1076,22 +1212,20 @@ def delete_session(session_id):
                 pid=pool_id, qid=qid
             )
 
-    _sync_question_interview_status(list(set(affected_qids)))
+    _sync_question_interview_status(list(set(affected_qids)), owner_id=user.id)
     return jsonify({'ok': True})
 
 
 @interview_bp.route('/api/interview/sets/<int:set_id>/candidates', methods=['GET'])
+@login_required
 def get_replacement_candidates(set_id):
     """获取指定槽位的可替换候选题目（同池、未被使用、同题型）。"""
     slot_index = request.args.get('slot_index', default=0, type=int)
 
-    s = _fetch_one("SELECT * FROM interview_sets WHERE id=:id", id=set_id)
-    if not s:
-        return jsonify({'error': '套题不存在'}), 404
-
-    sess = _fetch_one("SELECT pool_id, config_id FROM interview_sessions WHERE id=:sid", sid=s['session_id'])
-    if not sess:
-        return jsonify({'error': '场次不存在'}), 404
+    user = get_current_user()
+    s, sess, err = _check_set_access(set_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
     pool_id = sess['pool_id']
 
     question_ids = json.loads(s['question_ids_json'] or '[]')
@@ -1136,6 +1270,7 @@ def get_replacement_candidates(set_id):
 
 
 @interview_bp.route('/api/interview/sets/<int:set_id>/replace', methods=['POST'])
+@login_required
 def replace_question_in_set(set_id):
     """替换套题中某槽位的题目。"""
     data = request.get_json(silent=True) or {}
@@ -1145,13 +1280,10 @@ def replace_question_in_set(set_id):
     if slot_index is None or not new_qid:
         return jsonify({'error': '缺少 slot_index 或 new_question_id'}), 400
 
-    s = _fetch_one("SELECT * FROM interview_sets WHERE id=:id", id=set_id)
-    if not s:
-        return jsonify({'error': '套题不存在'}), 404
-
-    sess = _fetch_one("SELECT pool_id FROM interview_sessions WHERE id=:sid", sid=s['session_id'])
-    if not sess:
-        return jsonify({'error': '场次不存在'}), 404
+    user = get_current_user()
+    s, sess, err = _check_set_access(set_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
     pool_id = sess['pool_id']
 
     question_ids = json.loads(s['question_ids_json'] or '[]')
@@ -1185,12 +1317,14 @@ def replace_question_in_set(set_id):
     )
 
     affected = [q for q in [old_qid, new_qid] if q]
-    _sync_question_interview_status(affected)
+    _sync_question_interview_status(affected, owner_id=user.id)
     return jsonify({'ok': True, 'question_ids': question_ids})
 
 
 @interview_bp.route('/api/interview/sets/batch-use', methods=['POST'])
+@login_required
 def batch_use_sets():
+    user = get_current_user()
     data = request.get_json(silent=True) or {}
     set_ids = data.get('set_ids', [])
     if not set_ids:
@@ -1199,15 +1333,16 @@ def batch_use_sets():
     updated = 0
     all_qids = []
     for sid in set_ids:
-        s = _fetch_one("SELECT question_ids_json FROM interview_sets WHERE id=:id", id=sid)
-        if s:
-            try:
-                all_qids.extend([q for q in json.loads(s['question_ids_json'] or '[]') if q])
-            except Exception:
-                pass
+        s, _, err = _check_set_access(sid, user)
+        if err:
+            return jsonify({'error': err[0]}), err[1]
+        try:
+            all_qids.extend([q for q in json.loads(s['question_ids_json'] or '[]') if q])
+        except Exception:
+            pass
         _run("UPDATE interview_sets SET is_used=1, used_at=:t WHERE id=:id", t=now, id=sid)
         updated += 1
-    _sync_question_interview_status(all_qids)
+    _sync_question_interview_status(all_qids, owner_id=user.id)
     return jsonify({'ok': True, 'updated': updated})
 
 
@@ -1258,8 +1393,10 @@ def _get_questions_full(qids):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @interview_bp.route('/api/interview/export/word', methods=['POST'])
+@login_required
 def export_word():
     """将指定套题导出为 Word 文档（含答案，保留富文本格式）。"""
+    user = get_current_user()
     data = request.get_json(silent=True) or {}
     set_ids = data.get('set_ids', [])
     include_answers = data.get('include_answers', True)
@@ -1283,9 +1420,9 @@ def export_word():
     section.bottom_margin = Cm(2.5)
 
     for order_idx, set_id in enumerate(set_ids):
-        s = _fetch_one("SELECT * FROM interview_sets WHERE id=:id", id=set_id)
-        if not s:
-            continue
+        s, _, err = _check_set_access(set_id, user)
+        if err:
+            return jsonify({'error': err[0]}), err[1]
         qids = json.loads(s['question_ids_json']) if s['question_ids_json'] else []
         questions = _get_questions_full(qids)
 
@@ -1368,11 +1505,13 @@ def export_word():
 # ─────────────────────────────────────────────────────────────────────────────
 
 @interview_bp.route('/api/interview/pools/<int:pool_id>/questions/export-xlsx', methods=['GET'])
+@login_required
 def export_pool_xlsx(pool_id):
     """导出面试题库池到 Excel（含完整题目信息，支持跨机器导入）。"""
-    pool = _fetch_one("SELECT * FROM interview_pools WHERE id=:id", id=pool_id)
-    if not pool:
-        return jsonify({'error': '题库池不存在'}), 404
+    user = get_current_user()
+    pool, err = _check_pool_access(pool_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
 
     rows = _fetch("""
         SELECT ipq.drawn, ipq.drawn_at, ipq.added_at,
@@ -1451,11 +1590,13 @@ def export_pool_xlsx(pool_id):
 
 
 @interview_bp.route('/api/interview/sessions/<int:session_id>/export-xlsx', methods=['GET'])
+@login_required
 def export_sets_xlsx(session_id):
     """导出指定场次的套题记录到 Excel（双 Sheet）。"""
-    sess = _fetch_one("SELECT * FROM interview_sessions WHERE id=:id", id=session_id)
-    if not sess:
-        return jsonify({'error': '场次不存在'}), 404
+    user = get_current_user()
+    sess, err = _check_session_access(session_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
 
     sets = _fetch(
         "SELECT * FROM interview_sets WHERE session_id=:sid ORDER BY id",
@@ -1546,14 +1687,16 @@ def export_sets_xlsx(session_id):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @interview_bp.route('/api/interview/pools/<int:pool_id>/questions/import-xlsx', methods=['POST'])
+@login_required
 def import_pool_xlsx(pool_id):
     """
     从 Excel 导入题目到面试题库池。
     支持跨机器迁移：若 question_id 在本地不存在，自动从 Excel 行数据中新建题目。
     """
-    pool = _fetch_one("SELECT id FROM interview_pools WHERE id=:id", id=pool_id)
-    if not pool:
-        return jsonify({'error': '题库池不存在'}), 404
+    user = get_current_user()
+    pool, perr = _check_pool_access(pool_id, user)
+    if perr:
+        return jsonify({'error': perr[0]}), perr[1]
 
     if 'file' not in request.files:
         return jsonify({'error': '未上传文件'}), 400
@@ -1616,6 +1759,8 @@ def import_pool_xlsx(pool_id):
                 language=str(_col(row, 'language') or 'zh'),
                 metadata_json='{}',
                 is_used=False,
+                owner_id=user.id,
+                visibility='private',
                 created_at=now_dt,
                 updated_at=now_dt,
             )
@@ -1642,11 +1787,12 @@ def import_pool_xlsx(pool_id):
     all_pool_qids = _fetch(
         "SELECT question_id FROM interview_pool_questions WHERE pool_id=:pid", pid=pool_id
     )
-    _sync_question_interview_status([r['question_id'] for r in all_pool_qids])
+    _sync_question_interview_status([r['question_id'] for r in all_pool_qids], owner_id=user.id)
     return jsonify({'ok': True, 'added': added, 'skipped': skipped, 'created_questions': created})
 
 
 @interview_bp.route('/api/interview/sessions/import-xlsx/prepare', methods=['POST'])
+@login_required
 def prepare_import_sets_xlsx():
     """
     预检 Excel 文件：解析题目数、套题数，并返回现有题库池列表供前端决策。
@@ -1674,7 +1820,11 @@ def prepare_import_sets_xlsx():
         rows1 = list(wb['套题列表'].iter_rows(values_only=True))
         set_count = max(0, len(rows1) - 1)
 
-    pools = _fetch("SELECT id, pool_name FROM interview_pools ORDER BY id")
+    user = get_current_user()
+    if user.role == 'admin':
+        pools = _fetch("SELECT id, pool_name FROM interview_pools ORDER BY id")
+    else:
+        pools = _fetch("SELECT id, pool_name FROM interview_pools WHERE owner_id=:uid ORDER BY id", uid=user.id)
     return jsonify({
         'ok': True,
         'question_count': question_count,
@@ -1684,6 +1834,7 @@ def prepare_import_sets_xlsx():
 
 
 @interview_bp.route('/api/interview/sessions/import-xlsx', methods=['POST'])
+@login_required
 def import_sets_xlsx():
     """
     从 Excel 导入套题记录（Sheet1: 套题列表, Sheet2: 题目详情）。
@@ -1701,22 +1852,23 @@ def import_sets_xlsx():
         return jsonify({'error': '缺少场次名称'}), 400
 
     pool_mode = request.form.get('pool_mode', 'new')
+    user = get_current_user()
 
     if pool_mode == 'existing':
         pool_id_str = request.form.get('pool_id')
         if not pool_id_str:
             return jsonify({'error': '缺少 pool_id 参数'}), 400
         pool_id = int(pool_id_str)
-        pool_row = _fetch_one("SELECT id, pool_name FROM interview_pools WHERE id=:id", id=pool_id)
-        if not pool_row:
-            return jsonify({'error': '题库池不存在'}), 404
+        pool_row, perr = _check_pool_access(pool_id, user)
+        if perr:
+            return jsonify({'error': perr[0]}), perr[1]
         pool_name = pool_row['pool_name']
     else:
         # 新建题库池
         new_pool_name = f'{session_name}-题库池'
         _run(
-            "INSERT INTO interview_pools (pool_name, description, created_at) VALUES (:n, :d, :t)",
-            n=new_pool_name, d='由套题导入自动创建', t=_now_str()
+            "INSERT INTO interview_pools (pool_name, description, created_at, owner_id) VALUES (:n, :d, :t, :uid)",
+            n=new_pool_name, d='由套题导入自动创建', t=_now_str(), uid=user.id
         )
         pool_row = _fetch_one(
             "SELECT id FROM interview_pools WHERE pool_name=:n ORDER BY id DESC LIMIT 1",
@@ -1784,6 +1936,8 @@ def import_sets_xlsx():
                 language=qdata['language'] or 'zh',
                 metadata_json='{}',
                 is_used=False,
+                owner_id=user.id,
+                visibility='private',
                 created_at=now_dt,
                 updated_at=now_dt,
             )
@@ -1831,9 +1985,9 @@ def import_sets_xlsx():
     with db.engine.begin() as conn:
         result = conn.execute(text("""
             INSERT INTO interview_sessions
-              (pool_id, config_id, session_name, interview_count, sets_multiplier, score_per_slot_json, created_at)
-            VALUES (:pid, NULL, :sn, 0, 1, '{}', :t)
-        """), {'pid': pool_id, 'sn': session_name, 't': now})
+              (pool_id, config_id, session_name, interview_count, sets_multiplier, score_per_slot_json, created_at, owner_id)
+            VALUES (:pid, NULL, :sn, 0, 1, '{}', :t, :uid)
+        """), {'pid': pool_id, 'sn': session_name, 't': now, 'uid': user.id})
         session_id = result.lastrowid
 
     sets_imported = 0

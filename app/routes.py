@@ -1,12 +1,60 @@
 from flask import Blueprint, request, jsonify, render_template, send_file
 from app.db_models import db, QuestionModel, ExamModel, QuestionTypeModel, CourseSettingsModel, exam_questions, QuestionImageModel
 from app.utils import allowed_file, generate_word_template, export_exam_to_word, save_image_file, delete_question_images, _IMAGES_DIR, _associate_images_in_html
+from app.auth_routes import login_required, guest_readonly, get_current_user
 import os
 import json
 import uuid
 from datetime import datetime
 
 bp = Blueprint('main', __name__)
+
+
+# ─── 可见性过滤辅助函数 ────────────────────────────────────────────────────────
+
+def _visible_q_filter(user):
+    """返回当前用户可见的题目 OR 条件（用于 .filter()）。"""
+    from app.db_models import TeamMember
+    if user.role == 'admin':
+        return db.true()   # admin 可见全部
+    my_team_ids = [m.team_id for m in TeamMember.query.filter_by(user_id=user.id).all()]
+    conds = [
+        QuestionModel.owner_id == user.id,
+        QuestionModel.visibility == 'guest_preview',
+    ]
+    if my_team_ids:
+        conds.append(db.and_(
+            QuestionModel.visibility == 'team',
+            QuestionModel.team_id.in_(my_team_ids)
+        ))
+    return db.or_(*conds)
+
+
+def _visible_e_filter(user):
+    """返回当前用户可见的试卷 OR 条件。"""
+    from app.db_models import TeamMember
+    if user.role == 'admin':
+        return db.true()
+    my_team_ids = [m.team_id for m in TeamMember.query.filter_by(user_id=user.id).all()]
+    conds = [
+        ExamModel.owner_id == user.id,
+        ExamModel.visibility == 'guest_preview',
+    ]
+    if my_team_ids:
+        conds.append(db.and_(
+            ExamModel.visibility == 'team',
+            ExamModel.team_id.in_(my_team_ids)
+        ))
+    return db.or_(*conds)
+
+
+def _can_write_question(question, user) -> bool:
+    """是否有编辑/删除该题的权限（owner 或 admin）。"""
+    return user.role == 'admin' or question.owner_id == user.id
+
+
+def _can_write_exam(exam, user) -> bool:
+    return user.role == 'admin' or exam.owner_id == user.id
 
 import re as _re
 
@@ -115,9 +163,11 @@ def delete_image(image_id):
 
 # ─── Question Bank Management Routes ────────────────────────────────────────
 @bp.route('/api/questions', methods=['GET'])
+@login_required
 def get_questions():
     """Get all questions or search questions"""
     from datetime import timedelta
+    user = get_current_user()
     keyword = request.args.get('keyword', '')
     question_type = request.args.get('type', '')
     language = request.args.get('language', '')
@@ -129,7 +179,7 @@ def get_questions():
     imported_before = request.args.get('imported_before', '').strip()
     imported_only = request.args.get('imported_only', '')
 
-    query = QuestionModel.query
+    query = QuestionModel.query.filter(_visible_q_filter(user))
 
     if keyword:
         query = query.filter(QuestionModel.content.contains(keyword))
@@ -167,6 +217,7 @@ def get_questions():
 
 
 @bp.route('/api/questions/count', methods=['GET'])
+@login_required
 def count_questions():
     """返回满足筛选条件的题目数量（用于组卷预估）。"""
     from datetime import timedelta
@@ -175,8 +226,10 @@ def count_questions():
     kp = request.args.get('knowledge_point', '').strip()
     tags_str = request.args.get('tags', '').strip()
     is_used = request.args.get('is_used', '')
+    language = request.args.get('language', '').strip()
 
-    q = QuestionModel.query
+    user = get_current_user()
+    q = QuestionModel.query.filter(_visible_q_filter(user))
     if subject:
         q = q.filter_by(subject=subject)
     if difficulty:
@@ -191,13 +244,18 @@ def count_questions():
         q = q.filter_by(is_used=False)
     elif is_used == '1':
         q = q.filter_by(is_used=True)
+    if language:
+        q = q.filter_by(language=language)
     return jsonify({'count': q.count()})
 
 
 @bp.route('/api/questions/subjects', methods=['GET'])
+@login_required
 def get_subjects():
     """Get all distinct subject values from the question bank"""
+    user = get_current_user()
     rows = db.session.query(QuestionModel.subject).filter(
+        _visible_q_filter(user),
         QuestionModel.subject.isnot(None),
         QuestionModel.subject != ''
     ).distinct().all()
@@ -206,8 +264,11 @@ def get_subjects():
 
 
 @bp.route('/api/questions', methods=['POST'])
+@login_required
+@guest_readonly
 def add_question():
     """Add a new question"""
+    user = get_current_user()
     data = request.json
     now = datetime.now()
 
@@ -220,7 +281,7 @@ def add_question():
         language = _detect_language(data.get('content', ''), content_en)
 
     question = QuestionModel(
-        question_id=data.get('question_id'),
+        question_id=data.get('question_id') or str(uuid.uuid4()),
         question_type=data.get('question_type'),
         content=data.get('content'),
         options=json.dumps(data.get('options', []), ensure_ascii=False),
@@ -235,6 +296,8 @@ def add_question():
         difficulty=data.get('difficulty'),
         language=language,
         metadata_json=json.dumps(data.get('metadata', {}), ensure_ascii=False),
+        owner_id=user.id,
+        visibility='private',
         created_at=now,
         updated_at=now,
     )
@@ -253,20 +316,30 @@ def add_question():
 
 
 @bp.route('/api/questions/<question_id>', methods=['GET'])
+@login_required
 def get_question(question_id):
     """Get a specific question by ID"""
-    question = db.session.get(QuestionModel, question_id)
+    user = get_current_user()
+    question = QuestionModel.query.filter(
+        QuestionModel.question_id == question_id,
+        _visible_q_filter(user)
+    ).first()
     if question:
         return jsonify(question.to_dict())
     return jsonify({'error': 'Question not found'}), 404
 
 
 @bp.route('/api/questions/<question_id>', methods=['PUT'])
+@login_required
+@guest_readonly
 def update_question(question_id):
     """Update a specific question"""
+    user = get_current_user()
     question = db.session.get(QuestionModel, question_id)
     if not question:
         return jsonify({'error': 'Question not found'}), 404
+    if not _can_write_question(question, user):
+        return jsonify({'error': '无权编辑他人题目'}), 403
 
     data = request.json
     question.content = data.get('content', question.content)
@@ -308,11 +381,16 @@ def update_question(question_id):
 
 
 @bp.route('/api/questions/<question_id>', methods=['DELETE'])
+@login_required
+@guest_readonly
 def delete_question(question_id):
     """Delete a specific question"""
+    user = get_current_user()
     question = db.session.get(QuestionModel, question_id)
     if not question:
         return jsonify({'error': 'Question not found'}), 404
+    if not _can_write_question(question, user):
+        return jsonify({'error': '无权删除他人题目'}), 403
 
     delete_question_images(question_id)
     db.session.delete(question)
@@ -321,24 +399,30 @@ def delete_question(question_id):
 
 
 @bp.route('/api/questions/batch-delete', methods=['POST'])
+@login_required
+@guest_readonly
 def batch_delete_questions():
     """Delete multiple questions at once"""
+    user = get_current_user()
     data = request.json
     question_ids = data.get('question_ids', [])
 
     if not question_ids:
         return jsonify({'error': 'No question IDs provided'}), 400
 
-    # Cascade delete images for all questions
+    # 非 admin 只能删自己的题目
+    if user.role != 'admin':
+        question_ids = [
+            qid for qid in question_ids
+            if QuestionModel.query.filter_by(question_id=qid, owner_id=user.id).first()
+        ]
+
     for qid in question_ids:
         delete_question_images(qid)
 
-    # Remove exam_questions associations first
     db.session.execute(
         exam_questions.delete().where(exam_questions.c.question_id.in_(question_ids))
     )
-
-    # Delete the questions
     deleted = QuestionModel.query.filter(QuestionModel.question_id.in_(question_ids)).delete(
         synchronize_session=False
     )
@@ -348,6 +432,8 @@ def batch_delete_questions():
 
 
 @bp.route('/api/questions/batch-update-type', methods=['POST'])
+@login_required
+@guest_readonly
 def batch_update_question_type():
     """Change question_type for multiple questions at once"""
     data = request.json
@@ -359,8 +445,14 @@ def batch_update_question_type():
     if not new_type:
         return jsonify({'error': 'No question_type provided'}), 400
 
-    # Verify the target type exists
-    qt = QuestionTypeModel.query.filter_by(name=new_type).first()
+    # Verify the target type exists and is accessible by current user
+    qt = QuestionTypeModel.query.filter(
+        QuestionTypeModel.name == new_type,
+        db.or_(
+            QuestionTypeModel.owner_id.is_(None),
+            QuestionTypeModel.owner_id == user.id,
+        )
+    ).first()
     if not qt:
         return jsonify({'error': f'Question type "{new_type}" not found'}), 400
 
@@ -557,6 +649,7 @@ def _xlsx_check_fields(q):
 
 
 @bp.route('/api/questions/check-export', methods=['POST'])
+@login_required
 def check_export_xlsx():
     """检查选中题目中哪些字段超过500字符，返回警告列表"""
     data = request.json or {}
@@ -580,6 +673,7 @@ def check_export_xlsx():
 
 
 @bp.route('/api/questions/export-xlsx', methods=['POST'])
+@login_required
 def export_xlsx():
     """将选中题目导出为 xlsx 文件，skip_ids 中的题目跳过"""
     try:
@@ -662,8 +756,11 @@ def export_xlsx():
 
 
 @bp.route('/api/questions/import', methods=['POST'])
+@login_required
+@guest_readonly
 def import_questions():
     """Import questions from a file (Word or CSV)"""
+    _import_user = get_current_user()
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
 
@@ -686,16 +783,18 @@ def import_questions():
             import_subject = request.form.get('subject') or None
 
             # Build a set of existing content for deduplication (trimmed)
+            # 只对当前用户自己的题目去重，避免跨用户误判重复
+            _user_q = db.session.query(QuestionModel.content).filter_by(owner_id=_import_user.id)
             existing_contents = set(
                 row[0].strip()
-                for row in db.session.query(QuestionModel.content).all()
+                for row in _user_q.all()
                 if row[0]
             )
 
             # 新增：构建库内题目的 n-gram 列表，用于相似度查重（仅取前200字）
             existing_ngrams = [
                 _ngram_set((row[0] or '')[:200])
-                for row in db.session.query(QuestionModel.content).all()
+                for row in _user_q.all()
                 if row[0]
             ]
 
@@ -707,9 +806,14 @@ def import_questions():
             if file.filename.lower().endswith('.docx'):
                 from app.docx_importer import parse_docx_with_rich_content
 
-                # Collect known question type names for marker validation
+                # Collect known question type names for marker validation（内置 + 当前用户）
                 known_types = {
-                    qt.name for qt in QuestionTypeModel.query.all()
+                    qt.name for qt in QuestionTypeModel.query.filter(
+                        db.or_(
+                            QuestionTypeModel.owner_id.is_(None),
+                            QuestionTypeModel.owner_id == _import_user.id,
+                        )
+                    ).all()
                 }
 
                 # Wrapper: save_image_fn(bytes, content_type) -> image_id
@@ -754,6 +858,8 @@ def import_questions():
                         imported_at=now,
                         created_at=now,
                         updated_at=now,
+                        owner_id=_import_user.id,
+                        visibility='private',
                     )
                     models.append(model)
                 db.session.add_all(models)
@@ -807,6 +913,8 @@ def import_questions():
                         imported_at=now,
                         created_at=now,
                         updated_at=now,
+                        owner_id=_import_user.id,
+                        visibility='private',
                     )
                     models.append(model)
                 db.session.add_all(models)
@@ -847,6 +955,8 @@ def import_questions():
                         imported_at=now,
                         created_at=now,
                         updated_at=now,
+                        owner_id=_import_user.id,
+                        visibility='private',
                     )
                     models.append(model)
                 db.session.add_all(models)
@@ -894,6 +1004,7 @@ def import_questions():
 
 
 @bp.route('/api/questions/export', methods=['GET'])
+@login_required
 def export_questions():
     """Export questions to JSON or CSV"""
     export_format = request.args.get('format', 'json')
@@ -935,21 +1046,28 @@ def export_questions():
 
 # Exam Generation Routes
 @bp.route('/api/exams', methods=['GET'])
+@login_required
 def get_exams():
     """Get all exams"""
-    exams = ExamModel.query.all()
+    user = get_current_user()
+    exams = ExamModel.query.filter(_visible_e_filter(user)).all()
     return jsonify([e.to_dict() for e in exams])
 
 
 @bp.route('/api/exams', methods=['POST'])
+@login_required
+@guest_readonly
 def create_exam():
     """Create a new exam"""
+    user = get_current_user()
     data = request.json
     now = datetime.now()
     exam = ExamModel(
         exam_id=data.get('exam_id') or f"exam_{uuid.uuid4().hex[:8]}",
         name=data.get('name'),
         config=json.dumps(data.get('config', {}), ensure_ascii=False),
+        owner_id=user.id,
+        visibility='private',
         created_at=now,
         updated_at=now,
     )
@@ -959,20 +1077,30 @@ def create_exam():
 
 
 @bp.route('/api/exams/<exam_id>', methods=['GET'])
+@login_required
 def get_exam(exam_id):
     """Get a specific exam by ID"""
-    exam = db.session.get(ExamModel, exam_id)
+    user = get_current_user()
+    exam = ExamModel.query.filter(
+        ExamModel.exam_id == exam_id,
+        _visible_e_filter(user)
+    ).first()
     if exam:
         return jsonify(exam.to_dict())
     return jsonify({'error': 'Exam not found'}), 404
 
 
 @bp.route('/api/exams/<exam_id>', methods=['PUT'])
+@login_required
+@guest_readonly
 def update_exam(exam_id):
     """Update a specific exam"""
+    user = get_current_user()
     exam = db.session.get(ExamModel, exam_id)
     if not exam:
         return jsonify({'error': 'Exam not found'}), 404
+    if not _can_write_exam(exam, user):
+        return jsonify({'error': '无权编辑他人试卷'}), 403
 
     data = request.json
     exam.name = data.get('name', exam.name)
@@ -985,13 +1113,17 @@ def update_exam(exam_id):
 
 
 @bp.route('/api/exams/<exam_id>', methods=['DELETE'])
+@login_required
+@guest_readonly
 def delete_exam(exam_id):
     """Delete a specific exam"""
+    user = get_current_user()
     exam = db.session.get(ExamModel, exam_id)
     if not exam:
         return jsonify({'error': 'Exam not found'}), 404
+    if not _can_write_exam(exam, user):
+        return jsonify({'error': '无权删除他人试卷'}), 403
 
-    # Remove all exam-question associations first
     db.session.execute(exam_questions.delete().where(exam_questions.c.exam_id == exam_id))
     db.session.delete(exam)
     db.session.commit()
@@ -999,11 +1131,16 @@ def delete_exam(exam_id):
 
 
 @bp.route('/api/exams/<exam_id>/add_question', methods=['POST'])
+@login_required
+@guest_readonly
 def add_question_to_exam(exam_id):
     """Add a question to an exam"""
+    user = get_current_user()
     exam = db.session.get(ExamModel, exam_id)
     if not exam:
         return jsonify({'error': 'Exam not found'}), 404
+    if not _can_write_exam(exam, user):
+        return jsonify({'error': '无权编辑他人试卷'}), 403
     if exam.is_confirmed:
         return jsonify({'error': '试卷已最终确认，无法添加题目'}), 403
 
@@ -1030,11 +1167,16 @@ def add_question_to_exam(exam_id):
 
 
 @bp.route('/api/exams/<exam_id>/remove_question/<question_id>', methods=['DELETE'])
+@login_required
+@guest_readonly
 def remove_question_from_exam(exam_id, question_id):
     """Remove a question from an exam"""
+    user = get_current_user()
     exam = db.session.get(ExamModel, exam_id)
     if not exam:
         return jsonify({'error': 'Exam not found'}), 404
+    if not _can_write_exam(exam, user):
+        return jsonify({'error': '无权编辑他人试卷'}), 403
     if exam.is_confirmed:
         return jsonify({'error': '试卷已最终确认，无法删除题目'}), 403
 
@@ -1050,8 +1192,11 @@ def remove_question_from_exam(exam_id, question_id):
 
 
 @bp.route('/api/exams/generate', methods=['POST'])
+@login_required
+@guest_readonly
 def generate_exam():
     """Generate an exam based on configuration"""
+    user = get_current_user()
     data = request.json
     name = data.get('name', f"Exam_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     config = data.get('config', {})
@@ -1060,14 +1205,16 @@ def generate_exam():
     kp_filter = (data.get('knowledge_point') or '').strip()
     tags_filter = [t.strip() for t in (data.get('tags') or []) if str(t).strip()]
     is_used_filter = data.get('is_used_filter', 'unused')
+    language_filter = (data.get('language') or '').strip()
     now = datetime.now()
 
-    # Create a new exam
     exam = ExamModel(
         exam_id=data.get('exam_id') or f"exam_{uuid.uuid4().hex[:8]}",
         name=name,
         config=json.dumps(config, ensure_ascii=False),
         subject=subject_filter or None,
+        owner_id=user.id,
+        visibility='private',
         created_at=now,
         updated_at=now,
     )
@@ -1075,11 +1222,15 @@ def generate_exam():
     db.session.flush()
 
     position = 0
+    shortages = []   # 记录题目不足的题型
     for question_type, settings in config.items():
         count = settings.get('count', 0)
+        if count <= 0:
+            continue
 
         q_query = QuestionModel.query.filter(
             db.func.trim(QuestionModel.question_type) == question_type.strip(),
+            _visible_q_filter(user),
         )
         # 已用/未用筛选（默认只取未使用题目）
         if is_used_filter == 'unused':
@@ -1097,7 +1248,17 @@ def generate_exam():
             q_query = q_query.filter(
                 db.or_(*[QuestionModel.tags.contains(t) for t in tags_filter])
             )
+        if language_filter:
+            q_query = q_query.filter(QuestionModel.language == language_filter)
+
         available = q_query.order_by(db.func.random()).limit(count).all()
+
+        if len(available) < count:
+            shortages.append({
+                'type': question_type,
+                'requested': count,
+                'available': len(available),
+            })
 
         for q in available:
             db.session.execute(exam_questions.insert().values(
@@ -1108,13 +1269,19 @@ def generate_exam():
             position += 1
 
     db.session.commit()
-    return jsonify(exam.to_dict())
+    result = exam.to_dict()
+    result['shortages'] = shortages
+    return jsonify(result)
 
 
 @bp.route('/api/exams/<exam_id>/export', methods=['GET'])
+@login_required
 def export_exam(exam_id):
     """Export an exam to Word document"""
-    exam = db.session.get(ExamModel, exam_id)
+    user = get_current_user()
+    exam = ExamModel.query.filter(
+        ExamModel.exam_id == exam_id, _visible_e_filter(user)
+    ).first()
     if not exam:
         return jsonify({'error': 'Exam not found'}), 404
 
@@ -1150,17 +1317,41 @@ def download_template():
         return jsonify({'error': f'Template generation failed: {str(e)}'}), 500
 
 
+@bp.route('/api/templates/download-xlsx', methods=['GET'])
+def download_xlsx_template():
+    """下载 Excel 题库模板"""
+    template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'muban_zh.xlsx')
+    if not os.path.exists(template_path):
+        return jsonify({'error': '模板文件 muban_zh.xlsx 不存在'}), 500
+    return send_file(
+        template_path,
+        as_attachment=True,
+        download_name='muban_zh.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
+
 # Question Type Management Routes
 @bp.route('/api/question-types', methods=['GET'])
+@login_required
 def get_question_types():
-    """Get all question types ordered by id"""
-    types = QuestionTypeModel.query.order_by(QuestionTypeModel.id).all()
+    """返回内置题型 + 当前用户自定义题型"""
+    user = get_current_user()
+    types = QuestionTypeModel.query.filter(
+        db.or_(
+            QuestionTypeModel.owner_id.is_(None),          # 内置
+            QuestionTypeModel.owner_id == user.id,         # 当前用户自定义
+        )
+    ).order_by(QuestionTypeModel.id).all()
     return jsonify([t.to_dict() for t in types])
 
 
 @bp.route('/api/question-types', methods=['POST'])
+@login_required
+@guest_readonly
 def create_question_type():
-    """Create a custom question type"""
+    """新增自定义题型（归属当前用户）"""
+    user = get_current_user()
     data = request.json
     name = (data.get('name') or '').strip()
     label = (data.get('label') or '').strip()
@@ -1171,14 +1362,23 @@ def create_question_type():
     if not label:
         label = name
 
-    if QuestionTypeModel.query.filter_by(name=name).first():
-        return jsonify({'error': f'Question type "{name}" already exists'}), 400
+    # 检查内置类型 + 当前用户已有类型是否重名
+    conflict = QuestionTypeModel.query.filter(
+        QuestionTypeModel.name == name,
+        db.or_(
+            QuestionTypeModel.owner_id.is_(None),
+            QuestionTypeModel.owner_id == user.id,
+        )
+    ).first()
+    if conflict:
+        return jsonify({'error': f'题型 "{name}" 已存在'}), 400
 
     qt = QuestionTypeModel(
         name=name,
         label=label,
         has_options=has_options,
         is_builtin=False,
+        owner_id=user.id,
         created_at=datetime.now(),
     )
     db.session.add(qt)
@@ -1187,18 +1387,31 @@ def create_question_type():
 
 
 @bp.route('/api/question-types/<int:type_id>', methods=['PUT'])
+@login_required
+@guest_readonly
 def update_question_type(type_id):
-    """Update a question type"""
+    """修改题型（只能修改自己的自定义题型）"""
+    user = get_current_user()
     qt = db.session.get(QuestionTypeModel, type_id)
     if not qt:
         return jsonify({'error': 'Question type not found'}), 404
+    if qt.is_builtin:
+        return jsonify({'error': '内置题型不可修改'}), 400
+    if qt.owner_id != user.id and user.role != 'admin':
+        return jsonify({'error': '无权修改他人题型'}), 403
 
     data = request.json
     new_name = (data.get('name') or '').strip()
     if new_name and new_name != qt.name:
-        existing = QuestionTypeModel.query.filter_by(name=new_name).first()
-        if existing:
-            return jsonify({'error': f'Question type "{new_name}" already exists'}), 400
+        conflict = QuestionTypeModel.query.filter(
+            QuestionTypeModel.name == new_name,
+            db.or_(
+                QuestionTypeModel.owner_id.is_(None),
+                QuestionTypeModel.owner_id == user.id,
+            )
+        ).first()
+        if conflict:
+            return jsonify({'error': f'题型 "{new_name}" 已存在'}), 400
         qt.name = new_name
     if 'label' in data:
         qt.label = (data['label'] or '').strip() or qt.label
@@ -1210,17 +1423,21 @@ def update_question_type(type_id):
 
 
 @bp.route('/api/question-types/<int:type_id>', methods=['DELETE'])
+@login_required
+@guest_readonly
 def delete_question_type(type_id):
-    """Delete a question type (only custom types with no references)"""
+    """删除题型（只能删除自己的自定义题型）"""
+    user = get_current_user()
     qt = db.session.get(QuestionTypeModel, type_id)
     if not qt:
         return jsonify({'error': 'Question type not found'}), 404
-
     if qt.is_builtin:
         return jsonify({'error': 'Cannot delete built-in question type'}), 400
+    if qt.owner_id != user.id and user.role != 'admin':
+        return jsonify({'error': '无权删除他人题型'}), 403
 
-    # Check if any questions reference this type
-    ref_count = QuestionModel.query.filter_by(question_type=qt.name).count()
+    # 只检查当前用户题目引用此题型
+    ref_count = QuestionModel.query.filter_by(question_type=qt.name, owner_id=user.id).count()
     if ref_count > 0:
         return jsonify({'error': f'Cannot delete: {ref_count} questions use this type'}), 400
 
@@ -1231,11 +1448,16 @@ def delete_question_type(type_id):
 
 # Question Replacement Routes
 @bp.route('/api/exams/<exam_id>/replace_question', methods=['POST'])
+@login_required
+@guest_readonly
 def replace_question_in_exam(exam_id):
     """Replace a question in an exam with another question of the same type"""
+    user = get_current_user()
     exam = db.session.get(ExamModel, exam_id)
     if not exam:
         return jsonify({'error': 'Exam not found'}), 404
+    if not _can_write_exam(exam, user):
+        return jsonify({'error': '无权编辑他人试卷'}), 403
 
     data = request.json
     old_question_id = data.get('old_question_id')
@@ -1283,11 +1505,16 @@ def replace_question_in_exam(exam_id):
 
 # Final Exam Confirmation Routes
 @bp.route('/api/exams/<exam_id>/confirm', methods=['POST'])
+@login_required
+@guest_readonly
 def confirm_exam(exam_id):
     """Confirm the exam and mark all questions as permanently used"""
+    user = get_current_user()
     exam = db.session.get(ExamModel, exam_id)
     if not exam:
         return jsonify({'error': 'Exam not found'}), 404
+    if not _can_write_exam(exam, user):
+        return jsonify({'error': '无权操作他人试卷'}), 403
 
     now = datetime.now()
     for q in exam.get_ordered_questions():
@@ -1303,11 +1530,16 @@ def confirm_exam(exam_id):
 
 
 @bp.route('/api/exams/<exam_id>/revert_confirmation', methods=['POST'])
+@login_required
+@guest_readonly
 def revert_exam_confirmation(exam_id):
     """Revert exam confirmation and mark questions as unused"""
+    user = get_current_user()
     exam = db.session.get(ExamModel, exam_id)
     if not exam:
         return jsonify({'error': 'Exam not found'}), 404
+    if not _can_write_exam(exam, user):
+        return jsonify({'error': '无权操作他人试卷'}), 403
 
     for q in exam.get_ordered_questions():
         q.is_used = False
@@ -1323,6 +1555,8 @@ def revert_exam_confirmation(exam_id):
 
 # Usage Management Routes
 @bp.route('/api/questions/batch-release', methods=['POST'])
+@login_required
+@guest_readonly
 def batch_release_questions():
     """Release (mark as unused) multiple questions at once"""
     data = request.json

@@ -78,12 +78,15 @@ def _migrate_db():
         ('questions', 'interview_set',  'BOOLEAN DEFAULT 0'),
         ('questions', 'interview_used', 'BOOLEAN DEFAULT 0'),
         # 多用户隔离字段
-        ('questions', 'owner_id',       'INTEGER'),
-        ('questions', 'visibility',     "VARCHAR(16) DEFAULT 'private'"),
-        ('questions', 'team_id',        'INTEGER'),
-        ('exams',     'owner_id',       'INTEGER'),
-        ('exams',     'visibility',     "VARCHAR(16) DEFAULT 'private'"),
-        ('exams',     'team_id',        'INTEGER'),
+        ('questions',      'owner_id',   'INTEGER'),
+        ('questions',      'visibility', "VARCHAR(16) DEFAULT 'private'"),
+        ('questions',      'team_id',    'INTEGER'),
+        ('exams',          'owner_id',   'INTEGER'),
+        ('exams',          'visibility', "VARCHAR(16) DEFAULT 'private'"),
+        ('exams',          'team_id',    'INTEGER'),
+        ('interview_pools',    'owner_id', 'INTEGER'),
+        ('interview_sessions', 'owner_id', 'INTEGER'),
+        ('question_types',     'owner_id', 'INTEGER'),
     ]
     new_tables = [
         """CREATE TABLE IF NOT EXISTS interview_pools (
@@ -128,6 +131,11 @@ def _migrate_db():
             used_at DATETIME,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )""",
+        """CREATE TABLE IF NOT EXISTS demo_kp_hidden (
+            user_id INTEGER NOT NULL,
+            kp_id   INTEGER NOT NULL,
+            PRIMARY KEY (user_id, kp_id)
+        )""",
     ]
     with db.engine.connect() as conn:
         for table, col, col_def in new_cols:
@@ -145,16 +153,17 @@ def _migrate_db():
 
 
 def _seed_question_types():
-    if QuestionTypeModel.query.count() == 0:
+    # 只在内置题型（owner_id IS NULL + is_builtin）缺失时补充
+    if QuestionTypeModel.query.filter_by(is_builtin=True, owner_id=None).count() == 0:
         now = datetime.now()
         builtins = [
-            QuestionTypeModel(name='单选',          label='单选题',     has_options=True,  is_builtin=True, created_at=now),
-            QuestionTypeModel(name='多选',          label='多选题',     has_options=True,  is_builtin=True, created_at=now),
-            QuestionTypeModel(name='是非',          label='是非题',     has_options=True,  is_builtin=True, created_at=now),
-            QuestionTypeModel(name='简答',          label='简答题',     has_options=False, is_builtin=True, created_at=now),
-            QuestionTypeModel(name='简答>计算',     label='计算题',     has_options=False, is_builtin=True, created_at=now),
-            QuestionTypeModel(name='简答>论述',     label='论述题',     has_options=False, is_builtin=True, created_at=now),
-            QuestionTypeModel(name='简答>材料分析', label='材料分析题', has_options=False, is_builtin=True, created_at=now),
+            QuestionTypeModel(name='单选',          label='单选题',     has_options=True,  is_builtin=True, owner_id=None, created_at=now),
+            QuestionTypeModel(name='多选',          label='多选题',     has_options=True,  is_builtin=True, owner_id=None, created_at=now),
+            QuestionTypeModel(name='是非',          label='是非题',     has_options=True,  is_builtin=True, owner_id=None, created_at=now),
+            QuestionTypeModel(name='简答',          label='简答题',     has_options=False, is_builtin=True, owner_id=None, created_at=now),
+            QuestionTypeModel(name='简答>计算',     label='计算题',     has_options=False, is_builtin=True, owner_id=None, created_at=now),
+            QuestionTypeModel(name='简答>论述',     label='论述题',     has_options=False, is_builtin=True, owner_id=None, created_at=now),
+            QuestionTypeModel(name='简答>材料分析', label='材料分析题', has_options=False, is_builtin=True, owner_id=None, created_at=now),
         ]
         db.session.add_all(builtins)
         db.session.commit()
@@ -177,14 +186,12 @@ def _seed_system_users(app):
         )
         db.session.add(admin)
         db.session.flush()
-        with db.engine.connect() as conn:
-            conn.execute(text(
-                f"UPDATE questions SET owner_id={admin.id}, visibility='private' WHERE owner_id IS NULL"
-            ))
-            conn.execute(text(
-                f"UPDATE exams SET owner_id={admin.id}, visibility='private' WHERE owner_id IS NULL"
-            ))
-            conn.commit()
+        db.session.execute(text(
+            f"UPDATE questions SET owner_id={admin.id}, visibility='private' WHERE owner_id IS NULL"
+        ))
+        db.session.execute(text(
+            f"UPDATE exams SET owner_id={admin.id}, visibility='private' WHERE owner_id IS NULL"
+        ))
         db.session.commit()
         app.logger.info('[init] admin 账号已创建，请尽快修改默认密码 (ADMIN_PASSWORD 环境变量)')
 

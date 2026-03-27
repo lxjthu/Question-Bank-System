@@ -67,6 +67,22 @@ def guest_readonly(f):
     return decorated
 
 
+def ai_required(f):
+    """AI 功能限制：需要 vip 或 admin 角色。"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            return jsonify({'error': '请先登录'}), 401
+        user = User.query.get(session['user_id'])
+        if not user or user.role not in ('admin', 'vip'):
+            return jsonify({
+                'error': 'AI 功能需要邀请账号，请发邮件至 langxiaojuan@zuel.edu.cn 申请邀请码',
+                'code': 'AI_REQUIRED',
+            }), 403
+        return f(*args, **kwargs)
+    return decorated
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # 认证接口
 # ──────────────────────────────────────────────────────────────────────────────
@@ -111,13 +127,14 @@ def guest_login():
 
 @auth_bp.route('/api/auth/register', methods=['POST'])
 def register():
+    """注册账号。邀请码可选：有则注册为 vip（开通 AI），无则注册为普通 user。"""
     data = request.get_json() or {}
-    username = (data.get('username') or '').strip()
-    password = data.get('password') or ''
+    username    = (data.get('username') or '').strip()
+    password    = data.get('password') or ''
     invite_code = (data.get('invite_code') or '').strip()
 
-    if not username or not password or not invite_code:
-        return jsonify({'error': '用户名、密码、邀请码均不能为空'}), 400
+    if not username or not password:
+        return jsonify({'error': '用户名、密码不能为空'}), 400
     if len(username) < 2 or len(username) > 32:
         return jsonify({'error': '用户名长度需在 2~32 个字符'}), 400
     if len(password) < 6:
@@ -125,28 +142,62 @@ def register():
     if User.query.filter_by(username=username).first():
         return jsonify({'error': '用户名已被占用'}), 409
 
-    code_obj = InviteCode.query.filter_by(code=invite_code).first()
-    if not code_obj or not code_obj.is_valid():
-        return jsonify({'error': '邀请码无效或已过期'}), 400
+    role = 'user'
+    invited_by = None
+    code_obj = None
+
+    if invite_code:
+        code_obj = InviteCode.query.filter_by(code=invite_code).first()
+        if not code_obj or not code_obj.is_valid():
+            return jsonify({'error': '邀请码无效或已过期'}), 400
+        role = 'vip'
+        invited_by = code_obj.created_by
 
     user = User(
         username=username,
         password_hash=generate_password_hash(password),
-        role='user',
-        invited_by=code_obj.created_by,
+        role=role,
+        invited_by=invited_by,
     )
     db.session.add(user)
-    db.session.flush()  # 获取 user.id
+    db.session.flush()
 
-    code_obj.use_count += 1
-    if code_obj.use_count >= code_obj.max_uses:
-        code_obj.used_by = user.id
-        code_obj.used_at = datetime.now()
+    if code_obj:
+        code_obj.use_count += 1
+        if code_obj.use_count >= code_obj.max_uses:
+            code_obj.used_by = user.id
+            code_obj.used_at = datetime.now()
 
     db.session.commit()
     session['user_id'] = user.id
     session.permanent = True
     return jsonify({'ok': True, 'user': user.to_dict()}), 201
+
+
+@auth_bp.route('/api/auth/upgrade', methods=['POST'])
+@login_required
+def upgrade_with_invite():
+    """普通用户使用邀请码升级为 vip，开通 AI 功能。"""
+    data = request.get_json() or {}
+    invite_code = (data.get('invite_code') or '').strip()
+    if not invite_code:
+        return jsonify({'error': '请输入邀请码'}), 400
+
+    user = get_current_user()
+    if user.role in ('admin', 'vip'):
+        return jsonify({'error': 'AI 功能已开通，无需重复激活'}), 400
+
+    code_obj = InviteCode.query.filter_by(code=invite_code).first()
+    if not code_obj or not code_obj.is_valid():
+        return jsonify({'error': '邀请码无效或已过期'}), 400
+
+    user.role = 'vip'
+    code_obj.use_count += 1
+    if code_obj.use_count >= code_obj.max_uses:
+        code_obj.used_by = user.id
+        code_obj.used_at = datetime.now()
+    db.session.commit()
+    return jsonify({'ok': True, 'user': user.to_dict()})
 
 
 @auth_bp.route('/api/auth/me', methods=['GET'])
@@ -175,6 +226,7 @@ def get_apikey_status():
 @auth_bp.route('/api/auth/apikey', methods=['POST'])
 @login_required
 @guest_readonly
+@ai_required
 def set_apikey():
     data = request.get_json() or {}
     key = (data.get('key') or '').strip()
@@ -248,3 +300,21 @@ def toggle_user(user_id):
     user.is_active = not user.is_active
     db.session.commit()
     return jsonify({'ok': True, 'is_active': user.is_active})
+
+
+@auth_bp.route('/api/auth/change-password', methods=['POST'])
+@login_required
+def change_password():
+    data = request.get_json() or {}
+    old_password = data.get('old_password') or ''
+    new_password = data.get('new_password') or ''
+    if not old_password or not new_password:
+        return jsonify({'error': '请提供当前密码和新密码'}), 400
+    if len(new_password) < 6:
+        return jsonify({'error': '新密码至少 6 位'}), 400
+    user = get_current_user()
+    if not check_password_hash(user.password_hash, old_password):
+        return jsonify({'error': '当前密码错误'}), 400
+    user.password_hash = generate_password_hash(new_password)
+    db.session.commit()
+    return jsonify({'ok': True})
