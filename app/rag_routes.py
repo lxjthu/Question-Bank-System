@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from flask import Blueprint, request, jsonify
-from app.auth_routes import login_required, guest_readonly, get_current_user, ai_required
+from app.auth_routes import login_required, admin_required, guest_readonly, get_current_user, ai_required
 
 rag_bp = Blueprint('rag', __name__)
 
@@ -428,28 +428,53 @@ def _clean_headings_with_ai(headings: list, subject: str, ds_client) -> dict:
         )
     else:
         prompt = (
-            '你是教材文档结构分析专家。以下是一份教材的所有 Markdown 标题（含层级）：\n\n'
+            '你是教材文档结构分析专家。以下是一份教材的全部 Markdown 标题（含H级别）：\n\n'
             f'【学科/科目】：{subject or "（未指定）"}\n\n'
+            '【重要背景】：本文档可能由 OCR 扫描生成，标题层级可能已扁平化——'
+            '即"编/章/节/大目/小目"等多个语义层级都被标成了同一个H级别（通常是H2）。'
+            '请不要依赖H级别数字，而要根据标题文字内容判断其真实语义层级。\n\n'
+            '【中文教材标题规律】：\n'
+            '- 编级：第X编（最高层，全书分部）\n'
+            '- 章级：第X章、导论、绪论、引论、序论（主要内容单元）\n'
+            '- 节级：第X节（章内分节）\n'
+            '- 大目：一、二、三...（汉字数字+顿号，节内分目）\n'
+            '- 小目：（一）（二）（三）...（括号汉字数字）\n'
+            '- 细目：1. 2. 3.（阿拉伯数字+句点，最细粒度）\n\n'
             '【标题列表】：\n'
             f'{heading_list}\n\n'
-            '请完成以下分析，直接输出纯 JSON（不加代码块）：\n'
+            '请完成以下分析，直接输出纯 JSON（不加任何代码块标记或其他文字）：\n'
             '{\n'
-            '  "chapter_level": 章标题的H级别数字,\n'
-            '  "section_level": 节标题的H级别数字（若无节则与chapter_level相同）,\n'
-            '  "non_content_texts": ["不是章节内容的标题：页码/结构性标题/正文误标/正文句子等"],\n'
-            '  "extraction_nodes": ["适合提取知识点的标题文本，按文档顺序"]\n'
+            '  "flat_detected": true,\n'
+            '  "flat_level": 2,\n'
+            '  "semantic_map": {"编":1,"章":2,"节":3,"大目":4,"小目":5,"细目":6},\n'
+            '  "chapter_level": 2,\n'
+            '  "section_level": 3,\n'
+            '  "non_content_texts": ["前言","目录","（及其他结构性标题原文）"],\n'
+            '  "chapters": [\n'
+            '    {"name":"章标题原文","semantic_level":"章","sections":[\n'
+            '      {"name":"节标题原文","semantic_level":"节"}\n'
+            '    ]}\n'
+            '  ],\n'
+            '  "extraction_nodes": ["节标题原文（按文档顺序）"]\n'
             '}\n\n'
+            'flat_detected：若检测到标题层级扁平化则为 true，否则 false。\n'
+            'flat_level：被扁平化到的H级别数字（通常为2）。\n'
+            'semantic_map：各语义层级对应的目标H级别，根据文档实际结构填写。\n'
+            'chapter_level / section_level：章和节对应的目标H级别（即 semantic_map 中章/节的值）。\n\n'
+            'non_content_texts 包含（原样复制标题文字）：\n'
+            '- 前言、序、目录\n'
+            '- 目录区中重复出现的章节条目（目录段落内列出的章节名称，与正文重复）\n'
+            '- 结构性标题：学习目标/小结/关键词/复习思考题/参考文献/练习题 等（含OCR乱码变体如"口【学习目标】"）\n'
+            '- 误标为标题的正文句子（如"这一框架的内涵是："）\n'
+            '- 页码、图表编号等非章节标题\n\n'
+            'chapters：按章列出层级结构，每章包含其下节的列表，供用户在上传后确认。\n\n'
             'extraction_nodes 选取原则：\n'
-            '- 粒度目标：每个节点对应1-3个知识点的内容（通常100-500字）\n'
-            '- 若某节（H3）包含多个子节（H4），应以H4子节为节点，而非选整个H3节\n'
-            '- H5/H6 的细碎列表项（如"1. 完善土地流转..."）通常太细，不单独列为节点\n'
-            '- 若某节没有子节，该节标题本身就是节点\n'
+            '- 选节级别（第X节）的标题，每节对应3-8个知识点\n'
+            '- 不选章标题（内容通过节覆盖）\n'
+            '- 不选大目/小目/细目（粒度过细）\n'
+            '- 若某章没有节（如独立短章），以该章标题作为提取节点\n'
             '- non_content_texts 中的标题不放入 extraction_nodes\n'
-            '- 标题文本请原样复制，不要修改\n\n'
-            'non_content_texts 包含：\n'
-            '- 结构性标题：小结/关键词/复习思考题/参考文献/学习目标/章/编 等\n'
-            '- 误标的正文句子：明显是句子、定义引导语（如"这一框架的内涵是："）\n'
-            '- 页码、图表编号等非章节标题'
+            '- 标题文字原样复制，不要修改'
         )
 
     try:
@@ -459,7 +484,7 @@ def _clean_headings_with_ai(headings: list, subject: str, ds_client) -> dict:
                 {'role': 'system', 'content': '你是文档结构分析专家，善于识别章节层级与无效标题。'},
                 {'role': 'user', 'content': prompt},
             ],
-            max_tokens=4000,
+            max_tokens=8000,
             temperature=0,
         )
         raw = resp.choices[0].message.content.strip()
@@ -468,6 +493,22 @@ def _clean_headings_with_ai(headings: list, subject: str, ds_client) -> dict:
         if raw.endswith('```'):
             raw = '\n'.join(raw.split('\n')[:-1])
         parsed = _json.loads(raw.strip())
+
+        try:
+            with open('/tmp/rag_debug2.txt', 'w') as _d2:
+                _d2.write(f'raw_len={len(raw)}\n')
+                _d2.write(f'extraction_nodes_count={len(parsed.get("extraction_nodes", []))}\n')
+                _d2.write(f'chapters_count={len(parsed.get("chapters", []))}\n')
+                _d2.write(f'flat_detected={parsed.get("flat_detected")}\n')
+                _d2.write(f'raw_head={raw[:300]}\n---\n')
+                _d2.write(f'raw_tail={raw[-300:]}\n')
+        except Exception:
+            pass
+
+        flat_detected = bool(parsed.get('flat_detected', False))
+        flat_level = int(parsed.get('flat_level', 2))
+        semantic_map = parsed.get('semantic_map', {})
+        chapters_tree = parsed.get('chapters', [])
 
         chapter_level = int(parsed.get('chapter_level', 2))
         section_level_val = parsed.get('section_level')
@@ -562,8 +603,19 @@ def _clean_headings_with_ai(headings: list, subject: str, ds_client) -> dict:
             'section_level':     section_level,
             'non_content_texts': non_texts,
             'extraction_nodes':  extraction_nodes,  # 有序列表
+            'flat_detected':     flat_detected,
+            'flat_level':        flat_level,
+            'semantic_map':      semantic_map,
+            'chapters_tree':     chapters_tree,
         }
-    except Exception:
+    except Exception as _inner_e:
+        import traceback as _tb
+        try:
+            with open('/tmp/rag_debug.txt', 'w') as _dbg:
+                _dbg.write(f'_clean_headings_with_ai FAILED\nERROR: {_inner_e}\n\n')
+                _dbg.write(_tb.format_exc())
+        except Exception:
+            pass
         return None
 
 
@@ -718,6 +770,51 @@ def _parse_md_multilevel(text: str, hierarchy: dict) -> list:
                 _add_leaf(ch_num, ch_name, sec_name, leaf_name, leaf_body)
 
     return result
+
+
+def _apply_semantic_heading_remaps(text: str, hierarchy: dict) -> str:
+    """当AI检测到标题层级扁平化时，根据 chapters_tree 将标题重写为正确的H级别。
+
+    例：## 第一节农业的内涵 → ### 第一节农业的内涵
+        ## 第一章农业经营制度 → ## 第一章农业经营制度（不变，章保持H2）
+
+    仅处理与 flat_level 相同的标题行，其余行原样保留。
+    """
+    import re
+
+    if not hierarchy.get('flat_detected'):
+        return text
+
+    flat_level = hierarchy.get('flat_level', 2)
+    chapters_tree = hierarchy.get('chapters_tree', [])
+    semantic_map = hierarchy.get('semantic_map', {})
+
+    if not chapters_tree or not semantic_map:
+        return text
+
+    # 构建 标题文本 → 目标H级别 的映射
+    remap: dict = {}
+    chapter_target = int(semantic_map.get('章', 2))
+    section_target = int(semantic_map.get('节', 3))
+    for ch in chapters_tree:
+        remap[ch['name']] = chapter_target
+        for sec in ch.get('sections', []):
+            remap[sec['name']] = section_target
+
+    flat_prefix = '#' * flat_level
+
+    lines = text.split('\n')
+    result = []
+    for line in lines:
+        m = re.match(r'^(#{1,6})(?!#)\s+(.+)', line)
+        if m and m.group(1) == flat_prefix:
+            heading_text = m.group(2).strip()
+            target = remap.get(heading_text)
+            if target is not None and target != flat_level:
+                result.append('#' * target + ' ' + heading_text)
+                continue
+        result.append(line)
+    return '\n'.join(result)
 
 
 def _parse_md_by_nodes(text: str, hierarchy: dict) -> list:
@@ -1193,6 +1290,8 @@ def _get_chapter_themes(architecture: dict, chapter_num: int) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @rag_bp.route('/api/rag/config', methods=['GET'])
+@login_required
+@admin_required
 def rag_get_config():
     """读取 .env 中的 DeepSeek API 配置。"""
     vals = _read_env_vars('DEEPSEEK_API_KEY', 'DEEPSEEK_TOKEN')
@@ -1202,6 +1301,8 @@ def rag_get_config():
 
 
 @rag_bp.route('/api/rag/config', methods=['PUT'])
+@login_required
+@admin_required
 def rag_set_config():
     """将前端提交的 DeepSeek API 配置写入 .env 文件。"""
     data = request.json or {}
@@ -1358,24 +1459,96 @@ def ds_upload():
 
         hierarchy = None
         api_key = _get_user_api_key()
+        try:
+            with open('/tmp/rag_debug.txt', 'w') as _dbg:
+                _dbg.write(f'api_key={repr(api_key[:8] + "..." if api_key else None)}\n')
+                _dbg.write(f'all_headings count={len(all_headings)}\n')
+                _dbg.write(f'user={get_current_user()}\n')
+        except Exception:
+            pass
         if api_key and all_headings:
             try:
                 from openai import OpenAI as _OAI
-                _ds_client = _OAI(api_key=api_key, base_url='https://api.deepseek.com', timeout=60)
+                _ds_client = _OAI(api_key=api_key, base_url='https://api.deepseek.com', timeout=180)
                 hierarchy = _clean_headings_with_ai(all_headings, subject, _ds_client)
             except Exception as _e:
-                import logging
+                import logging, traceback
                 logging.warning('Layer 0 heading clean failed, fallback to local: %s', _e)
+                try:
+                    with open('/tmp/rag_debug.txt', 'w') as _dbg:
+                        _dbg.write(f'ERROR: {_e}\n\n')
+                        _dbg.write(traceback.format_exc())
+                except Exception:
+                    pass
                 hierarchy = None
 
         if hierarchy is None:
             hierarchy = fallback_hierarchy
 
-        # ── 3. 按节点列表切分（有 extraction_nodes）或降级到多层级切分 ──────────
+        # ── 3. 扁平化修复 + 按节点列表切分（有 extraction_nodes）或降级到多层级切分 ──
+        if hierarchy.get('flat_detected') and hierarchy.get('chapters_tree'):
+            text_before = cleaned_text
+            cleaned_text = _apply_semantic_heading_remaps(cleaned_text, hierarchy)
+            # 更新层级，确保 _parse_md_by_nodes 上下文追踪正确
+            sm = hierarchy.get('semantic_map', {})
+            if '章' in sm:
+                hierarchy['chapter_level'] = int(sm['章'])
+            if '节' in sm:
+                hierarchy['section_level'] = int(sm['节'])
+            # 一致性校验：remap 后若 chapter_level 对应的标题消失，说明 AI 误判了 flat_detected
+            # （原始文本层级正确，章标题在 flat_level 之外的更高级别），回退到原始文本 + 本地层级
+            import re as _re_con
+            _cl = hierarchy.get('chapter_level', 2)
+            _has_cl = bool(_re_con.findall(r'^#{' + str(_cl) + r'}(?!#)\s+\S', cleaned_text, _re_con.MULTILINE))
+            if not _has_cl:
+                cleaned_text = text_before
+                hierarchy['chapter_level'] = chapter_level_local
+                hierarchy['section_level'] = section_level_local
+                hierarchy['flat_detected'] = False
+                hierarchy.pop('extraction_nodes', None)
+            # debug: 统计 remap 效果
+            try:
+                import re as _re
+                h2_before = len(_re.findall(r'^## ', text_before, _re.MULTILINE))
+                h2_after  = len(_re.findall(r'^## ', cleaned_text, _re.MULTILINE))
+                h3_after  = len(_re.findall(r'^### ', cleaned_text, _re.MULTILINE))
+                nodes_in_text = sum(
+                    1 for n in hierarchy.get('extraction_nodes', [])
+                    if ('## ' + n) in cleaned_text or ('### ' + n) in cleaned_text
+                )
+                with open('/tmp/rag_debug3.txt', 'w') as _d3:
+                    _d3.write(f'h2_before_remap={h2_before}\n')
+                    _d3.write(f'h2_after_remap={h2_after}\n')
+                    _d3.write(f'h3_after_remap={h3_after}\n')
+                    _d3.write(f'extraction_nodes_count={len(hierarchy.get("extraction_nodes",[]))}\n')
+                    _d3.write(f'nodes_found_in_text={nodes_in_text}\n')
+                    _d3.write(f'chapter_level={hierarchy.get("chapter_level")}\n')
+                    _d3.write(f'section_level={hierarchy.get("section_level")}\n')
+                    for i, n in enumerate(hierarchy.get('extraction_nodes', [])[:5]):
+                        h2hit = ('## ' + n) in cleaned_text
+                        h3hit = ('### ' + n) in cleaned_text
+                        _d3.write(f'  node[{i}] h2={h2hit} h3={h3hit} text={repr(n)}\n')
+            except Exception:
+                pass
+
         if hierarchy.get('extraction_nodes'):
             sections = _parse_md_by_nodes(cleaned_text, hierarchy)
         else:
             sections = _parse_md_multilevel(cleaned_text, hierarchy)
+
+        try:
+            seen_ch = {}
+            for sec in sections:
+                pn = sec['parent_chapter_num']
+                if pn not in seen_ch:
+                    seen_ch[pn] = sec['parent_chapter_name']
+            with open('/tmp/rag_debug3.txt', 'a') as _d3:
+                _d3.write(f'\nsections_count={len(sections)}\n')
+                _d3.write(f'parent_chapters_count={len(seen_ch)}\n')
+                for n, nm in sorted(seen_ch.items())[:20]:
+                    _d3.write(f'  ch{n}: {nm}\n')
+        except Exception:
+            pass
 
         if not sections:
             return jsonify({'error': '未能从文件中解析出章节内容，请确认文件含有标题结构（如 # 第一章）'}), 400
@@ -1418,6 +1591,9 @@ def ds_upload():
             'chapter_count': len(parent_chapters),
             'section_count': len(sections),
             'chapters': parent_chapters,
+            'chapters_tree': hierarchy.get('chapters_tree', []),
+            'non_content_filtered': sorted(hierarchy.get('non_content_texts', set())),
+            'flat_detected': hierarchy.get('flat_detected', False),
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -3105,6 +3281,7 @@ def ds_generate():
 
     # ── 从 DS 数据库读取相关知识点（快速，在请求上下文内完成）────────────────
     kps_data = []
+    _kp_fetch_error = None
     try:
         with _ds_db_conn() as conn:
             for doc_id in doc_ids:
@@ -3152,10 +3329,31 @@ def ds_generate():
                 query += " ORDER BY chapter_num, id"
                 rows = conn.execute(query, params).fetchall()
                 kps_data.extend(rows)
-    except Exception:
+    except Exception as _e:
+        import traceback as _tb
+        _kp_fetch_error = str(_e)
+        _tb.print_exc()
         kps_data = []
 
+    if _kp_fetch_error:
+        return jsonify({'error': f'读取知识点数据时出错：{_kp_fetch_error}'}), 500
+
     if not kps_data:
+        # 诊断：检查是否真的没有KP，还是筛选条件过严
+        _has_any_kp = False
+        try:
+            with _ds_db_conn() as _conn:
+                for _did in doc_ids:
+                    _cnt = _conn.execute(
+                        "SELECT COUNT(*) FROM ds_kps WHERE doc_id=?", (_did,)
+                    ).fetchone()[0]
+                    if _cnt > 0:
+                        _has_any_kp = True
+                        break
+        except Exception:
+            pass
+        if _has_any_kp:
+            return jsonify({'error': '当前筛选条件下未找到知识点，请调整章节/知识点/属性筛选范围'}), 400
         return jsonify({'error': '未找到知识点数据，请先完成知识点提取'}), 400
 
     # ── 在请求上下文内解析参数和 API Key ────────────────────────────────────
@@ -3218,7 +3416,7 @@ def ds_generate():
 
     def _call_deepseek(context_str, ql_str):
         from openai import OpenAI
-        oa_client = OpenAI(api_key=api_key, base_url='https://api.deepseek.com')
+        oa_client = OpenAI(api_key=api_key, base_url='https://api.deepseek.com', timeout=300.0)
         final_prompt = (
             prompt_template
             .replace('{context}', context_str)
@@ -3238,15 +3436,24 @@ def ds_generate():
     def _split_question_list(batch_idx, total_batches):
         if not ql_counts:
             return question_list
-        result_parts = []
+        items = []
         for i, part in enumerate(ql_parts[:-1]):
             total = int(ql_counts[i])
-            per_batch = max(1, round(total / total_batches))
-            if batch_idx == total_batches - 1:
-                count = max(1, total - per_batch * (total_batches - 1))
+            per = total // total_batches
+            rem = total % total_batches
+            count = per + (1 if batch_idx < rem else 0)
+            if count > 0:
+                items.append((part, count))
+        if not items:
+            return ''
+        result_parts = []
+        for j, (part, count) in enumerate(items):
+            if j == 0:
+                # 首项可能携带前置分隔符（当第0种题型本批数量为0时）
+                clean = _re.sub(r'^[\s，,、；;]+', '', part)
+                result_parts.append(f'{clean}{count}道')
             else:
-                count = per_batch
-            result_parts.append(f'{part}{count}道')
+                result_parts.append(f'{part}{count}道')
         return ''.join(result_parts) + ql_parts[-1]
 
     def _call_one_batch(batch_kps, batch_ql, batch_idx):
@@ -3331,7 +3538,7 @@ def ds_generate():
                             if idx < batch_count - 1
                             else max(1, int(ql_counts[i]) - max(1, round(int(ql_counts[i]) / batch_count)) * (batch_count - 1))
                             for i in range(len(ql_counts))
-                        ) if ql_counts else _batch_size
+                        ) if ql_counts else max(1, len(kps_data) // batch_count)
                     )
                     for idx in range(batch_count)
                 ]
@@ -3391,11 +3598,13 @@ def ds_generate():
             def _batch_q_count(batch_idx):
                 if not ql_counts:
                     return 0
-                total = sum(int(c) for c in ql_counts)
-                per_batch = max(1, round(total / batch_count))
-                if batch_idx == batch_count - 1:
-                    return max(1, total - per_batch * (batch_count - 1))
-                return per_batch
+                count = 0
+                for ct in ql_counts:
+                    t = int(ct)
+                    per = t // batch_count
+                    rem = t % batch_count
+                    count += per + (1 if batch_idx < rem else 0)
+                return count
 
             # 每批知识点按该批题目数随机采样（与非分批模式逻辑一致）
             batch_kps_list = []
@@ -3409,15 +3618,13 @@ def ds_generate():
 
             results = {}
             with ThreadPoolExecutor(max_workers=min(batch_count, 5)) as executor:
-                futures = {
-                    executor.submit(
-                        _call_one_batch,
-                        batch_kps_list[idx],
-                        _split_question_list(idx, batch_count),
-                        idx,
-                    ): idx
-                    for idx in range(batch_count)
-                }
+                futures = {}
+                for idx in range(batch_count):
+                    ql = _split_question_list(idx, batch_count)
+                    if not ql.strip():
+                        results[idx] = ('', 0, True, None)  # 空批次直接跳过
+                        continue
+                    futures[executor.submit(_call_one_batch, batch_kps_list[idx], ql, idx)] = idx
                 for f in _as_completed(futures):
                     try:
                         idx, content, chars, ok, err = f.result()

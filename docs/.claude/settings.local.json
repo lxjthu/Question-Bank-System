@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/langx/.claude/skills/xlsx/**)",
+      "Bash(python3:*)"
+    ]
+  }
+}

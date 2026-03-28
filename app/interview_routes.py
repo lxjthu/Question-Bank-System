@@ -1693,6 +1693,7 @@ def import_pool_xlsx(pool_id):
     从 Excel 导入题目到面试题库池。
     支持跨机器迁移：若 question_id 在本地不存在，自动从 Excel 行数据中新建题目。
     """
+    from sqlalchemy import text
     user = get_current_user()
     pool, perr = _check_pool_access(pool_id, user)
     if perr:
@@ -1772,11 +1773,11 @@ def import_pool_xlsx(pool_id):
                 db.session.rollback()
                 continue
 
-        # 加入面试池
+        # 加入面试池（用 db.session 避免与 ORM 写锁冲突）
         try:
-            _run(
-                "INSERT OR IGNORE INTO interview_pool_questions (pool_id, question_id, added_at) VALUES (:pid, :qid, :t)",
-                pid=pool_id, qid=qid, t=now
+            db.session.execute(
+                text("INSERT OR IGNORE INTO interview_pool_questions (pool_id, question_id, added_at) VALUES (:pid, :qid, :t)"),
+                dict(pid=pool_id, qid=qid, t=now)
             )
             added += 1
         except Exception:
@@ -1865,16 +1866,13 @@ def import_sets_xlsx():
         pool_name = pool_row['pool_name']
     else:
         # 新建题库池
+        from sqlalchemy import text
         new_pool_name = f'{session_name}-题库池'
-        _run(
-            "INSERT INTO interview_pools (pool_name, description, created_at, owner_id) VALUES (:n, :d, :t, :uid)",
-            n=new_pool_name, d='由套题导入自动创建', t=_now_str(), uid=user.id
+        r = db.session.execute(
+            text("INSERT INTO interview_pools (pool_name, description, created_at, owner_id) VALUES (:n, :d, :t, :uid)"),
+            dict(n=new_pool_name, d='由套题导入自动创建', t=_now_str(), uid=user.id)
         )
-        pool_row = _fetch_one(
-            "SELECT id FROM interview_pools WHERE pool_name=:n ORDER BY id DESC LIMIT 1",
-            n=new_pool_name
-        )
-        pool_id = pool_row['id']
+        pool_id = r.lastrowid
         pool_name = new_pool_name
 
     try:
@@ -1952,9 +1950,9 @@ def import_sets_xlsx():
         if existing:
             questions_skipped += 1
         else:
-            _run(
-                "INSERT OR IGNORE INTO interview_pool_questions (pool_id, question_id, drawn, added_at) VALUES (:p, :q, 0, :t)",
-                p=pool_id, q=qid, t=now
+            db.session.execute(
+                text("INSERT OR IGNORE INTO interview_pool_questions (pool_id, question_id, drawn, added_at) VALUES (:p, :q, 0, :t)"),
+                dict(p=pool_id, q=qid, t=now)
             )
             questions_added += 1
 
@@ -1982,13 +1980,12 @@ def import_sets_xlsx():
 
     # 创建导入场次（使用用户自定义场次名）
     from sqlalchemy import text
-    with db.engine.begin() as conn:
-        result = conn.execute(text("""
-            INSERT INTO interview_sessions
-              (pool_id, config_id, session_name, interview_count, sets_multiplier, score_per_slot_json, created_at, owner_id)
-            VALUES (:pid, NULL, :sn, 0, 1, '{}', :t, :uid)
-        """), {'pid': pool_id, 'sn': session_name, 't': now, 'uid': user.id})
-        session_id = result.lastrowid
+    r2 = db.session.execute(text("""
+        INSERT INTO interview_sessions
+          (pool_id, config_id, session_name, interview_count, sets_multiplier, score_per_slot_json, created_at, owner_id)
+        VALUES (:pid, NULL, :sn, 0, 1, '{}', :t, :uid)
+    """), {'pid': pool_id, 'sn': session_name, 't': now, 'uid': user.id})
+    session_id = r2.lastrowid
 
     sets_imported = 0
     for row in rows1[1:]:
@@ -2004,14 +2001,15 @@ def import_sets_xlsx():
         is_used = 1 if is_used_str in ('已使用', '1', 'True', 'true') else 0
         used_at = used_at_str if (is_used and used_at_str) else None
 
-        _run("""
+        db.session.execute(text("""
             INSERT INTO interview_sets (session_id, set_code, question_ids_json, is_used, used_at, created_at)
             VALUES (:sid, :sc, :qj, :iu, :ua, :t)
-        """, sid=session_id, sc=set_code,
+        """), dict(sid=session_id, sc=set_code,
              qj=json.dumps(qids, ensure_ascii=False),
-             iu=is_used, ua=used_at, t=now)
+             iu=is_used, ua=used_at, t=now))
         sets_imported += 1
 
+    db.session.commit()
     return jsonify({
         'ok': True,
         'session_id': session_id,

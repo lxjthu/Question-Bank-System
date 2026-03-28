@@ -3,10 +3,20 @@ from app.routes import bp
 from app.db_models import db, QuestionTypeModel, User
 from config import config
 from datetime import datetime
-from sqlalchemy import text
+from sqlalchemy import text, event
+from sqlalchemy.engine import Engine
 from werkzeug.security import generate_password_hash
+import sqlite3
 import os
 import threading
+
+
+@event.listens_for(Engine, "connect")
+def _set_sqlite_wal(dbapi_conn, connection_record):
+    """SQLite 启用 WAL 模式 + 30s 超时，解决多 worker 并发写锁问题。"""
+    if isinstance(dbapi_conn, sqlite3.Connection):
+        dbapi_conn.execute("PRAGMA journal_mode=WAL")
+        dbapi_conn.execute("PRAGMA busy_timeout=30000")
 
 
 def create_app(config_name=None):

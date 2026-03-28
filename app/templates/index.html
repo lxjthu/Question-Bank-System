@@ -6616,8 +6616,22 @@ Now please start generating questions. Output question content directly without 
                         updateDsUploadStatus(statusEl, 'processing', 'OCR 处理中...');
                         pollDsUploadTask(data.task_id, statusEl);
                     } else {
-                        updateDsUploadStatus(statusEl, 'done',
-                            `已解析 ${data.chapter_count} 个章节，点击「提取」按钮提取知识点`);
+                        let msg = `已解析 ${data.chapter_count} 章 · ${data.section_count} 节`;
+                        if (data.flat_detected) msg += '（已修复扁平化层级）';
+                        if (data.chapters_tree && data.chapters_tree.length > 0) {
+                            let treeHtml = '<div style="margin-top:6px;font-size:0.78rem;color:#555;max-height:200px;overflow-y:auto;border:1px solid #eee;border-radius:4px;padding:6px;">';
+                            treeHtml += '<div style="color:#888;margin-bottom:4px;">章节结构预览：</div>';
+                            for (const ch of data.chapters_tree) {
+                                treeHtml += `<div style="font-weight:600;color:#2c3e50;">📖 ${escapeHtml(ch.name)}</div>`;
+                                for (const sec of (ch.sections || [])) {
+                                    treeHtml += `<div style="padding-left:12px;color:#555;">• ${escapeHtml(sec.name)}</div>`;
+                                }
+                            }
+                            treeHtml += '</div>';
+                            updateDsUploadStatus(statusEl, 'done', msg, treeHtml);
+                        } else {
+                            updateDsUploadStatus(statusEl, 'done', msg);
+                        }
                         await loadDsDocs();
                     }
                 } catch (e) {
@@ -6640,7 +6654,7 @@ Now please start generating questions. Output question content directly without 
             return div;
         }
 
-        function updateDsUploadStatus(el, status, msg) {
+        function updateDsUploadStatus(el, status, msg, extraHtml) {
             const icons  = {
                 done: 'fa-check-circle',
                 error: 'fa-times-circle',
@@ -6659,7 +6673,14 @@ Now please start generating questions. Output question content directly without 
                 icon.className = `fas ${icons[status] || 'fa-spinner fa-spin'} `;
                 icon.style.color = colors[status] || '#3498db';
             }
-            if (msgEl) msgEl.textContent = msg;
+            if (msgEl) {
+                msgEl.textContent = msg;
+                if (extraHtml) {
+                    const extra = document.createElement('div');
+                    extra.innerHTML = extraHtml;
+                    msgEl.appendChild(extra);
+                }
+            }
         }
 
         async function pollDsUploadTask(taskId, statusEl) {
@@ -10481,6 +10502,11 @@ function ivLangLabel(l) {
                 <input id="reg-password" type="password" placeholder="请设置密码（至少6位）" autocomplete="new-password"
                     style="width:100%;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:0.95rem;box-sizing:border-box;">
             </div>
+            <div style="margin-bottom:16px;">
+                <label style="display:block;margin-bottom:6px;font-size:0.88rem;color:#555;">确认密码</label>
+                <input id="reg-password-confirm" type="password" placeholder="再次输入密码" autocomplete="new-password"
+                    style="width:100%;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:0.95rem;box-sizing:border-box;">
+            </div>
             <div style="margin-bottom:20px;">
                 <label style="display:block;margin-bottom:6px;font-size:0.88rem;color:#555;">
                     邀请码 <span style="color:#aaa;font-weight:400;">（可选，填写后开通 AI 功能）</span>
@@ -10536,6 +10562,8 @@ function ivLangLabel(l) {
                 <input id="pwd-old" type="password" placeholder="当前密码"
                     style="padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:0.9rem;">
                 <input id="pwd-new" type="password" placeholder="新密码"
+                    style="padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:0.9rem;">
+                <input id="pwd-new-confirm" type="password" placeholder="确认新密码"
                     style="padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:0.9rem;">
                 <button onclick="changePassword()"
                     style="padding:8px;background:#27ae60;color:#fff;border:none;border-radius:6px;cursor:pointer;">修改密码</button>
@@ -10682,12 +10710,16 @@ async function doGuestLogin() {
 async function doRegister() {
     const username    = document.getElementById('reg-username').value.trim();
     const password    = document.getElementById('reg-password').value;
+    const passwordConfirm = document.getElementById('reg-password-confirm').value;
     const invite_code = document.getElementById('reg-invite').value.trim();
     const errEl = document.getElementById('register-error');
     const okEl  = document.getElementById('register-success');
     errEl.style.display = 'none'; okEl.style.display = 'none';
     if (!username || !password) {
         errEl.textContent = '请填写用户名和密码'; errEl.style.display = 'block'; return;
+    }
+    if (password !== passwordConfirm) {
+        errEl.textContent = '两次输入的密码不一致'; errEl.style.display = 'block'; return;
     }
     try {
         const res  = await fetch('/api/auth/register', {
@@ -10696,6 +10728,8 @@ async function doRegister() {
         });
         const data = await res.json();
         if (!res.ok) { errEl.textContent = data.error || '注册失败'; errEl.style.display = 'block'; return; }
+        // 注册成功后清空前端用户状态，避免旧用户数据泄露
+        window._currentUser = null;
         okEl.textContent = '注册成功！请登录'; okEl.style.display = 'block';
         setTimeout(() => switchAuthTab('login'), 1500);
     } catch(e) {
@@ -10767,10 +10801,15 @@ async function saveApiKey() {
 async function changePassword() {
     const oldPwd = document.getElementById('pwd-old').value;
     const newPwd = document.getElementById('pwd-new').value;
+    const newPwdConfirm = document.getElementById('pwd-new-confirm').value;
     const msgEl  = document.getElementById('pwd-msg');
     msgEl.style.display = 'none';
     if (!oldPwd || !newPwd) {
         msgEl.textContent = '请填写当前密码和新密码';
+        msgEl.style.color = '#e74c3c'; msgEl.style.display = 'block'; return;
+    }
+    if (newPwd !== newPwdConfirm) {
+        msgEl.textContent = '两次输入的新密码不一致';
         msgEl.style.color = '#e74c3c'; msgEl.style.display = 'block'; return;
     }
     const res  = await fetch('/api/auth/change-password', {
