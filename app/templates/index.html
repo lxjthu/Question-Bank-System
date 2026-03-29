@@ -1255,14 +1255,49 @@
                 </div>
 
                 <div class="card">
-                    <h3><i class="fas fa-file-export"></i> 导出题库</h3>
-                    <div class="btn-group">
-                        <button id="export-json-btn" class="btn btn-outline">
-                            <i class="fas fa-file-code"></i> 导出为JSON
-                        </button>
-                        <button id="export-csv-btn" class="btn btn-outline">
-                            <i class="fas fa-file-csv"></i> 导出为CSV
-                        </button>
+                    <h3><i class="fas fa-database"></i> 数据库备份与迁移</h3>
+                    <p style="font-size:0.88rem;color:#666;margin-bottom:16px;">
+                        将本账号内所有题目、试卷、自定义题型一次性导出备份，或将备份文件导入到当前账号（完全复刻）。
+                    </p>
+
+                    <!-- 导出 -->
+                    <div style="margin-bottom:16px;">
+                        <div style="font-size:0.85rem;font-weight:600;color:#444;margin-bottom:8px;">
+                            <i class="fas fa-upload" style="transform:rotate(180deg);display:inline-block;"></i> 导出备份
+                        </div>
+                        <div class="btn-group" style="margin-bottom:6px;">
+                            <button id="export-full-xlsx-btn" class="btn btn-outline">
+                                <i class="fas fa-file-excel" style="color:#27ae60;"></i> 导出 Excel
+                            </button>
+                            <button id="export-full-json-btn" class="btn btn-outline">
+                                <i class="fas fa-file-code" style="color:#2980b9;"></i> 导出 JSON
+                            </button>
+                        </div>
+                        <div style="font-size:0.75rem;color:#aaa;">
+                            Excel：可在表格软件中查看 &nbsp;｜&nbsp; JSON：结构完整，支持导入到其他账号
+                        </div>
+                        <div id="export-full-msg" style="font-size:0.83rem;margin-top:6px;min-height:1em;"></div>
+                    </div>
+
+                    <!-- 分隔线 -->
+                    <hr style="border:none;border-top:1px solid #eee;margin:0 0 16px;">
+
+                    <!-- 导入 -->
+                    <div>
+                        <div style="font-size:0.85rem;font-weight:600;color:#444;margin-bottom:8px;">
+                            <i class="fas fa-download"></i> 导入备份（JSON 格式）
+                        </div>
+                        <p style="font-size:0.82rem;color:#888;margin:0 0 10px;">
+                            选择之前导出的 JSON 备份文件，系统将自动将其中的题目、试卷、自定义题型导入到本账号。题目 ID 冲突时自动重新生成，不覆盖已有数据。
+                        </p>
+                        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                            <input type="file" id="import-full-json-file" accept=".json"
+                                   style="font-size:0.83rem;flex:1;min-width:0;">
+                            <button id="import-full-json-btn" class="btn btn-primary" style="white-space:nowrap;">
+                                <i class="fas fa-file-import"></i> 开始导入
+                            </button>
+                        </div>
+                        <div id="import-full-msg" style="font-size:0.83rem;margin-top:8px;min-height:1em;"></div>
                     </div>
                 </div>
 
@@ -3369,49 +3404,62 @@
             }
         });
 
-        // Export functionality
-        document.getElementById('export-json-btn').addEventListener('click', async () => {
+        // 导出整个数据库
+        async function _downloadFullExport(url, defaultExt) {
+            const msg = document.getElementById('export-full-msg');
+            msg.style.color = '#888'; msg.textContent = '正在生成，请稍候…';
             try {
-                const response = await fetch('/api/questions/export?format=json');
+                const response = await fetch(url);
                 if (response.ok) {
                     const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
+                    const cd = response.headers.get('Content-Disposition') || '';
+                    const match = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';\n]+)/i);
+                    const filename = match ? decodeURIComponent(match[1]) : `数据库备份_${new Date().toISOString().slice(0,10)}.${defaultExt}`;
+                    const dlUrl = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `question_bank_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
+                    a.href = dlUrl; a.download = filename;
+                    document.body.appendChild(a); a.click();
+                    window.URL.revokeObjectURL(dlUrl);
                     document.body.removeChild(a);
+                    msg.style.color = '#27ae60'; msg.textContent = '导出成功！';
                 } else {
-                    alert('导出失败！');
+                    msg.style.color = '#e74c3c'; msg.textContent = '导出失败，请重试';
                 }
-            } catch (error) {
-                console.error('Error:', error);
-                alert('导出题库时发生错误！');
+            } catch(e) {
+                msg.style.color = '#e74c3c'; msg.textContent = '导出出错：' + e;
             }
+        }
+        document.getElementById('export-full-xlsx-btn').addEventListener('click', () => {
+            _downloadFullExport('/api/export/full-xlsx', 'xlsx');
+        });
+        document.getElementById('export-full-json-btn').addEventListener('click', () => {
+            _downloadFullExport('/api/export/full-json', 'json');
         });
 
-        document.getElementById('export-csv-btn').addEventListener('click', async () => {
+        // 导入 JSON 备份
+        document.getElementById('import-full-json-btn').addEventListener('click', async () => {
+            const file = document.getElementById('import-full-json-file').files[0];
+            const msg = document.getElementById('import-full-msg');
+            if (!file) { msg.style.color='#e74c3c'; msg.textContent='请先选择 JSON 备份文件'; return; }
+            msg.style.color='#888'; msg.textContent='导入中，请稍候…';
+            const fd = new FormData();
+            fd.append('file', file);
             try {
-                const response = await fetch('/api/questions/export?format=csv');
-                if (response.ok) {
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `question_bank_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    document.body.removeChild(a);
-                } else {
-                    alert('导出失败！');
-                }
-            } catch (error) {
-                console.error('Error:', error);
-                alert('导出题库时发生错误！');
-            }
+                const res = await fetch('/api/import/full-json', {method:'POST', body:fd});
+                const data = await res.json();
+                if (!res.ok) { msg.style.color='#e74c3c'; msg.textContent=data.error||'导入失败'; return; }
+                msg.style.color='#27ae60';
+                const parts = [
+                    `题目：导入 ${data.questions_imported} 道`,
+                    data.questions_skipped > 0 ? `跳过 ${data.questions_skipped} 道（内容为空）` : null,
+                    `试卷：导入 ${data.exams_imported} 份`,
+                    data.types_created > 0 ? `新建题型 ${data.types_created} 个` : null,
+                ].filter(Boolean);
+                msg.textContent = '导入成功！' + parts.join('，');
+                // 刷新题库和试卷列表
+                if (typeof loadQuestions === 'function') loadQuestions();
+                if (typeof loadExams === 'function') loadExams();
+            } catch(e) { msg.style.color='#e74c3c'; msg.textContent='导入出错：'+e; }
         });
 
         // ========== Dynamic exam type config ==========

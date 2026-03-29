@@ -1307,6 +1307,296 @@ def export_questions():
         return jsonify({'error': 'Invalid export format. Use json or csv.'}), 400
 
 
+@bp.route('/api/export/full-xlsx', methods=['GET'])
+@login_required
+def export_full_xlsx():
+    """将当前用户的全部题目、试卷、自定义题型导出为多 Sheet Excel"""
+    try:
+        import openpyxl
+        from io import BytesIO
+    except ImportError:
+        return jsonify({'error': '缺少 openpyxl 依赖'}), 500
+
+    user = get_current_user()
+    wb = openpyxl.Workbook()
+
+    # ── Sheet1：题目 ──────────────────────────────────────────────────────────
+    ws_q = wb.active
+    ws_q.title = '题目'
+    q_headers = ['question_id', '题型', '科目', '难度', '语言', '题干', '选项(JSON)',
+                 '答案', '参考答案', '解析', '英文题干', '英文选项(JSON)',
+                 '知识点', '标签', '是否已用', '创建时间']
+    ws_q.append(q_headers)
+    questions = QuestionModel.query.filter_by(owner_id=user.id).order_by(QuestionModel.created_at).all()
+    for q in questions:
+        ws_q.append([
+            q.question_id, q.question_type, q.subject or '', q.difficulty or '',
+            q.language or 'zh', q.content or '',
+            q.options or '[]',
+            q.answer or '', q.reference_answer or '', q.explanation or '',
+            q.content_en or '', q.options_en or '[]',
+            q.knowledge_point or '', q.tags or '',
+            '是' if q.is_used else '否',
+            q.created_at.strftime('%Y-%m-%d %H:%M') if q.created_at else '',
+        ])
+    # 列宽
+    for col, width in zip(['A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P'],
+                          [20, 10, 12, 8, 6, 60, 20, 30, 40, 40, 60, 20, 20, 15, 6, 16]):
+        ws_q.column_dimensions[col].width = width
+
+    # ── Sheet2：试卷 ──────────────────────────────────────────────────────────
+    ws_e = wb.create_sheet('试卷')
+    e_headers = ['exam_id', '试卷名称', '科目', '是否已确认', '创建时间', '题目ID列表(逗号分隔)']
+    ws_e.append(e_headers)
+    exams = ExamModel.query.filter_by(owner_id=user.id).order_by(ExamModel.created_at).all()
+    for e in exams:
+        ordered_qs = e.get_ordered_questions()
+        qids = ','.join(q.question_id for q in ordered_qs)
+        ws_e.append([
+            e.exam_id, e.name, e.subject or '',
+            '是' if e.is_confirmed else '否',
+            e.created_at.strftime('%Y-%m-%d %H:%M') if e.created_at else '',
+            qids,
+        ])
+    for col, width in zip(['A','B','C','D','E','F'], [24, 40, 14, 8, 16, 80]):
+        ws_e.column_dimensions[col].width = width
+
+    # ── Sheet3：自定义题型 ────────────────────────────────────────────────────
+    ws_t = wb.create_sheet('自定义题型')
+    ws_t.append(['题型名称', '显示标签', '是否有选项', '创建时间'])
+    custom_types = QuestionTypeModel.query.filter_by(owner_id=user.id).order_by(QuestionTypeModel.created_at).all()
+    for t in custom_types:
+        ws_t.append([
+            t.name, t.label, '是' if t.has_options else '否',
+            t.created_at.strftime('%Y-%m-%d %H:%M') if t.created_at else '',
+        ])
+    for col, width in zip(['A','B','C','D'], [20, 20, 8, 16]):
+        ws_t.column_dimensions[col].width = width
+
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'数据库备份_{user.username}_{date_str}.xlsx',
+    )
+
+
+@bp.route('/api/export/full-json', methods=['GET'])
+@login_required
+def export_full_json():
+    """将当前用户的全部数据导出为 JSON 备份（可用于导入其他账号）"""
+    from io import BytesIO
+    user = get_current_user()
+
+    questions = QuestionModel.query.filter_by(owner_id=user.id).order_by(QuestionModel.created_at).all()
+    exams = ExamModel.query.filter_by(owner_id=user.id).order_by(ExamModel.created_at).all()
+    custom_types = QuestionTypeModel.query.filter_by(owner_id=user.id).order_by(QuestionTypeModel.created_at).all()
+
+    exam_list = []
+    for e in exams:
+        ordered_qs = e.get_ordered_questions()
+        exam_list.append({
+            'exam_id': e.exam_id,
+            'name': e.name,
+            'subject': e.subject or '',
+            'config': json.loads(e.config) if e.config else {},
+            'is_confirmed': bool(e.is_confirmed),
+            'confirmed_at': e.confirmed_at.isoformat() if e.confirmed_at else None,
+            'created_at': e.created_at.isoformat() if e.created_at else None,
+            'question_ids': [q.question_id for q in ordered_qs],
+        })
+
+    payload = {
+        'version': '1.0',
+        'exported_by': user.username,
+        'exported_at': datetime.now().isoformat(),
+        'question_count': len(questions),
+        'exam_count': len(exams),
+        'question_types': [
+            {'name': t.name, 'label': t.label, 'has_options': t.has_options}
+            for t in custom_types
+        ],
+        'questions': [q.to_dict() for q in questions],
+        'exams': exam_list,
+    }
+
+    buf = BytesIO(json.dumps(payload, ensure_ascii=False, indent=2).encode('utf-8'))
+    date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return send_file(
+        buf,
+        mimetype='application/json',
+        as_attachment=True,
+        download_name='数据库备份_{}_{}.json'.format(user.username, date_str),
+    )
+
+
+@bp.route('/api/import/full-json', methods=['POST'])
+@login_required
+@guest_readonly
+def import_full_json():
+    """
+    从 JSON 备份文件导入全部数据到当前账号。
+    - 自定义题型：按名称匹配，不存在则创建
+    - 题目：question_id 冲突时自动生成新 ID，建立旧→新映射
+    - 试卷：用映射更新题目列表，exam_id 冲突时自动生成新 ID
+    """
+    if 'file' not in request.files:
+        return jsonify({'error': '未上传文件'}), 400
+    f = request.files['file']
+    if not f.filename.endswith('.json'):
+        return jsonify({'error': '只支持 .json 格式'}), 400
+
+    try:
+        payload = json.loads(f.read().decode('utf-8'))
+    except Exception:
+        return jsonify({'error': '文件解析失败，请确认是有效的 JSON 备份'}), 400
+
+    if payload.get('version') != '1.0':
+        return jsonify({'error': '不支持的备份版本'}), 400
+
+    user = get_current_user()
+    now_dt = datetime.now()
+    stats = {'types_created': 0, 'questions_imported': 0, 'questions_skipped': 0,
+             'exams_imported': 0, 'exams_skipped': 0}
+
+    # ── 1. 导入自定义题型 ─────────────────────────────────────────────────────
+    existing_type_names = {
+        qt.name for qt in QuestionTypeModel.query.filter(
+            db.or_(QuestionTypeModel.owner_id.is_(None),
+                   QuestionTypeModel.owner_id == user.id)
+        ).all()
+    }
+    for t in payload.get('question_types', []):
+        name = (t.get('name') or '').strip()
+        if not name or name in existing_type_names:
+            continue
+        db.session.add(QuestionTypeModel(
+            name=name,
+            label=t.get('label') or name,
+            has_options=bool(t.get('has_options', False)),
+            is_builtin=False,
+            owner_id=user.id,
+            created_at=now_dt,
+        ))
+        existing_type_names.add(name)
+        stats['types_created'] += 1
+
+    try:
+        db.session.flush()
+    except Exception:
+        db.session.rollback()
+        return jsonify({'error': '题型导入失败'}), 500
+
+    # ── 2. 导入题目，建立旧ID→新ID映射 ───────────────────────────────────────
+    id_map = {}   # {old_question_id: new_question_id}
+    for idx, q_data in enumerate(payload.get('questions', [])):
+        old_id = (q_data.get('question_id') or '').strip()
+        content = (q_data.get('content') or '').strip()
+        if not content:
+            stats['questions_skipped'] += 1
+            continue
+
+        # 决定新 ID：原 ID 不冲突就沿用，否则生成新 ID
+        if old_id and not QuestionModel.query.filter_by(question_id=old_id).first():
+            new_id = old_id
+        else:
+            new_id = 'q_imp_{}_{}'.format(now_dt.strftime('%Y%m%d%H%M%S'), idx)
+
+        id_map[old_id] = new_id
+
+        options_raw = q_data.get('options', [])
+        options_str = json.dumps(options_raw if isinstance(options_raw, list) else [], ensure_ascii=False)
+        options_en_raw = q_data.get('options_en', [])
+        options_en_str = json.dumps(options_en_raw if isinstance(options_en_raw, list) else [], ensure_ascii=False)
+
+        db.session.add(QuestionModel(
+            question_id=new_id,
+            question_type=q_data.get('question_type') or '简答',
+            content=content,
+            options=options_str,
+            answer=q_data.get('answer') or '',
+            reference_answer=q_data.get('reference_answer') or '',
+            explanation=q_data.get('explanation') or '',
+            content_en=q_data.get('content_en') or None,
+            options_en=options_en_str if options_en_raw else None,
+            subject=q_data.get('subject') or None,
+            knowledge_point=q_data.get('knowledge_point') or None,
+            tags=q_data.get('tags') or None,
+            difficulty=q_data.get('difficulty') or None,
+            language=q_data.get('language') or 'zh',
+            metadata_json=json.dumps(q_data.get('metadata') or {}, ensure_ascii=False),
+            is_used=False,
+            owner_id=user.id,
+            visibility='private',
+            created_at=now_dt,
+            updated_at=now_dt,
+        ))
+        stats['questions_imported'] += 1
+
+    try:
+        db.session.flush()
+    except Exception:
+        db.session.rollback()
+        return jsonify({'error': '题目导入失败'}), 500
+
+    # ── 3. 导入试卷 ───────────────────────────────────────────────────────────
+    for eidx, e_data in enumerate(payload.get('exams', [])):
+        old_exam_id = (e_data.get('exam_id') or '').strip()
+        name = (e_data.get('name') or '').strip()
+        if not name:
+            stats['exams_skipped'] += 1
+            continue
+
+        # 决定新 exam_id
+        if old_exam_id and not ExamModel.query.filter_by(exam_id=old_exam_id).first():
+            new_exam_id = old_exam_id
+        else:
+            new_exam_id = 'exam_imp_{}_{}'.format(now_dt.strftime('%Y%m%d%H%M%S'), eidx)
+
+        db.session.add(ExamModel(
+            exam_id=new_exam_id,
+            name=name,
+            subject=e_data.get('subject') or None,
+            config=json.dumps(e_data.get('config') or {}, ensure_ascii=False),
+            is_confirmed=bool(e_data.get('is_confirmed', False)),
+            owner_id=user.id,
+            visibility='private',
+            created_at=now_dt,
+            updated_at=now_dt,
+        ))
+        db.session.flush()  # 先写入 exam 行
+
+        for pos, old_qid in enumerate(e_data.get('question_ids', []), start=1):
+            new_qid = id_map.get(old_qid)
+            if not new_qid:
+                continue
+            db.session.execute(
+                exam_questions.insert().values(
+                    exam_id=new_exam_id, question_id=new_qid, position=pos
+                )
+            )
+        stats['exams_imported'] += 1
+
+    try:
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({'error': '试卷导入失败：' + str(exc)}), 500
+
+    return jsonify({
+        'ok': True,
+        'types_created': stats['types_created'],
+        'questions_imported': stats['questions_imported'],
+        'questions_skipped': stats['questions_skipped'],
+        'exams_imported': stats['exams_imported'],
+        'exams_skipped': stats['exams_skipped'],
+    })
+
+
 # Exam Generation Routes
 @bp.route('/api/exams', methods=['GET'])
 @login_required
