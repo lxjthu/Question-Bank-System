@@ -594,6 +594,16 @@ def delete_config(pool_id, config_id):
 @interview_bp.route('/api/interview/pools/<int:pool_id>/config/<int:config_id>/export-template', methods=['GET'])
 @login_required
 def export_config_template(pool_id, config_id):
+    """
+    导出套题模板
+    
+    参数:
+        - simplified: 是否导出简化版（0=通用模板，1=简化模板）
+        - set_count: 套题数量（默认5）
+    
+    简化版: 只有"套题列表"工作表，题目内容直接填在槽位列（列宽60，方便填写）
+    通用版: 包含"套题列表"和"题目详情"两个工作表
+    """
     user = get_current_user()
     pool, err = _check_pool_access(pool_id, user)
     if err:
@@ -609,6 +619,7 @@ def export_config_template(pool_id, config_id):
     slots = json.loads(cfg['slots_json']) if cfg['slots_json'] else []
     set_count = request.args.get('set_count', 5, type=int)
     set_count = max(1, min(set_count, 50))
+    simplified = request.args.get('simplified', '0') == '1'
 
     try:
         import openpyxl
@@ -620,6 +631,7 @@ def export_config_template(pool_id, config_id):
     header_fill = PatternFill('solid', fgColor='366092')
     hdr_font = Font(bold=True, color='FFFFFF')
 
+    # Sheet1: 套题列表
     ws1 = wb.active
     ws1.title = '套题列表'
     h1 = ['set_code'] + [f"槽位{i+1}-{s.get('question_type', '?')}" for i, s in enumerate(slots)]
@@ -631,19 +643,23 @@ def export_config_template(pool_id, config_id):
     for r in range(set_count):
         ws1.cell(row=r + 2, column=1, value=f"SET-{r+1:03d}")
     ws1.column_dimensions['A'].width = 14
+    # 简化版列宽60（方便填写题目内容），通用版列宽25
+    col_width = 60 if simplified else 25
     for c in range(2, len(h1) + 1):
-        ws1.column_dimensions[openpyxl.utils.get_column_letter(c)].width = 25
+        ws1.column_dimensions[openpyxl.utils.get_column_letter(c)].width = col_width
 
-    ws2 = wb.create_sheet('题目详情')
-    h2 = ['set_code', 'slot_index', 'question_id', 'question_type', 'subject',
-          'difficulty', 'language', 'content', 'answer', 'reference_answer', 'explanation']
-    for col_idx, h in enumerate(h2, 1):
-        cell = ws2.cell(row=1, column=col_idx, value=h)
-        cell.font = hdr_font
-        cell.fill = header_fill
-        cell.alignment = Alignment(horizontal='center', wrap_text=True)
-    for col_idx, w in enumerate([12, 8, 20, 12, 15, 10, 8, 60, 40, 60, 40], 1):
-        ws2.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = w
+    # 通用版才有 Sheet2: 题目详情
+    if not simplified:
+        ws2 = wb.create_sheet('题目详情')
+        h2 = ['set_code', 'slot_index', 'question_id', 'question_type', 'subject',
+              'difficulty', 'language', 'content', 'answer', 'reference_answer', 'explanation']
+        for col_idx, h in enumerate(h2, 1):
+            cell = ws2.cell(row=1, column=col_idx, value=h)
+            cell.font = hdr_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal='center', wrap_text=True)
+        for col_idx, w in enumerate([12, 8, 20, 12, 15, 10, 8, 60, 40, 60, 40], 1):
+            ws2.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = w
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -651,11 +667,12 @@ def export_config_template(pool_id, config_id):
 
     safe_name = re.sub(r'[^\w\-_\u4e00-\u9fff]', '_', cfg['config_name'])
     date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+    template_type = '简化' if simplified else '通用'
     return send_file(
         buf,
         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         as_attachment=True,
-        download_name=f'面试套题模板_{safe_name}_{date_str}.xlsx',
+        download_name=f'面试套题模板_{template_type}_{safe_name}_{date_str}.xlsx',
     )
 
 

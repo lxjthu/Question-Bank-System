@@ -10650,8 +10650,11 @@ function ivRenderConfigCards(configs) {
                 <button onclick="ivUseConfig(${cfg.id})" class="btn btn-primary" style="padding:4px 10px;font-size:0.78rem;">
                     <i class="fas fa-check"></i> 使用此配置
                 </button>
-                <button onclick="ivExportTemplate(${cfg.pool_id}, ${cfg.id})" class="btn btn-outline" style="padding:4px 10px;font-size:0.78rem;">
-                    <i class="fas fa-download"></i> 导出模板
+                <button onclick="ivExportTemplate(${cfg.pool_id}, ${cfg.id}, true)" class="btn btn-outline" style="padding:4px 10px;font-size:0.78rem;" title="只有套题列表，题目内容直接填在单元格中">
+                    <i class="fas fa-file-alt"></i> 导出简化模板
+                </button>
+                <button onclick="ivExportTemplate(${cfg.pool_id}, ${cfg.id}, false)" class="btn btn-outline" style="padding:4px 10px;font-size:0.78rem;" title="包含套题列表和题目详情两个表">
+                    <i class="fas fa-file-excel"></i> 导出通用模板
                 </button>
                 <button onclick="ivDeleteConfig(${cfg.pool_id}, ${cfg.id})" class="btn btn-outline" style="padding:4px 10px;font-size:0.78rem;color:#e74c3c;border-color:#e74c3c;">
                     <i class="fas fa-trash-alt"></i> 删除
@@ -10703,8 +10706,9 @@ async function ivDeleteConfig(poolId, configId) {
     }
 }
 
-function ivExportTemplate(poolId, configId) {
-    window.open(`/api/interview/pools/${poolId}/config/${configId}/export-template?set_count=5`, '_blank');
+function ivExportTemplate(poolId, configId, simplified = false) {
+    const simplifiedParam = simplified ? 'simplified=1' : 'simplified=0';
+    window.open(`/api/interview/pools/${poolId}/config/${configId}/export-template?set_count=5&${simplifiedParam}`, '_blank');
 }
 
 function ivDownloadPoolTemplate() {
