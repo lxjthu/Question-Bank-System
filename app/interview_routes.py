@@ -1993,6 +1993,45 @@ def import_pool_xlsx(pool_id):
     return jsonify(result)
 
 
+def _detect_simplified_template(wb):
+    """
+    检测 Excel 是否为简化版套题模板。
+    简化版特征：只有「套题列表」一个 Sheet，且表头含 `槽位N-题型名` 格式的列。
+    返回: True / False
+    """
+    import re
+    if len(wb.sheetnames) != 1 or wb.sheetnames[0] != '套题列表':
+        return False
+    ws = wb['套题列表']
+    first_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
+    if not first_row:
+        return False
+    slot_pattern = re.compile(r'^槽位\d+-.+')
+    return any(h and slot_pattern.match(str(h).strip()) for h in first_row)
+
+
+def _parse_simplified_slots(headers):
+    """
+    从简化版表头解析槽位配置。
+    输入: ['set_code', '槽位1-简答', '槽位2-简答>论述', ...]
+    输出: [{'col': 1, 'slot_num': 1, 'question_type': '简答'}, ...]
+    """
+    import re
+    slots = []
+    pattern = re.compile(r'^槽位(\d+)-(.+)$')
+    for i, h in enumerate(headers):
+        if not h:
+            continue
+        m = pattern.match(str(h).strip())
+        if m:
+            slots.append({
+                'col': i,
+                'slot_num': int(m.group(1)),
+                'question_type': m.group(2).strip(),
+            })
+    return slots
+
+
 @interview_bp.route('/api/interview/sessions/import-xlsx/prepare', methods=['POST'])
 @login_required
 def prepare_import_sets_xlsx():
@@ -2011,16 +2050,25 @@ def prepare_import_sets_xlsx():
         return jsonify({'error': '缺少 openpyxl 依赖'}), 500
 
     wb = openpyxl.load_workbook(f, read_only=True)
+    is_simplified = _detect_simplified_template(wb)
 
     question_count = 0
-    if '题目详情' in wb.sheetnames:
-        rows2 = list(wb['题目详情'].iter_rows(values_only=True))
-        question_count = max(0, len(rows2) - 1)
-
     set_count = 0
-    if '套题列表' in wb.sheetnames:
-        rows1 = list(wb['套题列表'].iter_rows(values_only=True))
-        set_count = max(0, len(rows1) - 1)
+
+    if is_simplified:
+        if '套题列表' in wb.sheetnames:
+            rows1 = list(wb['套题列表'].iter_rows(values_only=True))
+            if rows1:
+                slots = _parse_simplified_slots([str(h).strip() if h else '' for h in rows1[0]])
+                set_count = max(0, len(rows1) - 1)
+                question_count = set_count * len(slots)
+    else:
+        if '题目详情' in wb.sheetnames:
+            rows2 = list(wb['题目详情'].iter_rows(values_only=True))
+            question_count = max(0, len(rows2) - 1)
+        if '套题列表' in wb.sheetnames:
+            rows1 = list(wb['套题列表'].iter_rows(values_only=True))
+            set_count = max(0, len(rows1) - 1)
 
     user = get_current_user()
     if user.role == 'admin':
@@ -2031,6 +2079,7 @@ def prepare_import_sets_xlsx():
         'ok': True,
         'question_count': question_count,
         'set_count': set_count,
+        'is_simplified': is_simplified,
         'existing_pools': [{'id': p['id'], 'pool_name': p['pool_name']} for p in pools],
     })
 
@@ -2039,7 +2088,10 @@ def prepare_import_sets_xlsx():
 @login_required
 def import_sets_xlsx():
     """
-    从 Excel 导入套题记录（Sheet1: 套题列表, Sheet2: 题目详情）。
+    从 Excel 导入套题记录。
+    自动检测模板类型：
+      - 简化版（单Sheet，槽位N-题型 列）：从单元格内容直接创建题目
+      - 通用版（含题目详情Sheet）：原有逻辑
     支持 pool_mode=new（自动建池）或 pool_mode=existing（加入已有池）。
     场次名由调用方通过 session_name 参数指定。
     """
@@ -2056,6 +2108,8 @@ def import_sets_xlsx():
     pool_mode = request.form.get('pool_mode', 'new')
     user = get_current_user()
 
+    from sqlalchemy import text
+
     if pool_mode == 'existing':
         pool_id_str = request.form.get('pool_id')
         if not pool_id_str:
@@ -2067,7 +2121,6 @@ def import_sets_xlsx():
         pool_name = pool_row['pool_name']
     else:
         # 新建题库池
-        from sqlalchemy import text
         new_pool_name = f'{session_name}-题库池'
         r = db.session.execute(
             text("INSERT INTO interview_pools (pool_name, description, created_at, owner_id) VALUES (:n, :d, :t, :uid)"),
@@ -2082,8 +2135,14 @@ def import_sets_xlsx():
         return jsonify({'error': '缺少 openpyxl 依赖'}), 500
 
     wb = openpyxl.load_workbook(f, read_only=True)
+    now_dt = datetime.now()
+    now = _now_str()
 
-    # ── 先处理 Sheet2 题目详情，建立 question_id → 题目数据 映射 ─────────────
+    # ── 自动检测模板类型 ──────────────────────────────────────────────────────
+    if _detect_simplified_template(wb):
+        return _import_simplified_sets(wb, pool_id, pool_name, session_name, user, now_dt, now, text)
+
+    # ── 通用版：先处理 Sheet2 题目详情，建立 question_id → 题目数据 映射 ──────
     q_detail_map = {}
     if '题目详情' in wb.sheetnames:
         ws2 = wb['题目详情']
@@ -2111,8 +2170,6 @@ def import_sets_xlsx():
                     }
 
     # 确保题目存在，并将题目加入目标题库池
-    now_dt = datetime.now()
-    now = _now_str()
     created_questions = 0
     questions_added = 0
     questions_skipped = 0
@@ -2180,7 +2237,6 @@ def import_sets_xlsx():
             return ''
 
     # 创建导入场次（使用用户自定义场次名）
-    from sqlalchemy import text
     r2 = db.session.execute(text("""
         INSERT INTO interview_sessions
           (pool_id, config_id, session_name, interview_count, sets_multiplier, score_per_slot_json, created_at, owner_id)
@@ -2222,3 +2278,155 @@ def import_sets_xlsx():
         'questions_added': questions_added,
         'questions_skipped': questions_skipped,
     })
+
+
+def _import_simplified_sets(wb, pool_id, pool_name, session_name, user, now_dt, now, text):
+    """
+    简化版套题导入核心逻辑。
+    从「槽位N-题型名」列中直接读取题目内容，自动创建题目、加入题库池、生成套题记录。
+    """
+    import time as _time
+    from app.routes import _ensure_question_type, _detect_language
+    from app.db_models import QuestionTypeModel
+
+    ws1 = wb['套题列表']
+    rows1 = list(ws1.iter_rows(values_only=True))
+    if len(rows1) < 2:
+        return jsonify({'error': '"套题列表"为空'}), 400
+
+    raw_headers = [str(h).strip() if h else '' for h in rows1[0]]
+    slots = _parse_simplified_slots(raw_headers)
+    if not slots:
+        return jsonify({'error': '未检测到槽位列（格式：槽位N-题型名）'}), 400
+
+    # 预加载用户可见题型集合（供 _match_question_type 使用）
+    known_types = {
+        qt.name for qt in QuestionTypeModel.query.filter(
+            db.or_(
+                QuestionTypeModel.owner_id.is_(None),
+                QuestionTypeModel.owner_id == user.id,
+            )
+        ).all()
+    }
+
+    # 题型名 → 确认后的题型名（缓存，避免重复创建）
+    type_cache = {}
+    created_types = []
+    created_questions = 0
+    questions_added = 0
+
+    # 创建导入场次
+    r2 = db.session.execute(text("""
+        INSERT INTO interview_sessions
+          (pool_id, config_id, session_name, interview_count, sets_multiplier, score_per_slot_json, created_at, owner_id)
+        VALUES (:pid, NULL, :sn, 0, 1, '{}', :t, :uid)
+    """), {'pid': pool_id, 'sn': session_name, 't': now, 'uid': user.id})
+    session_id = r2.lastrowid
+
+    sets_imported = 0
+    for row_idx, row in enumerate(rows1[1:], start=2):
+        # set_code：取第0列，若为空则自动生成
+        raw_set_code = str(row[0]).strip() if row[0] is not None else ''
+        set_code = raw_set_code if raw_set_code else f'SET-{row_idx - 1:03d}'
+
+        qids = []
+        for slot in slots:
+            col = slot['col']
+            raw_content = row[col] if col < len(row) else None
+            if raw_content is None:
+                continue
+            content = str(raw_content).strip()
+            if not content:
+                continue
+
+            qtype_raw = slot['question_type']
+
+            # 解析/缓存题型
+            if qtype_raw not in type_cache:
+                matched_type, _, needs_create = _match_question_type_local(qtype_raw, known_types)
+                if needs_create:
+                    final_type, err = _ensure_question_type(qtype_raw, user)
+                    if err:
+                        final_type = qtype_raw  # 兜底：直接使用原始名
+                    else:
+                        known_types.add(final_type)
+                        created_types.append(final_type)
+                else:
+                    final_type = matched_type or qtype_raw
+                type_cache[qtype_raw] = final_type
+            else:
+                final_type = type_cache[qtype_raw]
+
+            # 生成唯一 question_id
+            qid = f'iv_q_{now_dt.strftime("%Y%m%d%H%M%S")}_{row_idx}_{slot["slot_num"]}_{int(_time.time()*1000)%100000}'
+
+            lang = _detect_language(content, None)
+            new_q = QuestionModel(
+                question_id=qid,
+                question_type=final_type,
+                content=content,
+                options=json.dumps([], ensure_ascii=False),
+                answer='',
+                reference_answer='',
+                explanation='',
+                subject='面试题库',
+                difficulty='medium',
+                language=lang,
+                metadata_json='{}',
+                is_used=False,
+                owner_id=user.id,
+                visibility='private',
+                created_at=now_dt,
+                updated_at=now_dt,
+            )
+            db.session.add(new_q)
+            created_questions += 1
+
+            # 加入题库池
+            db.session.execute(
+                text("INSERT OR IGNORE INTO interview_pool_questions (pool_id, question_id, drawn, added_at) VALUES (:p, :q, 0, :t)"),
+                dict(p=pool_id, q=qid, t=now)
+            )
+            questions_added += 1
+            qids.append(qid)
+
+        # 插入套题记录
+        db.session.execute(text("""
+            INSERT INTO interview_sets (session_id, set_code, question_ids_json, is_used, used_at, created_at)
+            VALUES (:sid, :sc, :qj, 0, NULL, :t)
+        """), dict(sid=session_id, sc=set_code,
+             qj=json.dumps(qids, ensure_ascii=False), t=now))
+        sets_imported += 1
+
+    db.session.commit()
+    result = {
+        'ok': True,
+        'session_id': session_id,
+        'session_name': session_name,
+        'pool_id': pool_id,
+        'pool_name': pool_name,
+        'sets_imported': sets_imported,
+        'created_questions': created_questions,
+        'questions_added': questions_added,
+        'questions_skipped': 0,
+        'slots': [s['question_type'] for s in slots],
+    }
+    if created_types:
+        result['types_created'] = list(set(created_types))
+    return jsonify(result)
+
+
+def _match_question_type_local(raw_type, known_types):
+    """
+    简版题型匹配（供简化版导入使用，不依赖 routes.py 的全局变量）。
+    返回 (matched_type, is_builtin, needs_create)
+    """
+    if not raw_type:
+        return None, False, False
+    raw_clean = raw_type.strip()
+    if raw_clean in known_types:
+        return raw_clean, True, False
+    for kt in known_types:
+        if raw_clean in kt or kt in raw_clean:
+            return kt, True, False
+    return raw_clean, False, True

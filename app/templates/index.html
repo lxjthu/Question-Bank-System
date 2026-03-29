@@ -2401,6 +2401,43 @@
                     </div>
                 </div>
 
+                <!-- 配置保存选池 Modal -->
+                <div id="iv-config-pool-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);
+                     z-index:9999;align-items:center;justify-content:center;">
+                    <div style="background:#fff;border-radius:10px;max-width:420px;width:92%;padding:24px;
+                                box-shadow:0 8px 32px rgba(0,0,0,0.22);">
+                        <div style="font-size:1rem;font-weight:700;color:#333;margin-bottom:6px;">
+                            <i class="fas fa-layer-group" style="color:#e67e22;margin-right:6px;"></i>请先选择题库池
+                        </div>
+                        <p style="font-size:0.84rem;color:#888;margin:0 0 16px;">保存配置前需要关联一个题库池。请从已有池中选择，或新建一个。</p>
+                        <div style="margin-bottom:12px;">
+                            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;cursor:pointer;margin-bottom:8px;">
+                                <input type="radio" name="iv-cfg-pool-mode" value="existing" checked
+                                       onchange="ivCfgPoolModeChange(this.value)">
+                                选择已有题库池
+                            </label>
+                            <div id="iv-cfg-pool-existing-row" style="padding-left:20px;margin-bottom:8px;">
+                                <select id="iv-cfg-pool-existing-select"
+                                        style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.88rem;"></select>
+                            </div>
+                            <label style="display:flex;align-items:center;gap:8px;font-size:0.88rem;cursor:pointer;margin-bottom:8px;">
+                                <input type="radio" name="iv-cfg-pool-mode" value="new"
+                                       onchange="ivCfgPoolModeChange(this.value)">
+                                新建题库池
+                            </label>
+                            <div id="iv-cfg-pool-new-row" style="display:none;padding-left:20px;">
+                                <input type="text" id="iv-cfg-pool-new-name" placeholder="题库池名称（必填）"
+                                       style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.88rem;box-sizing:border-box;">
+                            </div>
+                        </div>
+                        <div id="iv-cfg-pool-msg" style="font-size:0.83rem;color:#e74c3c;min-height:1.2em;margin-bottom:10px;"></div>
+                        <div style="display:flex;gap:10px;justify-content:flex-end;">
+                            <button onclick="ivCfgPoolModalCancel()" class="btn btn-secondary" style="padding:6px 16px;font-size:0.88rem;">取消</button>
+                            <button onclick="ivCfgPoolModalConfirm()" class="btn btn-primary" style="padding:6px 16px;font-size:0.88rem;">确认并保存</button>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 题目查看/编辑 Modal -->
                 <div id="iv-question-edit-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);
                      z-index:9998;align-items:flex-start;justify-content:center;overflow-y:auto;padding:30px 10px;">
@@ -10788,15 +10825,33 @@ function ivRemoveSlot(idx) {
 }
 
 async function ivSaveConfig() {
-    const sel = document.getElementById('iv-config-pool-select');
-    const poolId = sel?.value;
-    if (!poolId) { alert('请先选择题库池'); return; }
-    
     const configName = document.getElementById('iv-config-name').value.trim();
     if (!configName) { alert('请输入配置名称'); return; }
-    
     if (ivSlots.length === 0) { alert('请至少添加一个槽位'); return; }
-    
+
+    const sel = document.getElementById('iv-config-pool-select');
+    const poolId = sel?.value;
+    if (!poolId) {
+        // 弹出选池 Modal，填充已有池列表
+        const existSel = document.getElementById('iv-cfg-pool-existing-select');
+        existSel.innerHTML = ivPools.length
+            ? ivPools.map(p => `<option value="${p.id}">${p.pool_name}</option>`).join('')
+            : '<option value="">（暂无题库池）</option>';
+        // 默认选"已有"模式（有池时）或"新建"模式（无池时）
+        const defaultMode = ivPools.length ? 'existing' : 'new';
+        document.querySelector(`input[name="iv-cfg-pool-mode"][value="${defaultMode}"]`).checked = true;
+        ivCfgPoolModeChange(defaultMode);
+        document.getElementById('iv-cfg-pool-msg').textContent = '';
+        document.getElementById('iv-cfg-pool-new-name').value = '';
+        const modal = document.getElementById('iv-config-pool-modal');
+        modal.style.display = 'flex';
+        return;
+    }
+    await _ivDoSaveConfig(poolId);
+}
+
+async function _ivDoSaveConfig(poolId) {
+    const configName = document.getElementById('iv-config-name').value.trim();
     const msg = document.getElementById('iv-config-msg');
     try {
         const res = await fetch(`/api/interview/pools/${poolId}/config`, {
@@ -10808,9 +10863,52 @@ async function ivSaveConfig() {
         if (!res.ok) { msg.style.color='#e74c3c'; msg.textContent = data.error || '保存失败'; return; }
         msg.style.color = '#27ae60';
         msg.textContent = `已保存 "${configName}" (${ivSlots.length} 个槽位)`;
-        // 刷新配置列表
         ivLoadConfigForPool();
     } catch(e) { msg.style.color='#e74c3c'; msg.textContent = '保存失败'; }
+}
+
+function ivCfgPoolModeChange(mode) {
+    document.getElementById('iv-cfg-pool-existing-row').style.display = mode === 'existing' ? 'block' : 'none';
+    document.getElementById('iv-cfg-pool-new-row').style.display = mode === 'new' ? 'block' : 'none';
+}
+
+function ivCfgPoolModalCancel() {
+    document.getElementById('iv-config-pool-modal').style.display = 'none';
+}
+
+async function ivCfgPoolModalConfirm() {
+    const mode = document.querySelector('input[name="iv-cfg-pool-mode"]:checked')?.value;
+    const errEl = document.getElementById('iv-cfg-pool-msg');
+    errEl.textContent = '';
+    let poolId;
+
+    if (mode === 'existing') {
+        poolId = document.getElementById('iv-cfg-pool-existing-select').value;
+        if (!poolId) { errEl.textContent = '请选择一个题库池'; return; }
+    } else {
+        const newName = document.getElementById('iv-cfg-pool-new-name').value.trim();
+        if (!newName) { errEl.textContent = '请输入题库池名称'; return; }
+        try {
+            const res = await fetch('/api/interview/pools', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({pool_name: newName, description: ''}),
+            });
+            const data = await res.json();
+            if (!res.ok) { errEl.textContent = data.error || '新建失败'; return; }
+            await ivLoadPools();
+            const newPool = ivPools.find(p => p.pool_name === newName);
+            poolId = newPool?.id;
+            if (!poolId) { errEl.textContent = '新建失败，请重试'; return; }
+        } catch(e) { errEl.textContent = '新建失败：' + e; return; }
+    }
+
+    // 同步到配置面板的下拉选择器并触发加载
+    const cfgSel = document.getElementById('iv-config-pool-select');
+    if (cfgSel) { cfgSel.value = poolId; ivConfigOnPoolChange(); }
+
+    document.getElementById('iv-config-pool-modal').style.display = 'none';
+    await _ivDoSaveConfig(poolId);
 }
 
 // ── 套题生成 ──────────────────────────────────────────────────────────────
@@ -11723,7 +11821,8 @@ async function _ivDoImport(poolMode, poolId) {
         if (!res.ok) { msg.style.color='#e74c3c'; msg.textContent=data.error||'导入失败'; return; }
         msg.style.color='#27ae60';
         const skipTip = data.questions_skipped > 0 ? `，已有题目 ${data.questions_skipped} 道（跳过）` : '';
-        msg.textContent = `导入完成：场次「${data.session_name}」，${data.sets_imported} 套，题库池「${data.pool_name}」，新增 ${data.questions_added} 道${skipTip}`;
+        const typesTip = data.types_created?.length > 0 ? `，自动创建题型：${data.types_created.join('、')}` : '';
+        msg.textContent = `导入完成：场次「${data.session_name}」，${data.sets_imported} 套，题库池「${data.pool_name}」，新增 ${data.questions_added} 道${skipTip}${typesTip}`;
         _ivImportFile = null;
         _ivImportSessionName = '';
         document.getElementById('iv-imp-sets-name').value = '';
