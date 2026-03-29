@@ -12,6 +12,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # 开发启动
 python server.py
 
+# 标题层级修复（OCR/PPT 文档预处理）
+python fix_headings.py <path/to/file.md> --subject 科目名称
+python fix_headings.py <file.md> --dry-run   # 仅预览，不写回
+
 # 生产启动（Gunicorn）
 gunicorn -w 5 wsgi:app
 
@@ -175,3 +179,73 @@ AI 调用时优先取用户个人 Key，无则 fallback 到系统 Key（`rag_rou
 **示例图谱接口**：`GET /api/rag/demo-graph`，返回 `_DEMO_KP_IDS = [8,9,10,11,12]` 对应的知识点及关联关系（来自 `ds_knowledge.db`），`demo_kp_hidden` 表记录用户软删除（当前前端已不使用软删除功能，接口保留备用）。
 
 **前端注意事项**：在 `index.html` 的 DOMContentLoaded 回调内定义的函数若需被 HTML `onclick` 属性调用，必须显式赋值给 `window`（如 `window.hideDemoNodeFromDetail = hideDemoNodeFromDetail`）。D3 是否加载须用 `window.d3` 检测，不能直接用 `d3`（未声明变量会抛 `ReferenceError`）。
+
+## 标题层级修复流水线（OCR 文档预处理）
+
+### 工具文件
+
+- **`fix_headings.py`**：命令行工具，对 `.md` 文件执行完整修复流程并写回
+- **`app/rag_routes.py`**：流水线函数均在此文件，上传路由 `ds_upload` 已集成
+
+### 完整流程（顺序不可变）
+
+1. `_clean_ocr_md(text)` — 清理页码标记行（`## Page N`、`## 第N页`）、pipeline 文件头
+2. `_extract_all_headings(text)` — 提取所有 H1-H6 标题，返回 `[{level, text, pos}]`
+3. `_clean_headings_with_ai(headings, subject, client)` — DeepSeek Layer 0，返回：
+   - `flat_detected` / `flat_level`：是否检测到标题扁平化及其层级
+   - `semantic_map`：`{'章':2, '节':3, '大目':4, '小目':5, '细目':6}` 等
+   - `chapters_tree`：`[{name, sections:[{name}]}]`（章/节显式列表）
+   - `non_content_texts`：应删除的标题文本集合（学习目标/小结/思考题等）
+   - `extraction_nodes`：知识点提取的目标节标题列表
+4. **`_remove_non_content_sections(text, non_content_texts)`** — 删除非内容标题及其正文段落
+5. **`_apply_semantic_heading_remaps(text, hierarchy)`** — 修复标题层级（全 6 级）
+
+**顺序约定：Step 4 必须在 Step 5 之前执行。** remap 后节从 H2 升为 H3，若先 remap 再删，`skip_level=2` 会把整章内容全部误删。
+
+### `_remove_non_content_sections` 逻辑
+
+```
+对每行：
+  遇到非内容标题 → 记录 skip_level = 该标题级别，跳过本行
+  遇到 level <= skip_level 的标题 → 停止跳过（结束非内容区）
+  skip_level 不为 None → 跳过（正文或子标题）
+  其余 → 保留
+```
+
+### `_apply_semantic_heading_remaps` 轨道
+
+- **轨道A**：精确匹配 `chapters_tree` 中章/节名称 → 目标层级
+- **轨道A'**：去除全部空白后再匹配（容错 AI 返回与原文空格不一致）
+- **轨道B** 模式匹配（AI 不返回大目/小目/细目，用正则识别）：
+  - 大目：`^[一二三四五六七八九十百]+[、．]`
+  - 小目：`^（[一二三四五六七八九十百]+）`
+  - 细目：`^\d+[.．）\s]`
+
+### 文档类型检测（`_detect_doc_type`）
+
+- **PPT 型**：H1 出现 ≥ 3 次且占比 ≥ 20%，总层级 ≤ 3 且最深 ≤ 3 → 不做 remap，仅删非内容，`extraction_nodes` = 主标题
+- **教材型**：其余情况 → 走完整 6 级 remap 流程
+
+### 上传路由集成（`ds_upload`）
+
+```
+Layer 0 AI 分析 → _remove_non_content_sections → _apply_semantic_heading_remaps → _parse_md_by_nodes / _parse_md_multilevel
+```
+
+### `fix_headings.py` 用法
+
+```bash
+# 单文件修复（自动备份为 .bak.md）
+python fix_headings.py file.md --subject 农业经济学
+
+# 多文件
+python fix_headings.py ch02.md ch03.md --subject 农业经济学
+
+# 仅预览不写回
+python fix_headings.py file.md --subject 科目 --dry-run
+
+# 指定 API Key（优先于 .env）
+python fix_headings.py file.md --api-key sk-xxxxx
+```
+
+API Key 优先级：`--api-key` 参数 > `.env DEEPSEEK_API_KEY` > 环境变量 `DEEPSEEK_API_KEY`

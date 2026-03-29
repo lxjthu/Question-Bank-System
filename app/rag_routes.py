@@ -259,6 +259,45 @@ def _is_non_content(name: str) -> bool:
     return any(kw in cleaned for kw in _NON_CONTENT_KEYWORDS)
 
 
+def _remove_non_content_sections(text: str, non_content_texts: set) -> str:
+    """删除所有在 non_content_texts 中的标题及其下方全部正文，
+    直到遇到同级或更高级别的标题为止。
+
+    必须在 _apply_semantic_heading_remaps **之前**调用——此时全部标题
+    还处于同一 flat_level，skip_level 逻辑最简单正确。
+    remap 后节变成 H3，若先 remap 再删，skip_level=2 会把整章内容全删。
+    """
+    import re
+    if not non_content_texts:
+        return text
+
+    lines = text.split('\n')
+    result = []
+    skip_level = None  # 正在跳过的标题级别
+
+    for line in lines:
+        m = re.match(r'^(#{1,6})(?!#)\s+(.+)', line)
+        if m:
+            level = len(m.group(1))
+            heading_text = m.group(2).strip()
+            if skip_level is not None:
+                if level <= skip_level:
+                    skip_level = None   # 遇到同级或更高标题，结束跳过
+                else:
+                    continue            # 还在非内容标题的子内容中，跳过
+            # 到这里 skip_level 已经为 None
+            if heading_text in non_content_texts:
+                skip_level = level
+                continue                # 跳过该非内容标题行本身
+        else:
+            if skip_level is not None:
+                continue                # 跳过正文
+
+        result.append(line)
+
+    return '\n'.join(result)
+
+
 # ── 文档解析工具 ──────────────────────────────────────────────────────────────
 
 def _clean_ocr_md(text: str) -> tuple:
@@ -773,10 +812,11 @@ def _parse_md_multilevel(text: str, hierarchy: dict) -> list:
 
 
 def _apply_semantic_heading_remaps(text: str, hierarchy: dict) -> str:
-    """当AI检测到标题层级扁平化时，根据 chapters_tree 将标题重写为正确的H级别。
+    """当AI检测到标题层级扁平化时，将标题重写为正确的H级别。
 
-    例：## 第一节农业的内涵 → ### 第一节农业的内涵
-        ## 第一章农业经营制度 → ## 第一章农业经营制度（不变，章保持H2）
+    修复覆盖全部6级：
+    - 章/节：来自 chapters_tree 精确匹配，失败时尝试去空格后再匹配
+    - 大目/小目/细目：AI 不列入 chapters_tree，用中文标题正则模式识别
 
     仅处理与 flat_level 相同的标题行，其余行原样保留。
     """
@@ -786,20 +826,39 @@ def _apply_semantic_heading_remaps(text: str, hierarchy: dict) -> str:
         return text
 
     flat_level = hierarchy.get('flat_level', 2)
-    chapters_tree = hierarchy.get('chapters_tree', [])
     semantic_map = hierarchy.get('semantic_map', {})
+    chapters_tree = hierarchy.get('chapters_tree', [])
 
-    if not chapters_tree or not semantic_map:
+    if not semantic_map:
         return text
 
-    # 构建 标题文本 → 目标H级别 的映射
-    remap: dict = {}
+    # ── 1. 从 chapters_tree 构建 章/节 的显式映射 ─────────────────────────
     chapter_target = int(semantic_map.get('章', 2))
     section_target = int(semantic_map.get('节', 3))
+    # remap_exact: 精确文本 → 目标层级
+    remap_exact: dict = {}
+    # remap_nospace: 去除所有空白后 → 目标层级（用于 AI 返回文本与原文空格不一致的情况）
+    remap_nospace: dict = {}
     for ch in chapters_tree:
-        remap[ch['name']] = chapter_target
+        name = ch['name'].strip()
+        remap_exact[name] = chapter_target
+        remap_nospace[re.sub(r'\s+', '', name)] = chapter_target
         for sec in ch.get('sections', []):
-            remap[sec['name']] = section_target
+            sname = sec['name'].strip()
+            remap_exact[sname] = section_target
+            remap_nospace[re.sub(r'\s+', '', sname)] = section_target
+
+    # ── 2. 深层级模式：大目/小目/细目（AI 不返回，用正则识别）─────────────
+    damu_target  = int(semantic_map.get('大目', 4))
+    xiaomu_target = int(semantic_map.get('小目', 5))
+    ximu_target   = int(semantic_map.get('细目', 6))
+
+    # 大目：一、 / 二、 / 三、 ...（汉字数字 + 顿号，可带空格）
+    _DAMU_PAT   = re.compile(r'^[一二三四五六七八九十百]+[、．]')
+    # 小目：（一）/ （二）...（括号包裹汉字数字，可带空格）
+    _XIAOMU_PAT = re.compile(r'^（[一二三四五六七八九十百]+）')
+    # 细目：1. / 2. / 1） 等（阿拉伯数字开头）
+    _XIMU_PAT   = re.compile(r'^\d+[.．）\s]')
 
     flat_prefix = '#' * flat_level
 
@@ -809,7 +868,23 @@ def _apply_semantic_heading_remaps(text: str, hierarchy: dict) -> str:
         m = re.match(r'^(#{1,6})(?!#)\s+(.+)', line)
         if m and m.group(1) == flat_prefix:
             heading_text = m.group(2).strip()
-            target = remap.get(heading_text)
+
+            # 优先：精确匹配 章/节
+            target = remap_exact.get(heading_text)
+
+            # 次选：去空格后匹配（应对 AI 返回文本与原文空格不一致）
+            if target is None:
+                target = remap_nospace.get(re.sub(r'\s+', '', heading_text))
+
+            # 兜底：模式识别 小目 > 大目 > 细目（先匹配更具体的括号形式）
+            if target is None:
+                if _XIAOMU_PAT.match(heading_text):
+                    target = xiaomu_target
+                elif _DAMU_PAT.match(heading_text):
+                    target = damu_target
+                elif _XIMU_PAT.match(heading_text):
+                    target = ximu_target
+
             if target is not None and target != flat_level:
                 result.append('#' * target + ' ' + heading_text)
                 continue
@@ -1484,6 +1559,11 @@ def ds_upload():
 
         if hierarchy is None:
             hierarchy = fallback_hierarchy
+
+        # ── 2.5 先删非内容段落，再做 remap（顺序关键：remap 后节变 H3，先删才能正确 skip）──
+        nc_texts = hierarchy.get('non_content_texts') or set()
+        if nc_texts:
+            cleaned_text = _remove_non_content_sections(cleaned_text, nc_texts)
 
         # ── 3. 扁平化修复 + 按节点列表切分（有 extraction_nodes）或降级到多层级切分 ──
         if hierarchy.get('flat_detected') and hierarchy.get('chapters_tree'):
