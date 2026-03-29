@@ -4931,27 +4931,36 @@ Now please start generating questions. Output question content directly without 
             if (mode === 'zh') {
                 const oldIntro = '请仔细阅读我上传的文件（PPT/PDF），全面理解其中的知识点、概念、原理和案例，然后按照以下要求生成一套完整题库。';
                 const newBlock =
-                    '以下是本课程的复习要点，请仔细阅读并以这些知识点为核心进行出题，确保每个重要知识点均有题目覆盖。\n\n' +
+                    '以下是本课程的复习要点，请仔细阅读。\n\n' +
                     '=== 复习要点 ===\n' + notesText + '\n=== 复习要点结束 ===\n\n' +
-                    '请根据以上复习要点，全面理解其中的知识点、概念、原理和案例，然后按照以下要求生成一套完整题库。';
+                    '请按以下步骤完成任务：\n' +
+                    '第一步：仔细阅读并理解上述复习要点，明确每个核心知识点。\n' +
+                    '第二步：阅读我上传的文件（PPT/PDF），在文件中搜索与复习要点对应的知识点、概念、原理和案例，作为出题的内容依据。\n' +
+                    '第三步：结合复习要点和文件内容，按照以下要求生成一套完整题库，确保每个复习要点均有题目覆盖。';
                 return AI_PROMPTS[mode].replace(oldIntro, newBlock);
             }
 
             if (mode === 'bilingual') {
                 const oldIntro = '请仔细阅读我上传的文件（PPT/PDF），全面理解其中的知识点，然后按照以下要求生成一套完整的中英双语题库。';
                 const newBlock =
-                    '以下是本课程的复习要点，请仔细阅读并以这些知识点为核心进行出题，确保每个重要知识点均有题目覆盖。\n\n' +
+                    '以下是本课程的复习要点，请仔细阅读。\n\n' +
                     '=== 复习要点 ===\n' + notesText + '\n=== 复习要点结束 ===\n\n' +
-                    '请根据以上复习要点，全面理解其中的知识点，然后按照以下要求生成一套完整的中英双语题库。';
+                    '请按以下步骤完成任务：\n' +
+                    '第一步：仔细阅读并理解上述复习要点，明确每个核心知识点。\n' +
+                    '第二步：阅读我上传的文件（PPT/PDF），在文件中搜索与复习要点对应的知识点、概念、原理和案例，作为出题的内容依据。\n' +
+                    '第三步：结合复习要点和文件内容，按照以下要求生成一套完整的中英双语题库，确保每个复习要点均有题目覆盖。';
                 return AI_PROMPTS[mode].replace(oldIntro, newBlock);
             }
 
             if (mode === 'en') {
                 const oldIntro = 'Please carefully read the uploaded file (PPT/PDF), fully understand all knowledge points, concepts, principles and cases, then generate a complete question bank following the requirements below.';
                 const newBlock =
-                    'The following are the key review points for this course. Please carefully read them and base your questions on these knowledge points, ensuring all listed topics are covered.\n\n' +
+                    'The following are the key review points for this course. Please read them carefully.\n\n' +
                     '=== Key Review Points ===\n' + notesText + '\n=== End of Review Points ===\n\n' +
-                    'Please carefully read the above review points, fully understand all knowledge points, concepts, principles and cases, then generate a complete question bank following the requirements below.';
+                    'Please complete the task in the following steps:\n' +
+                    'Step 1: Carefully read and understand the review points above, identifying each core knowledge point.\n' +
+                    'Step 2: Read the uploaded file (PPT/PDF) and search for knowledge points, concepts, principles and cases that correspond to the review points, using them as the content basis for question generation.\n' +
+                    'Step 3: Combining the review points and the file content, generate a complete question bank following the requirements below, ensuring every review point is covered by at least one question.';
                 return AI_PROMPTS[mode].replace(oldIntro, newBlock);
             }
 
