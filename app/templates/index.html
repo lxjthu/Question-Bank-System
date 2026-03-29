@@ -1056,6 +1056,32 @@
                             <i class="fas fa-magic"></i> 一键生成试卷
                         </button>
                     </div>
+
+                    <!-- 题目不足提示区 -->
+                    <div id="exam-shortage-notice" style="display:none; margin-top:16px; padding:14px 16px;
+                         background:#fff8f0; border:1px solid #f39c12; border-radius:8px;">
+                        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                            <i class="fas fa-exclamation-triangle" style="color:#e67e22;"></i>
+                            <strong style="color:#c0392b; font-size:0.95rem;">题目数量不足，无法生成试卷</strong>
+                        </div>
+                        <div id="exam-shortage-detail" style="font-size:0.85rem; color:#555; line-height:1.8; margin-bottom:12px;"></div>
+                        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                            <button onclick="
+                                document.getElementById('exam-shortage-notice').style.display='none';
+                                document.querySelectorAll('.tab-button').forEach(b=>b.classList.remove('active'));
+                                document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+                                document.querySelector('[data-tab=template-download]').classList.add('active');
+                                document.getElementById('template-download').classList.add('active');
+                            " class="btn btn-primary" style="font-size:0.85rem; padding:6px 14px;">
+                                <i class="fas fa-file-import"></i> 去导入更多题目
+                            </button>
+                            <button onclick="document.getElementById('exam-shortage-notice').style.display='none';"
+                                    style="font-size:0.85rem; padding:6px 12px; background:#fff; border:1px solid #ccc;
+                                           color:#666; border-radius:5px; cursor:pointer;">
+                                关闭
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Saved Exams List -->
@@ -1271,6 +1297,33 @@
                             </button>
                         </div>
                         <div id="material-status" style="margin-top:7px; font-size:13px;"></div>
+                    </div>
+
+                    <!-- 题型配置表格 -->
+                    <div id="import-type-config" style="margin-bottom:10px; padding:10px 14px; background:#f8f9fa; border-radius:8px; border:1px solid #dee2e6;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+                            <span style="font-weight:600; font-size:0.88rem; color:#444;">
+                                <i class="fas fa-list-ul"></i> 题型与数量
+                            </span>
+                            <div style="display:flex; gap:6px;">
+                                <button class="btn btn-outline btn-sm" onclick="addImportTypeRow()" style="padding:3px 10px; font-size:0.82rem;">
+                                    <i class="fas fa-plus"></i> 添加题型
+                                </button>
+                                <button class="btn btn-outline btn-sm" onclick="resetImportTypeTable()" style="padding:3px 10px; font-size:0.82rem; color:#888;">
+                                    <i class="fas fa-undo"></i> 重置默认
+                                </button>
+                            </div>
+                        </div>
+                        <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+                            <thead>
+                                <tr style="background:#ececec; color:#666;">
+                                    <th style="padding:4px 8px; border:1px solid #ddd; text-align:left;">题型</th>
+                                    <th style="padding:4px 8px; border:1px solid #ddd; width:65px; text-align:center;">数量</th>
+                                    <th style="padding:4px 8px; border:1px solid #ddd; width:44px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="import-type-rows"></tbody>
+                        </table>
                     </div>
 
                     <textarea id="prompt-display" rows="18"
@@ -3204,8 +3257,8 @@
         const defaultExamRows = [
             { name: '单选', count: 5, points: 2 },
             { name: '是非', count: 10, points: 1 },
-            { name: '简答>论述', count: 3, points: 10 },
-            { name: '简答>计算', count: 2, points: 10 },
+            { name: '简答', count: 4, points: 5 },
+            { name: '简答>论述', count: 2, points: 15 },
             { name: '简答>材料分析', count: 1, points: 30 },
         ];
 
@@ -3378,22 +3431,29 @@
                 });
 
                 if (response.ok) {
-                    currentExam = await response.json();
+                    const examResult = await response.json();
 
-                    // 缺题警告
-                    const shortages = currentExam.shortages || [];
+                    // 缺题：不生成试卷，引导导入
+                    const shortages = examResult.shortages || [];
                     if (shortages.length > 0) {
-                        const lines = shortages.map(s =>
-                            `• ${s.type}：需要 ${s.requested} 题，实际只有 ${s.available} 题`
-                        );
                         const totalRequested = shortages.reduce((sum, s) => sum + s.requested, 0);
                         const totalGot = shortages.reduce((sum, s) => sum + s.available, 0);
-                        alert(
-                            `⚠️ 题目数量不足，已按实际可用数量生成：\n\n${lines.join('\n')}\n\n` +
-                            `共缺少 ${totalRequested - totalGot} 道题。\n建议放宽筛选条件或补充题库后重新组卷。`
+                        const lines = shortages.map(s =>
+                            `• <b>${s.type}</b>：需要 ${s.requested} 题，当前题库只有 ${s.available} 题`
                         );
+                        document.getElementById('exam-shortage-detail').innerHTML =
+                            lines.join('<br>') +
+                            `<br><span style="color:#c0392b;">共缺少 <b>${totalRequested - totalGot}</b> 道题。` +
+                            `请先导入更多题目，或放宽筛选条件后重试。</span>`;
+                        document.getElementById('exam-shortage-notice').style.display = 'block';
+                        // 删除服务端已生成的不完整试卷（静默）
+                        if (examResult.exam_id) {
+                            fetch(`/api/exams/${examResult.exam_id}`, { method: 'DELETE' }).catch(() => {});
+                        }
+                        return;
                     }
 
+                    currentExam = examResult;
                     displayExam(currentExam);
                     loadExamList();
                 } else {
@@ -4496,12 +4556,7 @@
 ### 出题要求
 
 **题型与数量：**
-- 单选题：15题（每题4个选项A/B/C/D，只有1个正确答案）
-- 多选题：8题（每题4个选项A/B/C/D，有2～4个正确答案）
-- 是非题：10题（判断正误，答案为"正确"或"错误"）
-- 简答题：5题（需提供参考答案）
-- 论述题：3题（需提供较详细的参考答案）
-- 材料分析题：2题（结合实际案例或材料进行分析）
+{import_question_list}
 
 **质量要求：**
 1. 题目内容必须忠实于文件中的知识点，不得编造文件中没有的内容
@@ -4512,7 +4567,7 @@
 3. 覆盖文件中的主要章节和核心概念
 4. 每道题必须标注对应的知识点（知识点从文件中提取，放在解析里）
 5. 选择题的干扰项要合理，不能过于明显
-6. 简答题和论述题的参考答案要完整、准确；困难题的参考答案需体现跨知识点的整合与推理过程
+6. 简答题每题只设**一个小问**，提供完整参考答案；论述题每题分为**3个小问**（每小问5分，共15分），参考答案中须按小问分别列出回答要点，解析中须按小问提供评分标准
 7. **题目必须独立成立**，严禁在题干中出现任何引用上传文件位置或呈现方式的表述，例如"如第X章所述""见PPT第X张幻灯片""根据上图""如材料图表所示""结合上文"等——考生在考试时只能看到题目本身，无法看到你所参考的PPT或PDF文件
 8. **字数限制**：每道题的题干（含选项）和参考答案均不超过 **500字**（含标点），超出请精简
 
@@ -4587,12 +4642,19 @@
 ---
 **论述题格式：**
 [简答>论述]
-题目内容？
+题目总述，要求从以下3个方面回答：
+（1）子问题一？
+（2）子问题二？
+（3）子问题三？
 <参考答案>
-详细的参考答案，分点论述，逻辑清晰。
+（1）（5分）要点1；要点2；要点3。
+（2）（5分）要点1；要点2；要点3。
+（3）（5分）要点1；要点2；要点3。
 </参考答案>
 <解析>
-解析说明（可选）
+第（1）问（5分）：评分要点...
+第（2）问（5分）：评分要点...
+第（3）问（5分）：评分要点...
 知识点:对应的章节或知识点名称
 标签:标签1,标签2
 难度:hard
@@ -4640,12 +4702,7 @@
 ### 出题要求
 
 **题型与数量：**
-- 单选题：15题（每题4个选项，只有1个正确答案）
-- 多选题：8题（每题4个选项，有2～4个正确答案）
-- 是非题：10题（判断正误）
-- 简答题：5题
-- 论述题：3题
-- 材料分析题：2题
+{import_question_list}
 
 **质量要求：**
 1. 题目内容必须忠实于文件中的知识点，不得编造
@@ -4656,7 +4713,7 @@
 3. 覆盖文件中的主要章节和核心概念
 4. 每道题必须同时提供中文和英文版本，语义完全对应，英文表达符合学术规范
 5. 选择题的中英文选项必须一一对应，顺序和含义完全一致
-6. 简答题和论述题的参考答案要完整、准确；困难题的参考答案需体现跨知识点的整合与推理过程
+6. 简答题每题只设**一个小问**，提供完整参考答案；论述题每题分为**3个小问**（每小问5分，共15分），参考答案中须按小问分别列出回答要点，解析中须按小问提供评分标准
 7. **题目必须独立成立**，严禁在题干中出现任何引用上传文件位置或呈现方式的表述，例如"如第X章所述""见PPT第X张幻灯片""根据上图""如材料图表所示""结合上文"等——考生在考试时只能看到题目本身，无法看到你所参考的PPT或PDF文件
 8. **字数限制**：每道题的题干（含选项）和参考答案均不超过 **500字**（含标点），超出请精简
 
@@ -4743,15 +4800,22 @@
 ---
 **双语论述题格式：**
 [简答>论述]
-中文题目内容？
+题目总述，要求从以下3个方面回答：
+（1）子问题一？
+（2）子问题二？
+（3）子问题三？
 <参考答案>
-中文参考答案，分点论述，逻辑清晰。
+（1）（5分）要点1；要点2；要点3。
+（2）（5分）要点1；要点2；要点3。
+（3）（5分）要点1；要点2；要点3。
 </参考答案>
 <解析>
-中文解析说明（可选）
+第（1）问（5分）：评分要点...
+第（2）问（5分）：评分要点...
+第（3）问（5分）：评分要点...
 知识点:对应的章节或知识点名称
 标签:标签1,标签2
-英文题目:English version of the question?
+英文题目:Essay topic with three parts: (1) Sub-question one? (2) Sub-question two? (3) Sub-question three?
 难度:hard
 </解析>
 
@@ -4797,12 +4861,7 @@ Please carefully read the uploaded file (PPT/PDF), fully understand all knowledg
 ### Question Requirements
 
 **Types and quantities:**
-- Single-choice questions: 15 (4 options A/B/C/D, only 1 correct answer)
-- Multiple-choice questions: 8 (4 options A/B/C/D, 2~4 correct answers)
-- True/False questions: 10 (answer: True or False)
-- Short answer questions: 5 (provide reference answers)
-- Essay questions: 3 (provide detailed reference answers)
-- Case analysis questions: 2 (analysis based on real cases or materials)
+{import_question_list}
 
 **Quality requirements:**
 1. Content must be faithfully based on the knowledge points in the file; do not fabricate content
@@ -4813,7 +4872,7 @@ Please carefully read the uploaded file (PPT/PDF), fully understand all knowledg
 3. Cover major chapters and core concepts from the file
 4. Each question must include the corresponding knowledge point (from chapter/section titles)
 5. Distractors for choice questions must be plausible, not obviously wrong
-6. Reference answers for short answer and essay questions must be complete and accurate; hard question answers should explicitly show cross-topic integration and reasoning
+6. Short answer questions contain **one single sub-question** with a complete reference answer; essay questions must be divided into **3 sub-questions** (5 points each, 15 points total) — provide answer key points per sub-question in 参考答案 and scoring criteria per sub-question in 解析
 7. **Every question must be self-contained.** Do not include any references to the source material's location or presentation, such as "as discussed in Chapter X", "refer to slide Y", "as shown in the figure above", "according to the passage", or "based on the chart" — students taking the exam can only see the questions themselves, not the PPT or PDF file you are reading
 8. **Length limit**: Each question stem (including options) and reference answer must not exceed **500 characters** (including punctuation). Shorten if necessary.
 
@@ -4900,14 +4959,22 @@ Explanation (optional).
 ---
 **Essay format:**
 [简答>论述]
-Question in English?
+Essay topic overview, covering the following three aspects:
+(1) Sub-question one?
+(2) Sub-question two?
+(3) Sub-question three?
 <参考答案>
-Detailed reference answer in English, logically structured.
+(1) (5 pts) Key points: point 1; point 2; point 3.
+(2) (5 pts) Key points: point 1; point 2; point 3.
+(3) (5 pts) Key points: point 1; point 2; point 3.
 </参考答案>
 <解析>
+Sub-question (1) (5 pts): scoring criteria...
+Sub-question (2) (5 pts): scoring criteria...
+Sub-question (3) (5 pts): scoring criteria...
 知识点:Knowledge point name
 标签:tag1,tag2
-英文题目:Question in English?
+英文题目:Essay topic with three parts: (1) Sub-question one? (2) Sub-question two? (3) Sub-question three?
 难度:hard
 </解析>
 
@@ -4961,11 +5028,7 @@ __MATERIAL_PLACEHOLDER__
 ### 出题要求
 
 **题型与数量：**
-- 单选题：10题（每题4个选项A/B/C/D，只有1个正确答案）
-- 多选题：5题（每题4个选项A/B/C/D，有2～4个正确答案）
-- 是非题：8题（判断正误，答案为"正确"或"错误"）
-- 简答题：4题（需提供参考答案）
-- 材料分析题：3题（题干中须嵌入参考材料中的具体文字片段，问题指向对应知识点的分析应用）
+{import_question_list}
 
 **质量要求：**
 1. 每道题的情境或背景必须来自参考材料中的具体内容（政策名称、数据、措施、案例原文），不得凭空编造
@@ -5103,11 +5166,7 @@ Step 3: Using the reference material as the situational context and the textbook
 ### Question Requirements
 
 **Question types and quantities:**
-- Multiple-choice (single answer): 10 questions (4 options A/B/C/D, exactly 1 correct answer)
-- Multiple-choice (multiple answers): 5 questions (4 options A/B/C/D, 2–4 correct answers)
-- True/False: 8 questions (answer is "正确" for True or "错误" for False)
-- Short answer: 4 questions (provide a reference answer)
-- Case analysis: 3 questions (embed a specific excerpt from the reference material in the stem; the question must require analysis using a named knowledge point)
+{import_question_list}
 
 **Quality requirements:**
 1. Every question's context must come from specific content in the reference material (policy names, figures, measures, case quotes) — do not fabricate
@@ -5258,11 +5317,7 @@ __MATERIAL_PLACEHOLDER__
 ### 出题要求
 
 **题型与数量：**
-- 单选题：10题（每题4个选项A/B/C/D，只有1个正确答案）
-- 多选题：5题（每题4个选项A/B/C/D，有2～4个正确答案）
-- 是非题：8题（判断正误，答案为"正确"或"错误"）
-- 简答题：4题（需提供参考答案）
-- 材料分析题：3题（题干中须嵌入参考材料中的具体文字片段）
+{import_question_list}
 
 **质量要求：**
 1. 每道题的情境或背景必须来自参考材料中的具体内容（政策名称、数据、措施、案例原文），不得凭空编造
@@ -5474,14 +5529,170 @@ __MATERIAL_PLACEHOLDER__
             return AI_PROMPTS[mode];
         }
 
+        // ── 题型配置表（首页AI出题） ──────────────────────────────────────────────
+
+        let _importTypeRowId = 0;
+
+        // 每种模式的默认题型
+        const _importTypeDefaults = {
+            zh:                 [['单选',15],['多选',8],['是非',10],['简答',5],['简答>论述',3],['简答>材料分析',2]],
+            bilingual:          [['单选',15],['多选',8],['是非',10],['简答',5],['简答>论述',3],['简答>材料分析',2]],
+            en:                 [['单选',15],['多选',8],['是非',10],['简答',5],['简答>论述',3],['简答>材料分析',2]],
+            material:           [['单选',10],['多选',5],['是非',8],['简答',4],['简答>材料分析',3]],
+            material_en:        [['单选',10],['多选',5],['是非',8],['简答',4],['简答>材料分析',3]],
+            material_bilingual: [['单选',10],['多选',5],['是非',8],['简答',4],['简答>材料分析',3]],
+        };
+
+        // 中英文题型描述
+        const _importTypeMeta = {
+            '单选':           { zh:'每题4个选项A/B/C/D，只有1个正确答案', en:'4 options A/B/C/D, only 1 correct answer' },
+            '多选':           { zh:'每题4个选项A/B/C/D，有2～4个正确答案', en:'4 options A/B/C/D, 2~4 correct answers' },
+            '是非':           { zh:'判断正误，答案为"正确"或"错误"', en:'True/False, answer is 正确 or 错误' },
+            '简答':           { zh:'每题只含一个小问，提供完整参考答案', en:'one single sub-question per question' },
+            '简答>论述':      { zh:'每题分为3个小问，每小问5分，共15分', en:'3 sub-questions, 5 pts each, 15 pts total' },
+            '简答>计算':      { zh:'需提供计算步骤和答案', en:'provide calculation steps and answer' },
+            '简答>材料分析':  { zh:'题干中须嵌入具体文字片段，问题指向知识点分析', en:'embed a material excerpt in the stem, require analysis using a knowledge point' },
+        };
+
+        const _importTypeEnLabels = {
+            '单选':          'Single-choice questions',
+            '多选':          'Multiple-choice questions',
+            '是非':          'True/False questions',
+            '简答':          'Short answer questions',
+            '简答>论述':     'Essay questions',
+            '简答>计算':     'Calculation questions',
+            '简答>材料分析': 'Case analysis questions',
+        };
+
+        function addImportTypeRow(typeName, count) {
+            const tbody = document.getElementById('import-type-rows');
+            if (!tbody) return;
+            const id = ++_importTypeRowId;
+            // 从 questionTypesCache 构建选项
+            const opts = (questionTypesCache || []).map(qt =>
+                `<option value="${qt.name}" ${qt.name === typeName ? 'selected' : ''}>${qt.label || qt.name}</option>`
+            ).join('');
+            const tr = document.createElement('tr');
+            tr.id = `import-type-row-${id}`;
+            tr.innerHTML = `
+                <td style="padding:3px 6px; border:1px solid #ddd;">
+                    <select class="import-type-select"
+                            style="width:100%; border:1px solid #ccc; border-radius:4px; padding:2px 4px; font-size:0.85rem;"
+                            onchange="updatePromptDisplay()">${opts}</select>
+                </td>
+                <td style="border:1px solid #ddd; text-align:center;">
+                    <input type="number" class="import-type-count" value="${count ?? 5}" min="0" max="99"
+                           style="width:52px; text-align:center; padding:2px 4px; border:1px solid #ccc; border-radius:4px; font-size:0.85rem;"
+                           oninput="updatePromptDisplay()">
+                </td>
+                <td style="border:1px solid #ddd; text-align:center;">
+                    <button onclick="removeImportTypeRow(this)" title="删除"
+                            style="background:none; border:none; color:#e74c3c; cursor:pointer; padding:2px 6px; font-size:0.9rem;">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </td>`;
+            tbody.appendChild(tr);
+        }
+
+        function removeImportTypeRow(btn) {
+            btn.closest('tr').remove();
+            updatePromptDisplay();
+        }
+
+        function initImportTypeTable(mode) {
+            const tbody = document.getElementById('import-type-rows');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            _importTypeRowId = 0;
+            const defaults = _importTypeDefaults[mode] || _importTypeDefaults.zh;
+            defaults.forEach(([name, count]) => addImportTypeRow(name, count));
+        }
+
+        function resetImportTypeTable() {
+            const mode = document.getElementById('prompt-mode-select').value;
+            initImportTypeTable(mode);
+        }
+
+        function buildImportQuestionList(mode) {
+            const isEn = (mode === 'en' || mode === 'material_en');
+            const rows = document.querySelectorAll('#import-type-rows tr');
+            const lines = [];
+            rows.forEach(tr => {
+                const typeName = tr.querySelector('.import-type-select')?.value;
+                const count = parseInt(tr.querySelector('.import-type-count')?.value || '0', 10);
+                if (!typeName || count <= 0) return;
+                const meta = _importTypeMeta[typeName];
+                if (isEn) {
+                    const label = _importTypeEnLabels[typeName] || (typeName + ' questions');
+                    const desc = meta?.en || '';
+                    lines.push(`- ${label}: ${count}${desc ? ` (${desc})` : ''}`);
+                } else {
+                    const ragMeta = RAG_TYPE_META[typeName];
+                    const label = ragMeta ? ragMeta.label : `${typeName}题`;
+                    const desc = meta?.zh || '';
+                    lines.push(`- ${label}：${count}题${desc ? `（${desc}）` : ''}`);
+                }
+            });
+            return lines.join('\n');
+        }
+
+        function buildImportFormatExamples(mode) {
+            const isMaterial = _MATERIAL_MODES.has(mode);
+            const baseKey = (mode === 'bilingual' || mode === 'material_bilingual') ? 'bilingual'
+                          : (mode === 'en' || mode === 'material_en') ? 'en' : 'zh';
+            const rows = document.querySelectorAll('#import-type-rows tr');
+            const selectedTypes = [...rows].map(tr => tr.querySelector('.import-type-select')?.value).filter(Boolean);
+            const baseExamples = IMPORT_FORMAT_EXAMPLES[baseKey] || IMPORT_FORMAT_EXAMPLES.zh;
+            const parts = selectedTypes
+                .filter(t => baseExamples[t])
+                .map(t => {
+                    let fmt = baseExamples[t];
+                    if (isMaterial) {
+                        // 给解析块注入 材料依据 字段
+                        fmt = fmt.replace(/\n知识点:/g, '\n材料依据:参考材料中的具体依据\n知识点:');
+                    }
+                    return fmt;
+                });
+            return parts.join('\n') + '\n---\n';
+        }
+
+        function _replaceImportFormatExamples(prompt, mode) {
+            const formatted = buildImportFormatExamples(mode);
+            // 匹配从第一个 --- 分隔符到最后一个 ---（紧接 ### 注意事项之前）
+            // 各模式末尾都是 ---\n\n### ，用前瞻断言匹配
+            return prompt.replace(/---\n[\s\S]*?---\n(?=\n### )/, formatted);
+        }
+
         function updatePromptDisplay() {
             const mode = document.getElementById('prompt-mode-select').value;
             _updatePanelVisibility(mode);
-            document.getElementById('prompt-display').value = buildPromptWithNotes(mode, _reviewNotesText);
+            let prompt = buildPromptWithNotes(mode, _reviewNotesText);
+            prompt = prompt.replace('{import_question_list}', buildImportQuestionList(mode));
+            prompt = _replaceImportFormatExamples(prompt, mode);
+            document.getElementById('prompt-display').value = prompt;
         }
 
-        document.getElementById('prompt-mode-select').addEventListener('change', updatePromptDisplay);
-        updatePromptDisplay();
+        document.getElementById('prompt-mode-select').addEventListener('change', () => {
+            const mode = document.getElementById('prompt-mode-select').value;
+            // 切换大类（普通↔材料）时重置题型表
+            const wasMaterial = _MATERIAL_MODES.has(_lastImportMode || '');
+            const nowMaterial = _MATERIAL_MODES.has(mode);
+            if (wasMaterial !== nowMaterial) initImportTypeTable(mode);
+            _lastImportMode = mode;
+            updatePromptDisplay();
+        });
+        let _lastImportMode = 'zh';
+
+        // 等 questionTypesCache 加载后再初始化
+        function _initImportTypeTableWhenReady() {
+            if (questionTypesCache && questionTypesCache.length > 0) {
+                initImportTypeTable('zh');
+                updatePromptDisplay();
+            } else {
+                setTimeout(_initImportTypeTableWhenReady, 200);
+            }
+        }
+        _initImportTypeTableWhenReady();
 
         document.getElementById('copy-prompt-btn').addEventListener('click', () => {
             const ta = document.getElementById('prompt-display');
@@ -8768,6 +8979,85 @@ Reference answer integrating theory and case.
 知识点:Knowledge point name
 标签:tag1,tag2
 英文题目:[Case] Case material. [Question] Question in English?
+难度:hard
+</解析>
+`,
+            },
+        };
+
+        // ── 首页AI出题：格式示例（论述题已更新为3小问评分制） ─────────────────────
+
+        const IMPORT_FORMAT_EXAMPLES = {
+            zh: {
+                ...RAG_FORMAT_EXAMPLES.zh,
+                '简答>论述': `---
+论述题格式：
+[简答>论述]
+题目总述，要求从以下3个方面回答：
+（1）子问题一？
+（2）子问题二？
+（3）子问题三？
+<参考答案>
+（1）（5分）要点1；要点2；要点3。
+（2）（5分）要点1；要点2；要点3。
+（3）（5分）要点1；要点2；要点3。
+</参考答案>
+<解析>
+第（1）问（5分）：评分要点...
+第（2）问（5分）：评分要点...
+第（3）问（5分）：评分要点...
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+难度:hard
+</解析>
+`,
+            },
+            bilingual: {
+                ...RAG_FORMAT_EXAMPLES.bilingual,
+                '简答>论述': `---
+双语论述题格式：
+[简答>论述]
+题目总述，要求从以下3个方面回答：
+（1）子问题一？
+（2）子问题二？
+（3）子问题三？
+<参考答案>
+（1）（5分）要点1；要点2；要点3。
+（2）（5分）要点1；要点2；要点3。
+（3）（5分）要点1；要点2；要点3。
+</参考答案>
+<解析>
+第（1）问（5分）：评分要点...
+第（2）问（5分）：评分要点...
+第（3）问（5分）：评分要点...
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+英文题目:Essay topic with three parts: (1) Sub-question one? (2) Sub-question two? (3) Sub-question three?
+难度:hard
+</解析>
+`,
+            },
+            en: {
+                ...RAG_FORMAT_EXAMPLES.en,
+                '简答>论述': `---
+Essay format:
+[简答>论述]
+Essay topic overview, covering the following three aspects:
+(1) Sub-question one?
+(2) Sub-question two?
+(3) Sub-question three?
+<参考答案>
+(1) (5 pts) Key points: point 1; point 2; point 3.
+(2) (5 pts) Key points: point 1; point 2; point 3.
+(3) (5 pts) Key points: point 1; point 2; point 3.
+</参考答案>
+<解析>
+Sub-question (1) (5 pts): scoring criteria...
+Sub-question (2) (5 pts): scoring criteria...
+Sub-question (3) (5 pts): scoring criteria...
+知识点:Knowledge point name
+标签:tag1,tag2
+英文题目:Essay topic with three parts: (1) Sub-question one? (2) Sub-question two? (3) Sub-question three?
 难度:hard
 </解析>
 `,
