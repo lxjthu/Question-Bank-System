@@ -1118,7 +1118,7 @@ def import_questions():
                 # 构建返回消息
                 msg_parts = [f'成功导入 {imported} 题，跳过重复 {skipped} 题（含相似题）']
                 if created_types:
-                    msg_parts.append(f'，自动创建 {len(created_types)} 个新题型：{', '.join(created_types)}')
+                    msg_parts.append('，自动创建 {} 个新题型：{}'.format(len(created_types), '、'.join(created_types)))
                 
                 return jsonify({
                     'message': ''.join(msg_parts),
