@@ -1203,7 +1203,9 @@
                                 <option value="default_zh">模式一：纯中文出题（默认）</option>
                                 <option value="default_bilingual">模式二：中英双语出题（默认）</option>
                                 <option value="default_en">模式三：纯英文出题（默认）</option>
-                                <option value="default_material">模式四：根据材料出题（默认）</option>
+                                <option value="default_material">模式四：根据材料出题·中文（默认）</option>
+                                <option value="default_material_en">模式五：根据材料出题·英文（默认）</option>
+                                <option value="default_material_bilingual">模式六：根据材料出题·双语（默认）</option>
                             </optgroup>
                             <optgroup label="我的提示词" id="import-custom-prompt-group">
                             </optgroup>
@@ -1213,7 +1215,9 @@
                             <option value="zh">模式一：纯中文出题</option>
                             <option value="bilingual">模式二：中英双语出题</option>
                             <option value="en">模式三：纯英文出题</option>
-                            <option value="material">模式四：根据材料出题</option>
+                            <option value="material">模式四：根据材料出题·中文</option>
+                            <option value="material_en">模式五：根据材料出题·英文</option>
+                            <option value="material_bilingual">模式六：根据材料出题·双语</option>
                         </select>
                         <button id="copy-prompt-btn" class="btn btn-outline" style="padding:6px 14px; white-space:nowrap;">
                             <i class="fas fa-copy"></i> 复制提示词
@@ -5080,6 +5084,319 @@ __MATERIAL_PLACEHOLDER__
 7. 不要在题目外添加任何说明性文字、章节标题或分割线（含"第一步""第二步"等过程文字）
 8. 不要使用 \`*\`、\`**\`、\`#\` 等 Markdown 格式符号
 
+现在请开始出题，直接输出题目内容，不需要任何前言。`,
+
+            material_en: `You are a professional academic content designer specializing in combining policy documents, real-world cases and course knowledge to generate exam questions.
+
+The following is the reference material for this session:
+
+=== Reference Material ===
+__MATERIAL_PLACEHOLDER__
+=== End of Reference Material ===
+
+Please upload the textbook or courseware file (PPT/PDF), then complete the task in three steps:
+
+Step 1: Carefully read the reference material above and extract 4–8 key themes, policy points, typical cases or important data (each within 15 words).
+Step 2: Read the uploaded textbook/courseware file and identify the knowledge points, concepts, principles and theoretical frameworks that directly correspond to the material themes. List the mapping before generating questions (format: "Material point → Knowledge point | Explanation").
+Step 3: Using the reference material as the situational context and the textbook knowledge points as the theoretical basis, generate questions following the requirements below. Each question must both test mastery of course knowledge and reflect understanding of the reference material.
+
+### Question Requirements
+
+**Question types and quantities:**
+- Multiple-choice (single answer): 10 questions (4 options A/B/C/D, exactly 1 correct answer)
+- Multiple-choice (multiple answers): 5 questions (4 options A/B/C/D, 2–4 correct answers)
+- True/False: 8 questions (answer is "正确" for True or "错误" for False)
+- Short answer: 4 questions (provide a reference answer)
+- Case analysis: 3 questions (embed a specific excerpt from the reference material in the stem; the question must require analysis using a named knowledge point)
+
+**Quality requirements:**
+1. Every question's context must come from specific content in the reference material (policy names, figures, measures, case quotes) — do not fabricate
+2. Answers must draw on knowledge points from the textbook/courseware; common sense alone is insufficient
+3. Difficulty distribution per type — easy 20%, medium 50%, hard 30%:
+   - **easy**: answer can be found directly in the material or textbook
+   - **medium**: requires applying a course theory to explain or analyse a real situation from the material
+   - **hard**: requires integrating multiple knowledge points for critical analysis or proposing solutions
+4. Cover the main topics of the material and core knowledge points of the course
+5. Each question must include "材料依据" (specific basis from the material) and "知识点" (theory from the textbook) inside the \`<解析>\` block
+6. Distractors for choice questions must be plausible but incorrect based on material or textbook content
+7. Case-analysis questions must embed a material quote (50–150 words) in the 【材料】 section and explicitly name the knowledge point in the 【问题】 section
+8. **Questions must be self-contained** — never reference "Chapter X", "PPT slide X", "as shown above", etc.
+9. **Length limit**: stem + options + reference answer each ≤ 500 characters
+
+**Output format (strictly follow):**
+
+⚠️ **Critical format rules:**
+- **All brackets must be half-width**: \`[\` \`]\` \`<\` \`>\` — no full-width equivalents
+- **Question type markers are fixed Chinese codes** — do NOT translate: [单选], [多选], [是非], [简答], [简答>材料分析]
+- **Choice answers**: \`[单选][A]\`, \`[多选][ABD]\` — uppercase letters only
+- **True/False answers**: only \`[正确]\` (True) or \`[错误]\` (False)
+- **Option lines must be flush-left**: \`[A]Option text\`
+- **Bilingual options**: add \`[A_en]~[D_en]\` after Chinese options
+- **\`<参考答案>\` and \`<解析>\` tags must be paired with closing tags**
+- **Metadata fields inside \`<解析>\`**: 材料依据, 知识点, 标签, 英文题目, 难度
+- **Difficulty**: \`easy\`, \`medium\`, or \`hard\` (lowercase English only)
+
+---
+**Multiple-choice (single answer) format:**
+[单选][correct option letter]
+Question stem (situation from reference material)?
+[A]Option A
+[B]Option B
+[C]Option C
+[D]Option D
+[A_en]Option A in English
+[B_en]Option B in English
+[C_en]Option C in English
+[D_en]Option D in English
+<解析>
+Explanation
+材料依据:specific basis from reference material
+知识点:knowledge point name from textbook
+标签:tag1,tag2
+英文题目:Question stem in English?
+难度:easy|medium|hard
+</解析>
+
+---
+**Multiple-choice (multiple answers) format:**
+[多选][correct letters e.g. ABD]
+Question stem?
+[A]Option A
+[B]Option B
+[C]Option C
+[D]Option D
+[A_en]Option A in English
+[B_en]Option B in English
+[C_en]Option C in English
+[D_en]Option D in English
+<解析>
+Explanation
+材料依据:specific basis from reference material
+知识点:knowledge point name from textbook
+标签:tag1,tag2
+英文题目:Question stem in English?
+难度:easy|medium|hard
+</解析>
+
+---
+**True/False format:**
+[是非][正确|错误]
+Declarative statement.
+<解析>
+Explanation
+材料依据:specific basis from reference material
+知识点:knowledge point name from textbook
+标签:tag1,tag2
+英文题目:Declarative statement in English.
+难度:easy|medium|hard
+</解析>
+
+---
+**Short answer format:**
+[简答]
+Question?
+<参考答案>
+Reference answer (point 1; point 2; point 3…)
+</参考答案>
+<解析>
+Explanation (optional)
+材料依据:specific basis from reference material
+知识点:knowledge point name from textbook
+标签:tag1,tag2
+英文题目:Question in English?
+难度:easy|medium|hard
+</解析>
+
+---
+**Case analysis format:**
+[简答>材料分析]
+【材料】
+(Quote 50–150 words from the reference material)
+
+【问题】
+Based on the material above, apply [knowledge point name] theory to analyse…?
+<参考答案>
+Reference answer (combine material quote with theoretical analysis)
+</参考答案>
+<解析>
+Explanation
+材料依据:specific basis from reference material
+知识点:knowledge point name from textbook
+标签:tag1,tag2
+英文题目:[Case] Quoted material excerpt. [Question] Apply [theory] to analyse…?
+难度:hard
+</解析>
+
+---
+
+### Format notes
+
+1. Question type markers are fixed Chinese system codes — keep them exactly: [单选], [多选], [是非], [简答], [简答>材料分析]
+2. Option lines flush-left: [A]text, [B]text — uppercase letters
+3. Metadata field names inside \`<解析>\` are fixed — do not rename or translate them
+4. Difficulty: easy, medium, or hard — lowercase English only
+5. Blank lines between questions are fine
+6. Do not add question numbers; do not add any explanatory text outside question blocks
+7. Do not use Markdown formatting characters such as \`*\`, \`**\`, \`#\`
+
+Now please start generating questions. Output question content directly without any preamble.`,
+
+            material_bilingual: `你是一位专业的双语教学内容设计专家，擅长将政策文件、时事案例与课程知识点结合，出具中英双语题库。
+
+以下是本次出题的参考材料：
+
+=== 参考材料 ===
+__MATERIAL_PLACEHOLDER__
+=== 参考材料结束 ===
+
+请上传教材或课件文件（PPT/PDF），然后按以下三个步骤完成出题任务：
+
+第一步：仔细阅读上述参考材料，提取其中的核心主题、政策要点、典型案例和关键数据（每条15字以内，列出4～8条）。
+第二步：阅读上传的教材/课件文件，找出与参考材料主题直接相关的知识点、概念、原理和理论框架，建立参考材料要点与课程知识点的明确对应关系（在出题前简要列出，格式："材料要点 → 对应知识点 | 说明"）。
+第三步：以参考材料为情境载体，以教材/课件中的知识点为理论依据，按以下要求出中英双语题目。
+
+### 出题要求
+
+**题型与数量：**
+- 单选题：10题（每题4个选项A/B/C/D，只有1个正确答案）
+- 多选题：5题（每题4个选项A/B/C/D，有2～4个正确答案）
+- 是非题：8题（判断正误，答案为"正确"或"错误"）
+- 简答题：4题（需提供参考答案）
+- 材料分析题：3题（题干中须嵌入参考材料中的具体文字片段）
+
+**质量要求：**
+1. 每道题的情境或背景必须来自参考材料中的具体内容（政策名称、数据、措施、案例原文），不得凭空编造
+2. 解答必须依据教材/课件中的知识点，不能仅靠常识作答
+3. 在每种题型中，题目难度分布约为：简单(easy) 20%、中等(medium) 50%、困难(hard) 30%
+4. 覆盖参考材料中的主要议题和教材中的核心知识点
+5. 每道题必须在解析中标注"材料依据"（来自参考材料的具体依据）和"知识点"（来自教材的理论依据）
+6. 选择题的干扰项要来自材料或教材中相关但不准确的内容，不能过于明显
+7. 材料分析题须在题干【材料】部分引用参考材料原文（50～150字），【问题】部分明确要求运用特定知识点分析
+8. **题目必须独立成立**，严禁在题干中出现"如第X章所述""见PPT第X张"等表述
+9. **字数限制**：每道题的题干（含选项）和参考答案均不超过 **500字**
+
+**双语输出规则：**
+- 每道题的中文内容与英文内容均须完整，不得简化
+- 选择题：先列出中文选项 [A]~[D]，再列出对应英文选项 [A_en]~[D_en]
+- 是非题、简答题、材料分析题：在 \`<解析>\` 块内用 \`英文题目:\` 字段提供英文题干（含完整英文材料引文和问题）
+- 参考答案只需中文版，英文题目字段仅填英文题干
+
+**输出格式（必须严格遵守）：**
+
+⚠️ **导入格式关键要素：**
+- **所有括号必须是半角字符**：\`[\` \`]\` \`<\` \`>\`，不能用全角
+- **题型标识符为固定中文系统代码**，不可翻译：[单选]、[多选]、[是非]、[简答]、[简答>材料分析]
+- **选择题答案**：\`[单选][A]\`、\`[多选][ABD]\`，必须大写字母
+- **是非题答案**：只能写 \`[正确]\` 或 \`[错误]\`
+- **选项行必须顶格写**：\`[A]选项内容\`
+- **\`<参考答案>\` 和 \`<解析>\` 标签必须成对出现**
+- **材料依据、知识点、英文题目、标签、难度必须写在 \`<解析>\` 块内**
+- **难度只能写** \`easy\`、\`medium\` 或 \`hard\`（全小写）
+
+---
+**单选题格式：**
+[单选][正确选项字母]
+题目内容（情境来自参考材料）？
+[A]选项A中文
+[B]选项B中文
+[C]选项C中文
+[D]选项D中文
+[A_en]Option A in English
+[B_en]Option B in English
+[C_en]Option C in English
+[D_en]Option D in English
+<解析>
+解析说明
+材料依据:参考材料中的具体依据
+知识点:对应的教材知识点名称
+标签:标签1,标签2
+英文题目:Question stem in English?
+难度:easy|medium|hard
+</解析>
+
+---
+**多选题格式：**
+[多选][正确选项字母组合]
+题目内容？
+[A]选项A中文
+[B]选项B中文
+[C]选项C中文
+[D]选项D中文
+[A_en]Option A in English
+[B_en]Option B in English
+[C_en]Option C in English
+[D_en]Option D in English
+<解析>
+解析说明
+材料依据:参考材料中的具体依据
+知识点:对应的教材知识点名称
+标签:标签1,标签2
+英文题目:Question stem in English?
+难度:easy|medium|hard
+</解析>
+
+---
+**是非题格式：**
+[是非][正确|错误]
+题目陈述句。
+<解析>
+解析说明
+材料依据:参考材料中的具体依据
+知识点:对应的章节或知识点名称
+标签:标签1,标签2
+英文题目:Declarative statement in English.
+难度:easy|medium|hard
+</解析>
+
+---
+**简答题格式：**
+[简答]
+题目内容？
+<参考答案>
+参考答案内容（要点1；要点2；要点3……）
+</参考答案>
+<解析>
+解析说明（可选）
+材料依据:参考材料中的具体依据
+知识点:对应的教材知识点名称
+标签:标签1,标签2
+英文题目:Question in English?
+难度:easy|medium|hard
+</解析>
+
+---
+**材料分析题格式：**
+[简答>材料分析]
+【材料】
+（直接引用参考材料原文片段，50～150字）
+
+【问题】
+根据上述材料，运用[知识点名称]相关理论，分析……？
+<参考答案>
+参考答案（结合材料引文和理论知识点进行分析）
+</参考答案>
+<解析>
+解析说明
+材料依据:参考材料中的具体依据
+知识点:对应的教材知识点名称
+标签:标签1,标签2
+英文题目:[Case] English translation of material quote. [Question] Apply [theory name] to analyse…?
+难度:hard
+</解析>
+
+---
+
+### 格式注意事项
+
+1. 题型标识符为固定中文代码，不可翻译，如 [单选]、[多选]、[是非]、[简答]、[简答>材料分析]
+2. 选项格式：[A]中文内容，随后 [A_en]English content，字母大写，选项行顶格
+3. <解析>...</解析> 中的元数据字段名称固定，冒号后不加空格
+4. 难度值只能是：easy、medium、hard 三选一，必须用英文小写
+5. 每道题之间可以有空行，便于阅读
+6. 不要添加题号（系统会自动编号）
+7. 不要在题目外添加任何说明性文字、章节标题或分割线（含"第一步""第二步"等过程文字）
+8. 不要使用 \`*\`、\`**\`、\`#\` 等 Markdown 格式符号
+
 现在请开始出题，直接输出题目内容，不需要任何前言。`
         };
 
@@ -5087,17 +5404,20 @@ __MATERIAL_PLACEHOLDER__
         let _reviewNotesText = '';
         let _materialText = '';
 
-        // ── 模式四：material 提示词（占位符替换） ─────────────────────────────────
-        function buildMaterialPrompt(materialText) {
+        // ── 模式四/五/六：material 提示词（占位符替换） ──────────────────────────
+        const _MATERIAL_MODES = new Set(['material', 'material_en', 'material_bilingual']);
+
+        function buildMaterialPrompt(mode, materialText) {
             const placeholder = '【请上传参考材料文件（.docx/.txt），点击"嵌入材料并生成提示词"按钮后此处将自动替换为材料内容】';
-            return AI_PROMPTS.material.replace('__MATERIAL_PLACEHOLDER__', materialText || placeholder);
+            const key = _MATERIAL_MODES.has(mode) ? mode : 'material';
+            return AI_PROMPTS[key].replace('__MATERIAL_PLACEHOLDER__', materialText || placeholder);
         }
 
         // ── 面板显隐随模式切换 ────────────────────────────────────────────────────
         function _updatePanelVisibility(mode) {
             const reviewPanel   = document.getElementById('review-notes-panel');
             const materialPanel = document.getElementById('material-upload-panel');
-            if (mode === 'material') {
+            if (_MATERIAL_MODES.has(mode)) {
                 if (reviewPanel)   reviewPanel.style.display   = 'none';
                 if (materialPanel) materialPanel.style.display = '';
             } else {
@@ -5112,7 +5432,7 @@ __MATERIAL_PLACEHOLDER__
          * replaced with the actual notes content so users can skip uploading to the AI.
          */
         function buildPromptWithNotes(mode, notesText) {
-            if (mode === 'material') return buildMaterialPrompt(_materialText);
+            if (_MATERIAL_MODES.has(mode)) return buildMaterialPrompt(mode, _materialText);
             if (!notesText) return AI_PROMPTS[mode];
 
             if (mode === 'zh') {
@@ -5260,9 +5580,9 @@ __MATERIAL_PLACEHOLDER__
                     return;
                 }
                 _materialText = data.text;
-                // 确保当前是 material 模式
+                // 若当前不是任何 material 模式，自动切换到模式四
                 const modeSelect = document.getElementById('prompt-mode-select');
-                if (modeSelect && modeSelect.value !== 'material') {
+                if (modeSelect && !_MATERIAL_MODES.has(modeSelect.value)) {
                     modeSelect.value = 'material';
                     const sel = document.getElementById('import-prompt-selector');
                     if (sel) sel.value = 'default_material';
