@@ -520,6 +520,32 @@
             #ds-kg-legend { max-height: 54px !important; }
         }
 
+        /* ── 知识图谱 Tab 移动端适配 (≤768px) ── */
+        @media (max-width: 768px) {
+            /* 示例知识图谱：图 + 详情面板竖向堆叠 */
+            #demo-kp-layout {
+                flex-direction: column;
+            }
+            #demo-kp-detail {
+                width: 100% !important;
+                box-sizing: border-box;
+            }
+
+            /* AI 功能区：左列（文档管理）+ 右列（出题配置）竖向堆叠 */
+            #ai-two-col {
+                flex-direction: column;
+            }
+            #ai-two-col > div:first-child {
+                width: 100% !important;
+                flex-shrink: 1 !important;
+            }
+
+            /* 章节筛选 + 知识点：竖向堆叠 */
+            #rag-chapters-kp-row {
+                flex-direction: column;
+            }
+        }
+
         /* Additional styles for specific functionality */
         .question-type-section {
             margin: 20px 0;
@@ -1558,7 +1584,7 @@
                         <span style="font-size:0.75rem;color:#7fb3d3;margin-left:auto;">点击节点查看详情</span>
                     </div>
                     <!-- 图 + 详情面板 -->
-                    <div style="display:flex;gap:12px;align-items:flex-start;">
+                    <div id="demo-kp-layout" style="display:flex;gap:12px;align-items:flex-start;">
                         <div id="demo-kp-graph" style="flex:1;min-width:0;height:260px;background:#fff;border-radius:8px;border:1px solid #d4e6f1;position:relative;overflow:hidden;">
                             <svg id="demo-kp-svg" width="100%" height="100%"></svg>
                             <div id="demo-kp-loading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:0.85rem;">加载中...</div>
@@ -1588,7 +1614,7 @@
                 <div id="ai-full-section">
 
                 <!-- Top: Two columns -->
-                <div style="display:flex; gap:16px; margin-bottom:16px; align-items:flex-start;">
+                <div id="ai-two-col" style="display:flex; gap:16px; margin-bottom:16px; align-items:flex-start;">
 
                     <!-- Left column: Knowledge base management (25%) + API config -->
                     <div style="width:260px; flex-shrink:0; display:flex; flex-direction:column; gap:12px;">
@@ -1754,7 +1780,7 @@
                             </div>
 
                             <!-- 章节筛选 + 知识点：左右两列 -->
-                            <div style="display:flex; gap:16px; margin-bottom:14px;">
+                            <div id="rag-chapters-kp-row" style="display:flex; gap:16px; margin-bottom:14px;">
                                 <!-- 章节筛选 -->
                                 <div style="flex:1; min-width:0;">
                                     <label style="display:block; margin-bottom:5px; font-weight:500; color:var(--primary-color);">
