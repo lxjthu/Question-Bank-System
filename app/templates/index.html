@@ -5696,17 +5696,18 @@ __MATERIAL_PLACEHOLDER__
 
         document.getElementById('copy-prompt-btn').addEventListener('click', () => {
             const ta = document.getElementById('prompt-display');
-            navigator.clipboard.writeText(ta.value).then(() => {
+            function _onCopied() {
                 const btn = document.getElementById('copy-prompt-btn');
                 btn.innerHTML = '<i class="fas fa-check"></i> 已复制';
                 setTimeout(() => { btn.innerHTML = '<i class="fas fa-copy"></i> 复制提示词'; }, 2000);
-            }).catch(() => {
+            }
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(ta.value).then(_onCopied);
+            } else {
                 ta.select();
                 document.execCommand('copy');
-                const btn = document.getElementById('copy-prompt-btn');
-                btn.innerHTML = '<i class="fas fa-check"></i> 已复制';
-                setTimeout(() => { btn.innerHTML = '<i class="fas fa-copy"></i> 复制提示词'; }, 2000);
-            });
+                _onCopied();
+            }
         });
 
         // ========== Review Notes Upload ==========
@@ -9199,13 +9200,17 @@ Sub-question (3) (5 pts): scoring criteria...
         function ragCopyResult() {
             const el = document.getElementById('rag-result');
             if (!el || !el.value) { alert('结果区为空，请先生成题目。'); return; }
-            navigator.clipboard.writeText(el.value).then(() => {
+            function _onCopied() {
                 const statusEl = document.getElementById('rag-result-status');
                 if (statusEl) { statusEl.textContent = '✓ 已复制到剪贴板'; statusEl.style.color = '#2980b9'; setTimeout(() => { statusEl.textContent = ''; statusEl.style.color = '#888'; }, 2500); }
-            }).catch(() => {
+            }
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(el.value).then(_onCopied);
+            } else {
                 el.select();
                 document.execCommand('copy');
-            });
+                _onCopied();
+            }
         }
 
         // ── 导入题库 ──────────────────────────────────────────────────────────────
