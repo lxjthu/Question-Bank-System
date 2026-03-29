@@ -508,14 +508,29 @@ def get_config(pool_id):
     pool, err = _check_pool_access(pool_id, user)
     if err:
         return jsonify({'error': err[0]}), err[1]
-    cfg = _fetch_one(
-        "SELECT * FROM interview_configs WHERE pool_id=:pid ORDER BY updated_at DESC LIMIT 1",
+    configs = _fetch(
+        "SELECT * FROM interview_configs WHERE pool_id=:pid ORDER BY updated_at DESC",
         pid=pool_id
     )
-    if not cfg:
-        return jsonify({'config': None, 'slots': []})
-    slots = json.loads(cfg['slots_json']) if cfg['slots_json'] else []
-    return jsonify({'config': cfg, 'slots': slots})
+    subjects_rows = _fetch("""
+        SELECT DISTINCT q.subject FROM interview_pool_questions ipq
+        JOIN questions q ON q.question_id=ipq.question_id
+        WHERE ipq.pool_id=:pid AND q.subject IS NOT NULL AND q.subject != ''
+    """, pid=pool_id)
+    all_subjects = [r['subject'] for r in subjects_rows]
+    result = []
+    for cfg in configs:
+        slots = json.loads(cfg['slots_json']) if cfg['slots_json'] else []
+        type_counts = {}
+        for s in slots:
+            t = s.get('question_type', '?')
+            type_counts[t] = type_counts.get(t, 0) + 1
+        summary = ', '.join(f"{t}×{c}" for t, c in type_counts.items())
+        cfg['slots'] = slots
+        cfg['slot_summary'] = summary
+        cfg['subjects'] = all_subjects
+        result.append(cfg)
+    return jsonify({'configs': result})
 
 
 @interview_bp.route('/api/interview/pools/<int:pool_id>/config', methods=['PUT'])
@@ -531,7 +546,6 @@ def save_config(pool_id):
     if not slots:
         return jsonify({'error': '套题配置至少需要一个槽位'}), 400
 
-    # 校验每个槽位
     for i, slot in enumerate(slots):
         if not slot.get('question_type'):
             return jsonify({'error': f'第 {i+1} 个槽位缺少题型'}), 400
@@ -541,20 +555,158 @@ def save_config(pool_id):
     cfg_name = (data.get('config_name') or 'default').strip()
 
     existing = _fetch_one(
-        "SELECT id FROM interview_configs WHERE pool_id=:pid LIMIT 1",
-        pid=pool_id
+        "SELECT id FROM interview_configs WHERE pool_id=:pid AND config_name=:cn",
+        pid=pool_id, cn=cfg_name
     )
     if existing:
         _run(
-            "UPDATE interview_configs SET slots_json=:sj, config_name=:cn, updated_at=:t WHERE pool_id=:pid",
-            sj=slots_json, cn=cfg_name, t=now, pid=pool_id
+            "UPDATE interview_configs SET slots_json=:sj, updated_at=:t WHERE id=:cid",
+            sj=slots_json, t=now, cid=existing['id']
         )
+        config_id = existing['id']
     else:
         _run(
             "INSERT INTO interview_configs (pool_id, config_name, slots_json, created_at, updated_at) VALUES (:pid, :cn, :sj, :t, :t)",
             pid=pool_id, cn=cfg_name, sj=slots_json, t=now
         )
-    return jsonify({'ok': True, 'slots': slots})
+        row = _fetch_one(
+            "SELECT id FROM interview_configs WHERE pool_id=:pid AND config_name=:cn ORDER BY id DESC LIMIT 1",
+            pid=pool_id, cn=cfg_name
+        )
+        config_id = row['id'] if row else None
+    return jsonify({'ok': True, 'config_id': config_id, 'slots': slots})
+
+
+@interview_bp.route('/api/interview/pools/<int:pool_id>/config/<int:config_id>', methods=['DELETE'])
+@login_required
+def delete_config(pool_id, config_id):
+    user = get_current_user()
+    pool, err = _check_pool_access(pool_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
+    _run(
+        "DELETE FROM interview_configs WHERE id=:cid AND pool_id=:pid",
+        cid=config_id, pid=pool_id
+    )
+    return jsonify({'ok': True})
+
+
+@interview_bp.route('/api/interview/pools/<int:pool_id>/config/<int:config_id>/export-template', methods=['GET'])
+@login_required
+def export_config_template(pool_id, config_id):
+    user = get_current_user()
+    pool, err = _check_pool_access(pool_id, user)
+    if err:
+        return jsonify({'error': err[0]}), err[1]
+
+    cfg = _fetch_one(
+        "SELECT * FROM interview_configs WHERE id=:cid AND pool_id=:pid",
+        cid=config_id, pid=pool_id
+    )
+    if not cfg:
+        return jsonify({'error': '配置不存在'}), 404
+
+    slots = json.loads(cfg['slots_json']) if cfg['slots_json'] else []
+    set_count = request.args.get('set_count', 5, type=int)
+    set_count = max(1, min(set_count, 50))
+
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+    except ImportError:
+        return jsonify({'error': '缺少 openpyxl 依赖'}), 500
+
+    wb = openpyxl.Workbook()
+    header_fill = PatternFill('solid', fgColor='366092')
+    hdr_font = Font(bold=True, color='FFFFFF')
+
+    ws1 = wb.active
+    ws1.title = '套题列表'
+    h1 = ['set_code'] + [f"槽位{i+1}-{s.get('question_type', '?')}" for i, s in enumerate(slots)]
+    for col_idx, h in enumerate(h1, 1):
+        cell = ws1.cell(row=1, column=col_idx, value=h)
+        cell.font = hdr_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal='center', wrap_text=True)
+    for r in range(set_count):
+        ws1.cell(row=r + 2, column=1, value=f"SET-{r+1:03d}")
+    ws1.column_dimensions['A'].width = 14
+    for c in range(2, len(h1) + 1):
+        ws1.column_dimensions[openpyxl.utils.get_column_letter(c)].width = 25
+
+    ws2 = wb.create_sheet('题目详情')
+    h2 = ['set_code', 'slot_index', 'question_id', 'question_type', 'subject',
+          'difficulty', 'language', 'content', 'answer', 'reference_answer', 'explanation']
+    for col_idx, h in enumerate(h2, 1):
+        cell = ws2.cell(row=1, column=col_idx, value=h)
+        cell.font = hdr_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal='center', wrap_text=True)
+    for col_idx, w in enumerate([12, 8, 20, 12, 15, 10, 8, 60, 40, 60, 40], 1):
+        ws2.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    safe_name = re.sub(r'[^\w\-_\u4e00-\u9fff]', '_', cfg['config_name'])
+    date_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'面试套题模板_{safe_name}_{date_str}.xlsx',
+    )
+
+
+@interview_bp.route('/api/interview/templates/pool-xlsx', methods=['GET'])
+@login_required
+def download_pool_template():
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+    except ImportError:
+        return jsonify({'error': '缺少 openpyxl 依赖'}), 500
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = '面试题库池'
+
+    headers = [
+        'question_id', 'question_type', 'subject', 'difficulty', 'language',
+        'knowledge_point', 'tags', 'content', 'answer', 'reference_answer',
+        'explanation', 'content_en', 'options', 'options_en', 'drawn', 'drawn_at', 'added_at'
+    ]
+    header_fill = PatternFill('solid', fgColor='366092')
+    hdr_font = Font(bold=True, color='FFFFFF')
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = hdr_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal='center', wrap_text=True)
+
+    example = [
+        '', '简答', '农业经济学', 'medium', 'zh',
+        '第一章核心概念', '#知识点#标签1', '请简述农业现代化的特征。',
+        'A', '农业现代化具有工业化、科学化、社会化等特征……',
+        '考查对农业现代化基本概念的掌握', '', '', '', '可用', '', ''
+    ]
+    for col_idx, v in enumerate(example, 1):
+        ws.cell(row=2, column=col_idx, value=v)
+
+    col_widths = [20, 12, 15, 10, 8, 20, 20, 60, 40, 60, 40, 60, 30, 30, 8, 18, 18]
+    for col_idx, w in enumerate(col_widths, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = w
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name='面试题库池导入模板.xlsx',
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1692,8 +1844,12 @@ def import_pool_xlsx(pool_id):
     """
     从 Excel 导入题目到面试题库池。
     支持跨机器迁移：若 question_id 在本地不存在，自动从 Excel 行数据中新建题目。
+    支持自动匹配和创建新题型。
     """
     from sqlalchemy import text
+    from app.db_models import QuestionTypeModel
+    from app.routes import _match_question_type, _ensure_question_type
+    
     user = get_current_user()
     pool, perr = _check_pool_access(pool_id, user)
     if perr:
@@ -1728,7 +1884,18 @@ def import_pool_xlsx(pool_id):
     added = 0
     skipped = 0
     created = 0
+    created_types = []  # 记录新创建的题型
     now = _now_str()
+    
+    # 获取已知题型
+    known_types = {
+        qt.name for qt in QuestionTypeModel.query.filter(
+            db.or_(
+                QuestionTypeModel.owner_id.is_(None),
+                QuestionTypeModel.owner_id == user.id,
+            )
+        ).all()
+    }
 
     for row in rows[1:]:
         qid = str(_col(row, 'question_id')).strip()
@@ -1739,7 +1906,20 @@ def import_pool_xlsx(pool_id):
         existing_q = QuestionModel.query.filter_by(question_id=qid).first()
         if not existing_q:
             # 跨机器导入：从 Excel 行数据新建题目
-            qtype = str(_col(row, 'question_type') or '简答').strip()
+            raw_qtype = str(_col(row, 'question_type') or '简答').strip()
+            
+            # 处理题型匹配和创建
+            qtype, is_builtin, needs_create = _match_question_type(raw_qtype, known_types)
+            if needs_create:
+                final_type, error = _ensure_question_type(raw_qtype, user)
+                if error:
+                    skipped += 1
+                    continue
+                qtype = final_type
+                if qtype not in known_types:
+                    known_types.add(qtype)
+                    created_types.append(qtype)
+            
             content_text = str(_col(row, 'content') or '').strip()
             if not content_text:
                 continue
@@ -1789,7 +1969,11 @@ def import_pool_xlsx(pool_id):
         "SELECT question_id FROM interview_pool_questions WHERE pool_id=:pid", pid=pool_id
     )
     _sync_question_interview_status([r['question_id'] for r in all_pool_qids], owner_id=user.id)
-    return jsonify({'ok': True, 'added': added, 'skipped': skipped, 'created_questions': created})
+    
+    result = {'ok': True, 'added': added, 'skipped': skipped, 'created_questions': created}
+    if created_types:
+        result['created_types'] = list(set(created_types))  # 去重
+    return jsonify(result)
 
 
 @interview_bp.route('/api/interview/sessions/import-xlsx/prepare', methods=['POST'])

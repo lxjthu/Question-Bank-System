@@ -1183,7 +1183,7 @@
                 </div>
 
                 <div class="card">
-                    <h3><i class="fas fa-file-upload"></i> 导入题库</h3>
+                    <h3><i class="fas fa-file-upload"></i> 导入题库（文件）</h3>
                     <div class="form-row">
                         <div class="form-group">
                             <label for="import-subject">导入科目 <span style="color:var(--danger-color);">*</span></label>
@@ -1198,6 +1198,34 @@
                     <button id="import-btn" class="btn btn-primary">
                         <i class="fas fa-upload"></i> 导入题库
                     </button>
+                </div>
+
+                <div class="card">
+                    <h3><i class="fas fa-paste"></i> 粘贴导入（从AI生成的题库）</h3>
+                    <p style="font-size:0.85rem;color:#666;margin-bottom:12px;">
+                        将从其他AI（如ChatGPT、Claude、DeepSeek等）生成的题库文本直接粘贴到下方文本框，输入科目后即可导入。
+                        <a href="#" onclick="showPasteFormatHelp();return false;" style="color:#3498db;">查看格式示例</a>
+                    </p>
+                    <div class="form-row">
+                        <div class="form-group" style="flex:0.3;">
+                            <label for="paste-import-subject">导入科目 <span style="color:var(--danger-color);">*</span></label>
+                            <input type="text" id="paste-import-subject" list="subject-datalist-import" placeholder="请输入或选择考试科目" required>
+                        </div>
+                    </div>
+                    <div class="form-group" style="width:100%;">
+                        <label for="paste-import-text">题库内容</label>
+                        <textarea id="paste-import-text" rows="12" placeholder="请粘贴AI生成的题库内容..." 
+                            style="width:100%;font-family:monospace;font-size:0.9rem;line-height:1.5;resize:vertical;"></textarea>
+                    </div>
+                    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;">
+                        <button id="paste-import-btn" class="btn btn-primary">
+                            <i class="fas fa-file-import"></i> 导入题库
+                        </button>
+                        <button type="button" class="btn btn-outline" onclick="clearPasteImport()" style="padding:8px 16px;">
+                            <i class="fas fa-eraser"></i> 清空
+                        </button>
+                        <span id="paste-import-status" style="font-size:0.85rem;color:#666;"></span>
+                    </div>
                 </div>
 
                 <div class="card">
@@ -2150,6 +2178,19 @@
                             <p style="font-size:0.83rem;color:#666;margin-bottom:14px;">
                                 配置每套面试题包含哪些题型槽位。生成套题时，系统按此结构从题库池中各取一道题组成一套。
                             </p>
+
+                            <!-- 已保存配置列表 -->
+                            <div id="iv-saved-configs" style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;"></div>
+
+                            <!-- 编辑区分隔 -->
+                            <div style="font-size:0.85rem;font-weight:600;color:#555;margin-bottom:10px;border-top:1px solid #e5e5e5;padding-top:12px;">
+                                <i class="fas fa-edit"></i> 编辑区
+                            </div>
+                            <div style="margin-bottom:10px;">
+                                <label style="font-size:0.83rem;color:#555;">配置名称：</label>
+                                <input type="text" id="iv-config-name" value="默认"
+                                       style="padding:4px 10px;border:1px solid #ddd;border-radius:4px;font-size:0.83rem;width:200px;">
+                            </div>
                             <div id="iv-slots-container" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;"></div>
                             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                                 <button onclick="ivAddSlot()" style="padding:6px 14px;font-size:0.83rem;border:1px dashed #2980b9;
@@ -2256,6 +2297,10 @@
                                             style="padding:5px 14px;font-size:0.83rem;">
                                         <i class="fas fa-download"></i> 导出题库池
                                     </button>
+                                    <button onclick="ivDownloadPoolTemplate()" class="btn btn-outline"
+                                            style="padding:5px 14px;font-size:0.83rem;">
+                                        <i class="fas fa-file-download"></i> 下载导入模板
+                                    </button>
                                 </div>
                                 <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
                                     <label style="font-size:0.83rem;color:#555;">导入题库池：</label>
@@ -2280,6 +2325,10 @@
                                     <button onclick="ivExportSetsXlsx()" class="btn btn-secondary"
                                             style="padding:5px 14px;font-size:0.83rem;">
                                         <i class="fas fa-download"></i> 导出套题 Excel
+                                    </button>
+                                    <button onclick="ivGoToConfigForTemplate()" class="btn btn-outline"
+                                            style="padding:5px 14px;font-size:0.83rem;">
+                                        <i class="fas fa-file-download"></i> 下载套题导入模板
                                     </button>
                                 </div>
                                 <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
@@ -3202,6 +3251,57 @@
                 }
             } catch (error) {
                 console.error('Error:', error);
+                alert('导入题库时发生错误！');
+            }
+        });
+
+        // Paste import functionality
+        document.getElementById('paste-import-btn').addEventListener('click', async () => {
+            const subject = document.getElementById('paste-import-subject').value.trim();
+            const text = document.getElementById('paste-import-text').value.trim();
+            const statusEl = document.getElementById('paste-import-status');
+
+            if (!subject) {
+                alert('请填写导入科目！');
+                document.getElementById('paste-import-subject').focus();
+                return;
+            }
+
+            if (!text) {
+                alert('请粘贴题库内容！');
+                document.getElementById('paste-import-text').focus();
+                return;
+            }
+
+            statusEl.textContent = '导入中...';
+            statusEl.style.color = '#3498db';
+
+            try {
+                const response = await fetch('/api/questions/import-text', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: text, subject: subject })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    const skipMsg = result.skipped > 0 ? `，跳过重复题目 ${result.skipped} 道` : '';
+                    alert(`题库导入成功！科目：${subject}\n导入 ${result.count} 道题目${skipMsg}`);
+                    document.getElementById('paste-import-text').value = '';
+                    statusEl.textContent = `导入成功：${result.count} 题`;
+                    statusEl.style.color = '#27ae60';
+                    loadQuestions();
+                    loadSubjects();
+                } else {
+                    statusEl.textContent = '导入失败';
+                    statusEl.style.color = '#e74c3c';
+                    alert(`导入失败: ${result.error || '未知错误'}`);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                statusEl.textContent = '导入出错';
+                statusEl.style.color = '#e74c3c';
                 alert('导入题库时发生错误！');
             }
         });
@@ -9377,6 +9477,57 @@ Sub-question (3) (5 pts): scoring criteria...
             }
         }
 
+        // ── 粘贴导入辅助函数 ──────────────────────────────────────────────────────
+
+        function clearPasteImport() {
+            document.getElementById('paste-import-text').value = '';
+            document.getElementById('paste-import-status').textContent = '';
+        }
+
+        function showPasteFormatHelp() {
+            const helpText = `支持的题目格式示例：
+
+【单选题】
+[单选][A]
+这道题的题目内容？
+[A] 选项A
+[B] 选项B
+[C] 选项C
+[D] 选项D
+<参考答案>这里是参考答案
+<解析>这里是解析
+
+【多选题】
+[多选][ABD]
+这道题的题目内容？
+[A] 选项A
+[B] 选项B
+[C] 选项C
+[D] 选项D
+
+【判断题】
+[是非][正确]
+这道题的题目内容？
+
+【简答题】
+[简答]
+这道题的题目内容？
+<参考答案>这里是参考答案内容
+
+【层级题型（如材料分析）】
+[简答>材料分析]
+材料内容...
+问题内容？
+<参考答案>参考答案...
+
+注意事项：
+1. 题型名称必须与系统题型完全一致
+2. 选择题答案必须是大写字母，如 [A] 或 [ABD]
+3. 判断题答案为"正确"或"错误"
+4. 层级题型用 > 分隔，如 [简答>材料分析]`;
+            alert(helpText);
+        }
+
         // ══════════════════════════════════════════════════════
         // 功能1：知识图谱章节/知识点名称内联编辑
         // ══════════════════════════════════════════════════════
@@ -10456,9 +10607,124 @@ async function ivLoadConfigForPool() {
     try {
         const res = await fetch(`/api/interview/pools/${poolId}/config`);
         const data = await res.json();
-        ivSlots = data.slots || [];
+        // 渲染配置卡片列表
+        ivRenderConfigCards(data.configs || []);
+        // 默认清空编辑区
+        ivSlots = [];
+        document.getElementById('iv-config-name').value = '默认';
         ivRenderSlots();
     } catch(e) {}
+}
+
+function ivRenderConfigCards(configs) {
+    const container = document.getElementById('iv-saved-configs');
+    if (!container) return;
+    container.innerHTML = '';
+    
+    if (configs.length === 0) {
+        container.innerHTML = '<div style="color:#888;font-size:0.83rem;padding:8px;">暂无保存的配置</div>';
+        return;
+    }
+    
+    configs.forEach(cfg => {
+        const card = document.createElement('div');
+        card.style.cssText = 'background:#f8f9ff;border:1px solid #dde;border-radius:8px;padding:12px;position:relative;';
+        
+        const subjectsStr = (cfg.subjects || []).join(', ') || '无科目';
+        const updatedAt = cfg.updated_at ? cfg.updated_at.substring(0, 16) : '';
+        
+        card.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+                <div style="font-weight:600;font-size:0.95rem;color:#333;">
+                    <i class="fas fa-clipboard-list" style="color:#2980b9;margin-right:6px;"></i>${escapeHtml(cfg.config_name)}
+                </div>
+                <span style="font-size:0.75rem;color:#888;">${updatedAt}</span>
+            </div>
+            <div style="font-size:0.83rem;color:#555;margin-bottom:6px;">
+                槽位：${cfg.slot_summary || '无'}
+            </div>
+            <div style="font-size:0.8rem;color:#666;margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                科目：${escapeHtml(subjectsStr)}
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button onclick="ivUseConfig(${cfg.id})" class="btn btn-primary" style="padding:4px 10px;font-size:0.78rem;">
+                    <i class="fas fa-check"></i> 使用此配置
+                </button>
+                <button onclick="ivExportTemplate(${cfg.pool_id}, ${cfg.id})" class="btn btn-outline" style="padding:4px 10px;font-size:0.78rem;">
+                    <i class="fas fa-download"></i> 导出模板
+                </button>
+                <button onclick="ivDeleteConfig(${cfg.pool_id}, ${cfg.id})" class="btn btn-outline" style="padding:4px 10px;font-size:0.78rem;color:#e74c3c;border-color:#e74c3c;">
+                    <i class="fas fa-trash-alt"></i> 删除
+                </button>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+}
+
+async function ivUseConfig(configId) {
+    const sel = document.getElementById('iv-config-pool-select');
+    const poolId = sel?.value;
+    if (!poolId) return;
+    
+    try {
+        const res = await fetch(`/api/interview/pools/${poolId}/config`);
+        const data = await res.json();
+        const configs = data.configs || [];
+        const cfg = configs.find(c => c.id === configId);
+        
+        if (cfg) {
+            ivSlots = cfg.slots || [];
+            document.getElementById('iv-config-name').value = cfg.config_name;
+            ivRenderSlots();
+            document.getElementById('iv-config-msg').textContent = '已加载配置到编辑区';
+            document.getElementById('iv-config-msg').style.color = '#27ae60';
+        }
+    } catch(e) {}
+}
+
+async function ivDeleteConfig(poolId, configId) {
+    if (!confirm('确定删除此配置？')) return;
+    
+    try {
+        const res = await fetch(`/api/interview/pools/${poolId}/config/${configId}`, {
+            method: 'DELETE'
+        });
+        if (res.ok) {
+            ivLoadConfigForPool(); // 刷新列表
+            document.getElementById('iv-config-msg').textContent = '已删除';
+            document.getElementById('iv-config-msg').style.color = '#27ae60';
+        } else {
+            const data = await res.json();
+            alert(data.error || '删除失败');
+        }
+    } catch(e) {
+        alert('删除失败');
+    }
+}
+
+function ivExportTemplate(poolId, configId) {
+    window.open(`/api/interview/pools/${poolId}/config/${configId}/export-template?set_count=5`, '_blank');
+}
+
+function ivDownloadPoolTemplate() {
+    window.open('/api/interview/templates/pool-xlsx', '_blank');
+}
+
+function ivGoToConfigForTemplate() {
+    const poolId = document.getElementById('iv-exp-pool')?.value;
+    if (!poolId) {
+        alert('请先在上方选择题库池');
+        return;
+    }
+    // 切换到题型设置面板
+    ivSwitchPanel('iv-config', document.querySelector('.iv-nav-btn[data-panel="iv-config"]'));
+    // 选中对应的池
+    const sel = document.getElementById('iv-config-pool-select');
+    if (sel) { 
+        sel.value = poolId; 
+        ivConfigOnPoolChange();
+    }
 }
 
 function ivRenderSlots() {
@@ -10521,17 +10787,25 @@ async function ivSaveConfig() {
     const sel = document.getElementById('iv-config-pool-select');
     const poolId = sel?.value;
     if (!poolId) { alert('请先选择题库池'); return; }
+    
+    const configName = document.getElementById('iv-config-name').value.trim();
+    if (!configName) { alert('请输入配置名称'); return; }
+    
+    if (ivSlots.length === 0) { alert('请至少添加一个槽位'); return; }
+    
     const msg = document.getElementById('iv-config-msg');
     try {
         const res = await fetch(`/api/interview/pools/${poolId}/config`, {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({slots: ivSlots}),
+            body: JSON.stringify({config_name: configName, slots: ivSlots}),
         });
         const data = await res.json();
         if (!res.ok) { msg.style.color='#e74c3c'; msg.textContent = data.error || '保存失败'; return; }
         msg.style.color = '#27ae60';
-        msg.textContent = `已保存 ${ivSlots.length} 个槽位`;
+        msg.textContent = `已保存 "${configName}" (${ivSlots.length} 个槽位)`;
+        // 刷新配置列表
+        ivLoadConfigForPool();
     } catch(e) { msg.style.color='#e74c3c'; msg.textContent = '保存失败'; }
 }
 

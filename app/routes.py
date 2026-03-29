@@ -490,6 +490,122 @@ _XLSX_TYPE_REVERSE = {
     "论述题": "简答>论述", "材料分析题": "简答>材料分析",
 }
 
+# 题型模糊匹配规则（用于自动识别常见变体）
+_XLSX_TYPE_PATTERNS = {
+    "单选": ["单选", "单选题", "单项选择", "单项选择题"],
+    "多选": ["多选", "多选题", "多项选择", "多项选择题", "不定项选择"],
+    "是非": ["判断", "判断题", "是非", "是非题", "对错题", "正确错误"],
+    "简答": ["简答", "简答题", "问答题", "问答", "名词解释", "解释"],
+    "简答>计算": ["计算", "计算题"],
+    "简答>论述": ["论述", "论述题"],
+    "简答>材料分析": ["材料分析", "材料分析题", "案例分析", "案例分析题", "分析题"],
+}
+
+
+def _match_question_type(raw_type: str, known_types: set) -> tuple:
+    """
+    匹配题型，返回 (matched_type, is_builtin, needs_create)
+    - matched_type: 匹配到的题型名称
+    - is_builtin: 是否是内置题型
+    - needs_create: 是否需要创建新题型
+    """
+    if not raw_type:
+        return None, False, False
+    
+    raw_clean = raw_type.strip()
+    raw_lower = raw_clean.lower()
+    
+    # 1. 直接匹配已知题型（精确匹配）
+    if raw_clean in known_types:
+        return raw_clean, True, False
+    
+    # 2. 反向映射匹配（如 "单选题" -> "单选"）
+    if raw_clean in _XLSX_TYPE_REVERSE:
+        mapped = _XLSX_TYPE_REVERSE[raw_clean]
+        return mapped, True, False
+    
+    # 3. 模糊匹配内置题型模式
+    for std_type, patterns in _XLSX_TYPE_PATTERNS.items():
+        for pattern in patterns:
+            if pattern in raw_lower or raw_lower in pattern:
+                # 如果标准题型在已知类型中，使用它
+                if std_type in known_types:
+                    return std_type, True, False
+                # 否则尝试找到包含该标准题型的层级题型
+                for kt in known_types:
+                    if std_type in kt:
+                        return kt, True, False
+    
+    # 4. 尝试在已知类型中查找包含关系
+    for kt in known_types:
+        if raw_clean in kt or kt in raw_clean:
+            return kt, True, False
+    
+    # 5. 无法匹配，需要创建新题型
+    return raw_clean, False, True
+
+
+def _ensure_question_type(type_name: str, user) -> tuple:
+    """
+    确保题型存在，如果不存在则创建新题型
+    返回 (type_name, error_message)
+    """
+    from app.db_models import QuestionTypeModel
+    
+    if not type_name:
+        return None, "题型名称为空"
+    
+    type_name = type_name.strip()
+    
+    # 查找所有可见题型（内置 + 用户自定义）
+    known_types = {
+        qt.name for qt in QuestionTypeModel.query.filter(
+            db.or_(
+                QuestionTypeModel.owner_id.is_(None),
+                QuestionTypeModel.owner_id == user.id,
+            )
+        ).all()
+    }
+    
+    # 尝试匹配
+    matched, is_builtin, needs_create = _match_question_type(type_name, known_types)
+    
+    if matched and not needs_create:
+        return matched, None
+    
+    if needs_create:
+        # 检查是否已存在同名自定义题型（避免重复创建）
+        existing = QuestionTypeModel.query.filter(
+            QuestionTypeModel.name == type_name,
+            QuestionTypeModel.owner_id == user.id
+        ).first()
+        
+        if existing:
+            return type_name, None
+        
+        # 创建新题型
+        # 判断是否需要有选项（根据题型名称关键词）
+        has_options = any(kw in type_name.lower() for kw in 
+                         ['选', '单选', '多选', '选择'])
+        
+        new_type = QuestionTypeModel(
+            name=type_name,
+            label=type_name,
+            has_options=has_options,
+            is_builtin=False,
+            owner_id=user.id,
+            created_at=datetime.now(),
+        )
+        db.session.add(new_type)
+        try:
+            db.session.commit()
+            return type_name, None
+        except Exception as e:
+            db.session.rollback()
+            return None, f"创建题型失败: {str(e)}"
+    
+    return type_name, None
+
 
 def _xlsx_diff_from_num(n):
     """难度数字 1-5 → easy/medium/hard"""
@@ -541,12 +657,14 @@ def _xlsx_normalize_answer(q_type, raw_answer):
     return '', raw
 
 
-def _parse_xlsx_questions(file_path):
+def _parse_xlsx_questions(file_path, user=None):
     """
     解析 xlsx 题库文件，兼容两种格式：
     - muban_zh.xlsx 导出格式（标题行在第3行，数据从第4行）
     - 外部题库格式（标题行在第1行，数据从第2行）
-    返回: (questions_list, errors_list)
+    
+    支持自动匹配和创建新题型
+    返回: (questions_list, errors_list, created_types_list)
     """
     try:
         from openpyxl import load_workbook
@@ -570,6 +688,20 @@ def _parse_xlsx_questions(file_path):
     data_start = header_row + 1
     questions = []
     errors = []
+    created_types = []  # 记录新创建的题型
+    
+    # 获取当前用户可见的所有题型
+    from app.db_models import QuestionTypeModel
+    known_types = set()
+    if user:
+        known_types = {
+            qt.name for qt in QuestionTypeModel.query.filter(
+                db.or_(
+                    QuestionTypeModel.owner_id.is_(None),
+                    QuestionTypeModel.owner_id == user.id,
+                )
+            ).all()
+        }
 
     for row_idx, row in enumerate(
         ws.iter_rows(min_row=data_start, values_only=True), data_start
@@ -579,10 +711,28 @@ def _parse_xlsx_questions(file_path):
             continue
 
         raw_type = str(row[1] or '').strip()
-        q_type = _XLSX_TYPE_REVERSE.get(raw_type)
+        
+        # 使用新的题型匹配逻辑
+        q_type, is_builtin, needs_create = _match_question_type(raw_type, known_types)
+        
         if not q_type:
-            errors.append(f"第{row_idx}行：未知题型 '{raw_type}'，已跳过")
+            errors.append(f"第{row_idx}行：题型为空，已跳过")
             continue
+        
+        # 如果需要创建新题型且提供了用户信息
+        if needs_create and user:
+            final_type, error = _ensure_question_type(raw_type, user)
+            if error:
+                errors.append(f"第{row_idx}行：题型 '{raw_type}' 处理失败: {error}")
+                continue
+            q_type = final_type
+            if q_type not in known_types:
+                known_types.add(q_type)
+                created_types.append(q_type)
+        elif needs_create and not user:
+            # 没有用户信息，使用原始题型名并记录警告
+            q_type = raw_type
+            errors.append(f"第{row_idx}行：题型 '{raw_type}' 未匹配到已知题型，将使用原名称导入")
 
         difficulty = _xlsx_diff_from_num(row[3] if len(row) > 3 else None)
         tag_str = str(row[5] or '').strip() if len(row) > 5 else ''
@@ -610,7 +760,7 @@ def _parse_xlsx_questions(file_path):
             'difficulty': difficulty,
         })
 
-    return questions, errors
+    return questions, errors, created_types
 
 
 # ─── xlsx Export ─────────────────────────────────────────────────────────────
@@ -921,7 +1071,7 @@ def import_questions():
                 db.session.commit()
 
             elif file.filename.lower().endswith('.xlsx'):
-                questions_data, parse_errors = _parse_xlsx_questions(file_path)
+                questions_data, parse_errors, created_types = _parse_xlsx_questions(file_path, _import_user)
                 failed = len(parse_errors)
 
                 now = datetime.now()
@@ -964,12 +1114,19 @@ def import_questions():
 
                 imported = len(models)
                 os.remove(file_path) if os.path.exists(file_path) else None
+                
+                # 构建返回消息
+                msg_parts = [f'成功导入 {imported} 题，跳过重复 {skipped} 题（含相似题）']
+                if created_types:
+                    msg_parts.append(f'，自动创建 {len(created_types)} 个新题型：{', '.join(created_types)}')
+                
                 return jsonify({
-                    'message': f'成功导入 {imported} 题，跳过重复 {skipped} 题（含相似题）',
+                    'message': ''.join(msg_parts),
                     'imported': imported,
                     'count': imported,
                     'skipped': skipped,
                     'failed': failed,
+                    'created_types': created_types,
                     'parse_errors': parse_errors[:10],  # 最多返回10条解析错误
                 })
 
@@ -1001,6 +1158,112 @@ def import_questions():
             return jsonify({'error': f'Import failed: {str(e)}'}), 500
     else:
         return jsonify({'error': 'Invalid file type'}), 400
+
+
+@bp.route('/api/questions/import-text', methods=['POST'])
+@login_required
+@guest_readonly
+def import_questions_from_text():
+    """直接从文本导入题目（粘贴框功能）"""
+    _import_user = get_current_user()
+    data = request.json
+    
+    if not data or 'text' not in data:
+        return jsonify({'error': 'No text provided'}), 400
+    
+    text_content = data.get('text', '').strip()
+    if not text_content:
+        return jsonify({'error': 'Text content is empty'}), 400
+    
+    import_subject = data.get('subject') or None
+    
+    try:
+        from app.utils import parse_question_template
+        
+        # Build a set of existing content for deduplication
+        _user_q = db.session.query(QuestionModel.content).filter_by(owner_id=_import_user.id)
+        existing_contents = set(
+            row[0].strip()
+            for row in _user_q.all()
+            if row[0]
+        )
+        
+        # Build n-gram list for similarity check
+        existing_ngrams = [
+            _ngram_set((row[0] or '')[:200])
+            for row in _user_q.all()
+            if row[0]
+        ]
+        
+        questions_data = parse_question_template(text_content)
+        models = []
+        skipped = 0
+        
+        now = datetime.now()
+        for i, q_data in enumerate(questions_data):
+            content_text = (q_data.get('content') or '').strip()
+            if not content_text:
+                continue
+            if content_text in existing_contents:
+                skipped += 1
+                continue
+            if _is_similar(content_text[:200], existing_ngrams):
+                skipped += 1
+                continue
+            existing_contents.add(content_text)
+            existing_ngrams.append(_ngram_set(content_text[:200]))
+            
+            question_id = f"q_{now.strftime('%Y%m%d_%H%M%S')}_txt_{i}"
+            content_en = q_data.get('content_en') or None
+            options_en = q_data.get('options_en') or []
+            lang = _detect_language(q_data.get('content', ''), content_en)
+            
+            model = QuestionModel(
+                question_id=question_id,
+                question_type=q_data['type'],
+                content=q_data['content'],
+                options=json.dumps(q_data.get('options', []), ensure_ascii=False),
+                answer=q_data.get('answer'),
+                reference_answer=q_data.get('reference_answer', ''),
+                explanation=q_data.get('explanation', ''),
+                content_en=content_en,
+                options_en=json.dumps(options_en, ensure_ascii=False) if options_en else None,
+                subject=import_subject or q_data.get('subject') or None,
+                knowledge_point=q_data.get('knowledge_point') or None,
+                tags=q_data.get('tags') or None,
+                difficulty=q_data.get('difficulty') or None,
+                language=lang,
+                metadata_json='{}',
+                imported_at=now,
+                created_at=now,
+                updated_at=now,
+                owner_id=_import_user.id,
+                visibility='private',
+            )
+            models.append(model)
+        
+        db.session.add_all(models)
+        db.session.commit()
+        
+        # Associate any images with their question IDs
+        for model in models:
+            for field in ('content', 'reference_answer', 'explanation'):
+                html_val = getattr(model, field) or ''
+                if '/api/images/' in html_val:
+                    _associate_images_in_html(html_val, model.question_id)
+        db.session.commit()
+        
+        imported = len(models)
+        return jsonify({
+            'message': f'成功导入 {imported} 题，跳过重复 {skipped} 题（含相似题）',
+            'imported': imported,
+            'count': imported,
+            'skipped': skipped,
+            'failed': 0,
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Import failed: {str(e)}'}), 500
 
 
 @bp.route('/api/questions/export', methods=['GET'])
