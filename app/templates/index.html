@@ -485,6 +485,41 @@
             }
         }
 
+        /* ── 知识图谱 Modal 移动端适配 (≤600px) ── */
+        @media (max-width: 600px) {
+            /* Modal 全屏 */
+            #ds-kg-modal > div {
+                width: 100vw !important;
+                height: 100vh !important;
+                border-radius: 0 !important;
+            }
+            /* 标题栏按钮文字隐藏，只显示图标，节省空间 */
+            .ds-kg-btn-text { display: none !important; }
+            /* 字体百分比数字隐藏 */
+            #ds-kg-font-label { display: none !important; }
+            /* 侧边栏浮层模式：默认收起，展开时从左侧滑入 */
+            #ds-kg-sidebar {
+                position: absolute !important;
+                top: 0 !important;
+                bottom: 0 !important;
+                left: 0 !important;
+                z-index: 20 !important;
+                width: 220px !important;
+                transform: translateX(-100%) !important;
+                transition: transform 0.25s ease !important;
+                box-shadow: 4px 0 16px rgba(0,0,0,0.2) !important;
+            }
+            #ds-kg-sidebar.kg-sidebar-open {
+                transform: translateX(0) !important;
+            }
+            /* 拖拽分隔条在移动端隐藏 */
+            #ds-kg-resize-handle { display: none !important; }
+            /* 侧边栏展开按钮在移动端显示 */
+            .ds-kg-mobile-only { display: flex !important; }
+            /* 图例限高更小 */
+            #ds-kg-legend { max-height: 54px !important; }
+        }
+
         /* Additional styles for specific functionality */
         .question-type-section {
             margin: 20px 0;
@@ -6052,6 +6087,49 @@ Now please start generating questions. Output question content directly without 
             if (tt) tt.style.display = 'none';
             // 清空全量数据
             _dsKgAllNodes = []; _dsKgAllLinks = []; _dsKgAllChapters = [];
+            // 关闭时收起侧边栏（下次打开保持干净状态）
+            const sb = document.getElementById('ds-kg-sidebar');
+            if (sb) sb.classList.remove('kg-sidebar-open');
+            const ov = document.getElementById('ds-kg-sidebar-overlay');
+            if (ov) ov.style.display = 'none';
+        }
+
+        // ── 图例折叠 / 展开 ──────────────────────────────────────────────────
+        function _collapseDsKgLegend() {
+            const legend = document.getElementById('ds-kg-legend');
+            const arrow  = document.getElementById('ds-kg-legend-arrow');
+            const wrap   = document.getElementById('ds-kg-legend-wrap');
+            if (legend) legend.style.display = 'none';
+            if (arrow)  arrow.style.transform = 'rotate(-90deg)';
+            if (wrap)   wrap._legendExpanded = false;
+        }
+        function _expandDsKgLegend() {
+            const legend = document.getElementById('ds-kg-legend');
+            const arrow  = document.getElementById('ds-kg-legend-arrow');
+            const wrap   = document.getElementById('ds-kg-legend-wrap');
+            if (legend) legend.style.display = '';
+            if (arrow)  arrow.style.transform = '';
+            if (wrap)   wrap._legendExpanded = true;
+        }
+        function _toggleDsKgLegend() {
+            const wrap = document.getElementById('ds-kg-legend-wrap');
+            if (wrap && wrap._legendExpanded === false) _expandDsKgLegend();
+            else _collapseDsKgLegend();
+        }
+
+        // ── 移动端侧边栏浮层展开 / 收起 ──────────────────────────────────────
+        function _toggleDsKgSidebar() {
+            const sb = document.getElementById('ds-kg-sidebar');
+            const ov = document.getElementById('ds-kg-sidebar-overlay');
+            if (!sb) return;
+            const isOpen = sb.classList.contains('kg-sidebar-open');
+            if (isOpen) {
+                sb.classList.remove('kg-sidebar-open');
+                if (ov) ov.style.display = 'none';
+            } else {
+                sb.classList.add('kg-sidebar-open');
+                if (ov) ov.style.display = 'block';
+            }
         }
 
         function _renderDsKg(nodes, links, chapters) {
@@ -6086,8 +6164,15 @@ Now please start generating questions. Output question content directly without 
                 ).join('');
                 legend.innerHTML = chHtml
                     + (chHtml && relHtml ? '<span style="color:#ddd;margin:0 6px;">│</span>' : '')
-                    + relHtml
-                    + `<span style="margin-left:auto;color:#aaa;">${nodes.length} 个知识点 · ${links.length} 条关系</span>`;
+                    + relHtml;
+                // 统计信息更新到标题行
+                const statsEl = document.getElementById('ds-kg-stats');
+                if (statsEl) statsEl.textContent = `${nodes.length} 个知识点 · ${links.length} 条关系`;
+                // 移动端默认折叠图例
+                if (window.matchMedia && window.matchMedia('(max-width:600px)').matches) {
+                    const wrap = document.getElementById('ds-kg-legend-wrap');
+                    if (wrap && !wrap._legendExpanded) _collapseDsKgLegend();
+                }
             }
 
             // ── D3 绘图 ───────────────────────────────────────────────────────
@@ -8563,13 +8648,22 @@ Reference answer integrating theory and case.
                     box-shadow:0 12px 48px rgba(0,0,0,0.45);">
             <!-- 标题栏 -->
             <div style="display:flex;align-items:center;justify-content:space-between;
-                        padding:11px 18px;background:linear-gradient(135deg,#6c3483,#2980b9);color:#fff;flex-shrink:0;">
-                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;font-weight:600;">
+                        padding:11px 18px;background:linear-gradient(135deg,#6c3483,#2980b9);color:#fff;flex-shrink:0;
+                        flex-wrap:wrap;gap:6px;">
+                <div style="display:flex;align-items:center;gap:8px;font-size:0.9rem;font-weight:600;min-width:0;">
+                    <!-- 移动端侧边栏展开按钮（桌面端隐藏） -->
+                    <button id="ds-kg-sidebar-toggle" onclick="_toggleDsKgSidebar()" title="筛选面板"
+                        class="ds-kg-mobile-only"
+                        style="display:none;width:28px;height:28px;border-radius:5px;
+                               border:1px solid rgba(255,255,255,0.4);background:rgba(255,255,255,0.15);
+                               color:#fff;cursor:pointer;align-items:center;justify-content:center;font-size:0.85rem;">
+                        <i class="fas fa-sliders-h"></i>
+                    </button>
                     <i class="fas fa-project-diagram"></i>
                     <span>DS 知识图谱</span>
                     <span id="ds-kg-subtitle" style="font-size:0.76rem;opacity:0.8;font-weight:400;"></span>
                 </div>
-                <div style="display:flex;gap:7px;align-items:center;">
+                <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;">
                     <!-- 字体大小控制 -->
                     <div style="display:flex;align-items:center;gap:3px;margin-right:4px;">
                         <button onclick="_dsKgFontChange(-1)" title="缩小字体"
@@ -8585,7 +8679,7 @@ Reference answer integrating theory and case.
                     <button id="ds-kg-export-btn" onclick="_exportDsKgXlsx()"
                         style="background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);
                                color:#fff;cursor:pointer;padding:4px 12px;border-radius:6px;font-size:0.82rem;">
-                        <i class="fas fa-file-excel" style="margin-right:4px;"></i>导出 Excel
+                        <i class="fas fa-file-excel"></i><span class="ds-kg-btn-text" style="margin-left:4px;">导出 Excel</span>
                     </button>
                     <input type="file" id="ds-kg-import-input" accept=".xlsx" style="display:none"
                            onchange="_importDsKgXlsx(this.files[0])">
@@ -8593,22 +8687,42 @@ Reference answer integrating theory and case.
                         onclick="document.getElementById('ds-kg-import-input').click()"
                         style="background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);
                                color:#fff;cursor:pointer;padding:4px 12px;border-radius:6px;font-size:0.82rem;">
-                        <i class="fas fa-file-upload" style="margin-right:4px;"></i>导入 Excel
+                        <i class="fas fa-file-upload"></i><span class="ds-kg-btn-text" style="margin-left:4px;">导入 Excel</span>
                     </button>
                     <button onclick="closeDsKgModal()"
                         style="background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.35);
                                color:#fff;cursor:pointer;padding:4px 12px;border-radius:6px;font-size:0.82rem;">
-                        ✕ 关闭
+                        ✕ <span class="ds-kg-btn-text">关闭</span>
                     </button>
                 </div>
             </div>
-            <!-- 图例栏 -->
-            <div id="ds-kg-legend"
-                 style="padding:7px 16px;border-bottom:1px solid #eee;display:flex;
-                        flex-wrap:wrap;gap:6px;align-items:center;background:#fafafa;
-                        font-size:0.75rem;color:#555;flex-shrink:0;min-height:34px;"></div>
+            <!-- 图例栏（可折叠 + 可滚动） -->
+            <div id="ds-kg-legend-wrap"
+                 style="border-bottom:1px solid #eee;background:#fafafa;flex-shrink:0;">
+                <!-- 图例标题行 -->
+                <div style="display:flex;align-items:center;padding:4px 12px 3px 16px;min-height:28px;">
+                    <button onclick="_toggleDsKgLegend()" title="展开/折叠图例"
+                        style="display:flex;align-items:center;gap:4px;background:none;border:none;
+                               cursor:pointer;padding:0;font-size:0.73rem;color:#777;flex-shrink:0;">
+                        <span id="ds-kg-legend-arrow"
+                              style="font-size:0.55rem;transition:transform 0.2s;display:inline-block;">▼</span>
+                        <span style="font-weight:600;color:#555;letter-spacing:.02em;">图例</span>
+                    </button>
+                    <span id="ds-kg-stats"
+                          style="margin-left:auto;font-size:0.72rem;color:#aaa;flex-shrink:0;"></span>
+                </div>
+                <!-- 图例内容：限高 + 纵横滚动 -->
+                <div id="ds-kg-legend"
+                     style="padding:0 16px 7px;display:flex;flex-wrap:wrap;gap:6px;
+                            align-items:flex-start;font-size:0.75rem;color:#555;
+                            max-height:72px;overflow-y:auto;overflow-x:hidden;"></div>
+            </div>
             <!-- 主体：左侧筛选面板 + 右侧画布 -->
-            <div style="flex:1;display:flex;overflow:hidden;">
+            <!-- 移动端遮罩（点击关闭侧边栏） -->
+            <div id="ds-kg-sidebar-overlay"
+                 onclick="_toggleDsKgSidebar()"
+                 style="display:none;position:absolute;inset:0;z-index:15;background:rgba(0,0,0,0.3);"></div>
+            <div style="flex:1;display:flex;overflow:hidden;position:relative;">
                 <!-- 左侧筛选面板 -->
                 <div id="ds-kg-sidebar" style="width:195px;flex-shrink:0;border-right:1px solid #eee;
                             background:#fff;overflow-y:auto;padding:10px 11px;
