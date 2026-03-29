@@ -10,3 +10,4 @@ rag_uploads/
 dist/
 build/
 *.egg-info/
+docs/
