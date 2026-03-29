@@ -1191,6 +1191,7 @@
                     <p>
                         <strong>方式一（有 PPT/PDF）：</strong>直接复制下方提示词，连同 PPT/PDF 文件一起发给支持文件上传的 AI（如 DeepSeek、豆包、千问等），AI 将自动出题。<br>
                         <strong>方式二（有复习要点）：</strong>上传复习要点文档，点击"生成含复习要点的提示词"，将要点直接嵌入提示词后复制给 AI，也可同时上传PPT/PDF文件。<br>
+                        <strong>方式三（结合政策/案例材料）：</strong>选择"模式四：根据材料出题"，上传政策文件、案例等参考材料，AI 将先从材料中提取要点，再在教材/课件中找到对应知识点，整合出题。<br>
                         AI 生成的结果保存为 .txt 文件后，可通过上方"导入题库"功能导入系统。
                     </p>
 
@@ -1202,6 +1203,7 @@
                                 <option value="default_zh">模式一：纯中文出题（默认）</option>
                                 <option value="default_bilingual">模式二：中英双语出题（默认）</option>
                                 <option value="default_en">模式三：纯英文出题（默认）</option>
+                                <option value="default_material">模式四：根据材料出题（默认）</option>
                             </optgroup>
                             <optgroup label="我的提示词" id="import-custom-prompt-group">
                             </optgroup>
@@ -1211,6 +1213,7 @@
                             <option value="zh">模式一：纯中文出题</option>
                             <option value="bilingual">模式二：中英双语出题</option>
                             <option value="en">模式三：纯英文出题</option>
+                            <option value="material">模式四：根据材料出题</option>
                         </select>
                         <button id="copy-prompt-btn" class="btn btn-outline" style="padding:6px 14px; white-space:nowrap;">
                             <i class="fas fa-copy"></i> 复制提示词
@@ -1224,13 +1227,13 @@
                         <span id="import-prompt-save-status" style="font-size:0.82rem; color:#27ae60;"></span>
                     </div>
 
-                    <!-- Review Notes Upload Panel -->
-                    <div style="margin-bottom:14px; padding:12px 14px; background:#f0f4ff; border-radius:8px; border:1px solid #c5d0fa;">
+                    <!-- Review Notes Upload Panel（方式二） -->
+                    <div id="review-notes-panel" style="margin-bottom:10px; padding:12px 14px; background:#f0f4ff; border-radius:8px; border:1px solid #c5d0fa;">
                         <div style="font-weight:600; margin-bottom:5px; color:#3b5bdb; font-size:14px;">
-                            <i class="fas fa-file-lines"></i> 上传复习要点（可选）
+                            <i class="fas fa-file-lines"></i> 上传复习要点（可选，适用于模式一～三）
                         </div>
                         <p style="margin:0 0 10px; font-size:13px; color:#555;">
-                            上传复习要点文档（.docx 或 .txt），系统将把要点内容嵌入提示词——无需再向 AI 上传 PPT/PDF，直接将生成的提示词发给 AI 即可出题。
+                            上传复习要点文档（.docx 或 .txt），系统将把要点内容嵌入提示词——也可同时上传PPT/PDF文件。
                         </p>
                         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
                             <input type="file" id="review-notes-file" accept=".docx,.txt"
@@ -1243,6 +1246,27 @@
                             </button>
                         </div>
                         <div id="review-notes-status" style="margin-top:7px; font-size:13px;"></div>
+                    </div>
+
+                    <!-- Material Upload Panel（方式三，仅模式四显示） -->
+                    <div id="material-upload-panel" style="display:none; margin-bottom:10px; padding:12px 14px; background:#fff8f0; border-radius:8px; border:1px solid #f0c070;">
+                        <div style="font-weight:600; margin-bottom:5px; color:#c47d00; font-size:14px;">
+                            <i class="fas fa-newspaper"></i> 上传参考材料（模式四必填）
+                        </div>
+                        <p style="margin:0 0 10px; font-size:13px; color:#555;">
+                            上传政策文件、案例、新闻等参考材料（.docx 或 .txt），系统将内容嵌入提示词。AI 会先读取材料要点，再在你上传的教材/课件（PPT/PDF）中找对应知识点，整合出题。
+                        </p>
+                        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                            <input type="file" id="material-file" accept=".docx,.txt"
+                                style="flex:1; min-width:180px; font-size:13px;">
+                            <button id="gen-prompt-with-material-btn" class="btn btn-primary" style="white-space:nowrap; background:#c47d00; border-color:#c47d00;">
+                                <i class="fas fa-wand-magic-sparkles"></i> 嵌入材料并生成提示词
+                            </button>
+                            <button id="clear-material-btn" class="btn btn-outline" style="white-space:nowrap; display:none;">
+                                <i class="fas fa-times"></i> 清除材料
+                            </button>
+                        </div>
+                        <div id="material-status" style="margin-top:7px; font-size:13px;"></div>
                     </div>
 
                     <textarea id="prompt-display" rows="18"
@@ -4914,11 +4938,160 @@ Reference answer in English, integrating theory and case.
 7. Do not add question numbers; do not add any explanatory text outside question blocks
 8. Do not use Markdown formatting characters such as \`*\`, \`**\`, or \`#\`; do not bold text or add heading markers
 
-Now please start generating questions. Output question content directly without any preamble.`
+Now please start generating questions. Output question content directly without any preamble.`,
+
+            material: `你是一位专业的教学内容设计专家，擅长将政策文件、时事案例与课程知识点结合进行出题。
+
+以下是本次出题的参考材料：
+
+=== 参考材料 ===
+__MATERIAL_PLACEHOLDER__
+=== 参考材料结束 ===
+
+请上传教材或课件文件（PPT/PDF），然后按以下三个步骤完成出题任务：
+
+第一步：仔细阅读上述参考材料，提取其中的核心主题、政策要点、典型案例和关键数据（每条15字以内，列出4～8条）。
+第二步：阅读上传的教材/课件文件，找出与参考材料主题直接相关的知识点、概念、原理和理论框架，建立参考材料要点与课程知识点的明确对应关系（在出题前简要列出对应关系，格式："材料要点 → 对应知识点"）。
+第三步：以参考材料为情境载体，以教材/课件中的知识点为理论依据，按以下要求出题。题目须同时满足：能检验课程知识点的掌握，且情境直接来自参考材料的具体内容。
+
+### 出题要求
+
+**题型与数量：**
+- 单选题：10题（每题4个选项A/B/C/D，只有1个正确答案）
+- 多选题：5题（每题4个选项A/B/C/D，有2～4个正确答案）
+- 简答题：4题（需提供参考答案）
+- 材料分析题：3题（题干中须嵌入参考材料中的具体文字片段，问题指向对应知识点的分析应用）
+
+**质量要求：**
+1. 每道题的情境或背景必须来自参考材料中的具体内容（政策名称、数据、措施、案例原文），不得凭空编造
+2. 解答必须依据教材/课件中的知识点，不能仅靠常识回答
+3. 在每种题型中，题目难度分布约为：简单(easy) 20%、中等(medium) 50%、困难(hard) 30%：
+   - **简单(easy)**：答案可在参考材料或教材原文中直接找到，考查识记与理解
+   - **中等(medium)**：需要将材料情境与教材知识点结合，运用所学理论解释现实问题
+   - **困难(hard)**：需综合多个知识点对材料进行批判性分析或提出解决方案
+4. 覆盖参考材料中的主要议题和教材中的核心知识点
+5. 每道题必须在解析中标注"材料依据"（引自参考材料的具体依据）和"知识点"（来自教材的理论依据）
+6. 选择题的干扰项要来自材料或教材中相关但不准确的内容，不能过于明显
+7. 材料分析题须在题干的【材料】部分直接引用参考材料原文（50～150字），【问题】部分明确要求运用特定知识点分析
+8. **题目必须独立成立**，严禁在题干中出现"如第X章所述""见PPT第X张"等引用位置的表述
+9. **字数限制**：每道题的题干（含选项）和参考答案均不超过 **500字**（含标点）
+
+**输出格式（必须严格遵守）：**
+
+⚠️ **导入格式关键要素：**
+- **所有括号必须是半角字符**：\`[\` \`]\` \`<\` \`>\`，不能用全角
+- **题型名称必须与系统一致**，层级题型用 \`>\` 分隔，如 \`[简答>材料分析]\`
+- **选择题答案**：\`[单选][A]\`、\`[多选][ABD]\`，必须大写字母
+- **是非题答案**：只能写 \`[正确]\` 或 \`[错误]\`
+- **选项行必须顶格写**：\`[A]选项内容\`
+- **\`<参考答案>\` 和 \`<解析>\` 标签必须成对出现并用对应闭合标签**
+- **材料依据、知识点、标签、难度必须写在 \`<解析>\` 块内**
+- **难度只能写** \`easy\`、\`medium\` 或 \`hard\`（全小写）
+
+---
+**单选题格式：**
+[单选][正确选项字母]
+题目内容（情境来自参考材料）？
+[A]选项A内容
+[B]选项B内容
+[C]选项C内容
+[D]选项D内容
+<解析>
+解析说明
+材料依据:参考材料中的具体依据（哪条政策/哪段内容）
+知识点:对应的教材知识点名称
+标签:标签1,标签2
+难度:easy|medium|hard
+</解析>
+
+---
+**多选题格式：**
+[多选][正确选项字母组合]
+题目内容？
+[A]选项A
+[B]选项B
+[C]选项C
+[D]选项D
+<解析>
+解析说明
+材料依据:参考材料中的具体依据
+知识点:对应的教材知识点名称
+标签:标签1,标签2
+难度:easy|medium|hard
+</解析>
+
+---
+**简答题格式：**
+[简答]
+题目内容？
+<参考答案>
+参考答案内容（要点1；要点2；要点3……）
+</参考答案>
+<解析>
+解析说明（可选）
+材料依据:参考材料中的具体依据
+知识点:对应的教材知识点名称
+标签:标签1,标签2
+难度:easy|medium|hard
+</解析>
+
+---
+**材料分析题格式：**
+[简答>材料分析]
+【材料】
+（直接引用参考材料原文片段，50～150字）
+
+【问题】
+根据上述材料，运用[知识点名称]相关理论，分析……？
+<参考答案>
+参考答案（结合材料引文和理论知识点进行分析）
+</参考答案>
+<解析>
+解析说明
+材料依据:参考材料中的具体依据
+知识点:对应的教材知识点名称
+标签:标签1,标签2
+难度:hard
+</解析>
+
+---
+
+### 格式注意事项
+
+1. 题型标识符必须用方括号包围，如 [单选]、[多选]、[简答]、[简答>材料分析]
+2. 选项格式：[A]内容、[B]内容，字母大写，选项行顶格
+3. <解析>...</解析> 中的元数据行格式固定，冒号后不加空格
+4. 难度值只能是：easy、medium、hard 三选一，必须用英文小写
+5. 每道题之间可以有空行，便于阅读
+6. 不要添加题号（系统会自动编号）
+7. 不要在题目外添加任何说明性文字、章节标题或分割线（含"第一步""第二步"等过程文字）
+8. 不要使用 \`*\`、\`**\`、\`#\` 等 Markdown 格式符号
+
+现在请开始出题，直接输出题目内容，不需要任何前言。`
         };
 
-        // State: extracted text from uploaded review notes file
+        // State: extracted text from uploaded review notes / extra material files
         let _reviewNotesText = '';
+        let _materialText = '';
+
+        // ── 模式四：material 提示词（占位符替换） ─────────────────────────────────
+        function buildMaterialPrompt(materialText) {
+            const placeholder = '【请上传参考材料文件（.docx/.txt），点击"嵌入材料并生成提示词"按钮后此处将自动替换为材料内容】';
+            return AI_PROMPTS.material.replace('__MATERIAL_PLACEHOLDER__', materialText || placeholder);
+        }
+
+        // ── 面板显隐随模式切换 ────────────────────────────────────────────────────
+        function _updatePanelVisibility(mode) {
+            const reviewPanel   = document.getElementById('review-notes-panel');
+            const materialPanel = document.getElementById('material-upload-panel');
+            if (mode === 'material') {
+                if (reviewPanel)   reviewPanel.style.display   = 'none';
+                if (materialPanel) materialPanel.style.display = '';
+            } else {
+                if (reviewPanel)   reviewPanel.style.display   = '';
+                if (materialPanel) materialPanel.style.display = 'none';
+            }
+        }
 
         /**
          * Build the AI prompt for the given mode, optionally embedding review notes.
@@ -4926,6 +5099,7 @@ Now please start generating questions. Output question content directly without 
          * replaced with the actual notes content so users can skip uploading to the AI.
          */
         function buildPromptWithNotes(mode, notesText) {
+            if (mode === 'material') return buildMaterialPrompt(_materialText);
             if (!notesText) return AI_PROMPTS[mode];
 
             if (mode === 'zh') {
@@ -4969,6 +5143,7 @@ Now please start generating questions. Output question content directly without 
 
         function updatePromptDisplay() {
             const mode = document.getElementById('prompt-mode-select').value;
+            _updatePanelVisibility(mode);
             document.getElementById('prompt-display').value = buildPromptWithNotes(mode, _reviewNotesText);
         }
 
@@ -5038,6 +5213,65 @@ Now please start generating questions. Output question content directly without 
             document.getElementById('review-notes-file').value = '';
             document.getElementById('review-notes-status').textContent = '';
             document.getElementById('clear-review-notes-btn').style.display = 'none';
+            updatePromptDisplay();
+        });
+
+        // ========== Material Upload（模式四：根据材料出题） ==========
+        document.getElementById('gen-prompt-with-material-btn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('material-file');
+            const statusEl  = document.getElementById('material-status');
+            const clearBtn  = document.getElementById('clear-material-btn');
+
+            if (!fileInput.files || !fileInput.files[0]) {
+                statusEl.style.color = '#c92a2a';
+                statusEl.textContent = '请先选择参考材料文件（.docx 或 .txt）。';
+                return;
+            }
+
+            const btn = document.getElementById('gen-prompt-with-material-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 解析中…';
+            statusEl.style.color = '#868e96';
+            statusEl.textContent = '正在解析文件内容…';
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                // 复用现有的 review-notes 解析接口（同样支持 .docx/.txt 提取纯文本）
+                const resp = await fetch('/api/parse-review-notes', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!resp.ok) {
+                    statusEl.style.color = '#c92a2a';
+                    statusEl.textContent = `解析失败：${data.error || '未知错误'}`;
+                    return;
+                }
+                _materialText = data.text;
+                // 确保当前是 material 模式
+                const modeSelect = document.getElementById('prompt-mode-select');
+                if (modeSelect && modeSelect.value !== 'material') {
+                    modeSelect.value = 'material';
+                    const sel = document.getElementById('import-prompt-selector');
+                    if (sel) sel.value = 'default_material';
+                }
+                updatePromptDisplay();
+                statusEl.style.color = '#2f9e44';
+                statusEl.textContent = `✓ 参考材料已嵌入提示词（${data.text.length} 字符）。复制提示词后，同时上传教材/课件文件给 AI 即可出题。`;
+                clearBtn.style.display = '';
+            } catch (e) {
+                statusEl.style.color = '#c92a2a';
+                statusEl.textContent = `请求失败：${e.message}`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-wand-magic-sparkles"></i> 嵌入材料并生成提示词';
+            }
+        });
+
+        document.getElementById('clear-material-btn').addEventListener('click', () => {
+            _materialText = '';
+            document.getElementById('material-file').value = '';
+            document.getElementById('material-status').textContent = '';
+            document.getElementById('clear-material-btn').style.display = 'none';
             updatePromptDisplay();
         });
 
