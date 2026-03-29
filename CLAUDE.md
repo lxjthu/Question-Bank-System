@@ -16,6 +16,12 @@ python server.py
 python fix_headings.py <path/to/file.md> --subject 科目名称
 python fix_headings.py <file.md> --dry-run   # 仅预览，不写回
 
+# 部署到生产服务器（scp 覆盖）
+scp app/rag_routes.py root@8.162.14.154:/root/exam-system-online/app/rag_routes.py
+scp app/routes.py     root@8.162.14.154:/root/exam-system-online/app/routes.py
+# 服务器重启
+ssh root@8.162.14.154 "systemctl restart exam-system-online"
+
 # 生产启动（Gunicorn）
 gunicorn -w 5 wsgi:app
 
@@ -112,10 +118,37 @@ cp .env.example .env
 
 ### 生产部署
 
+- 服务器：`root@8.162.14.154`，应用目录 `/root/exam-system-online`
 - `wsgi.py`：Gunicorn 入口，`create_app('production')`
 - `nginx.conf`：反向代理配置
-- `deploy.sh`：部署脚本
-- `exam-system-online.service`：systemd 服务文件
+- `exam-system-online.service`：systemd 服务（5 worker，端口 5000）
+
+**部署方式：scp 直传（服务器无 git 仓库）**
+
+```bash
+# 单文件更新（以最常改动的两个为例）
+scp app/rag_routes.py root@8.162.14.154:/root/exam-system-online/app/rag_routes.py
+scp app/routes.py     root@8.162.14.154:/root/exam-system-online/app/routes.py
+
+# 新增脚本/工具
+scp fix_headings.py   root@8.162.14.154:/root/exam-system-online/fix_headings.py
+
+# 重启服务
+ssh root@8.162.14.154 "systemctl restart exam-system-online"
+
+# 查看服务状态
+ssh root@8.162.14.154 "systemctl status exam-system-online --no-pager"
+```
+
+需要批量同步时，用 rsync（--exclude 排除数据库/日志/venv）：
+
+```bash
+rsync -avz --exclude='*.db' --exclude='*.db-*' --exclude='venv/' \
+      --exclude='rag_uploads/' --exclude='uploads/' --exclude='exports/' \
+      --exclude='*.log' --exclude='__pycache__/' \
+      ./ root@8.162.14.154:/root/exam-system-online/
+ssh root@8.162.14.154 "systemctl restart exam-system-online"
+```
 
 ## 关键约定
 
