@@ -3454,6 +3454,8 @@
                     data.questions_skipped > 0 ? `跳过 ${data.questions_skipped} 道（内容为空）` : null,
                     `试卷：导入 ${data.exams_imported} 份`,
                     data.types_created > 0 ? `新建题型 ${data.types_created} 个` : null,
+                    data.kg_docs_imported > 0 ? `知识图谱文档 ${data.kg_docs_imported} 个（知识点 ${data.kps_imported} 条）` : null,
+                    data.pools_imported > 0 ? `面试题库 ${data.pools_imported} 个（场次 ${data.sessions_imported} 个）` : null,
                 ].filter(Boolean);
                 msg.textContent = '导入成功！' + parts.join('，');
                 // 刷新题库和试卷列表

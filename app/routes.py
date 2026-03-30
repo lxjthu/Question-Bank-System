@@ -436,6 +436,7 @@ def batch_delete_questions():
 @guest_readonly
 def batch_update_question_type():
     """Change question_type for multiple questions at once"""
+    user = get_current_user()
     data = request.json
     question_ids = data.get('question_ids', [])
     new_type = data.get('question_type', '')
@@ -457,9 +458,10 @@ def batch_update_question_type():
         return jsonify({'error': f'Question type "{new_type}" not found'}), 400
 
     now = datetime.now()
-    updated = QuestionModel.query.filter(
-        QuestionModel.question_id.in_(question_ids)
-    ).update({
+    q_filter = [QuestionModel.question_id.in_(question_ids)]
+    if user.role != 'admin':
+        q_filter.append(QuestionModel.owner_id == user.id)
+    updated = QuestionModel.query.filter(*q_filter).update({
         QuestionModel.question_type: new_type,
         QuestionModel.updated_at: now,
     }, synchronize_session=False)
@@ -1389,6 +1391,7 @@ def export_full_xlsx():
 @login_required
 def export_full_json():
     """将当前用户的全部数据导出为 JSON 备份（可用于导入其他账号）"""
+    import sqlite3 as _sqlite3
     from io import BytesIO
     user = get_current_user()
 
@@ -1410,8 +1413,104 @@ def export_full_json():
             'question_ids': [q.question_id for q in ordered_qs],
         })
 
+    # ── 知识图谱（ds_knowledge.db）────────────────────────────────────────────
+    kg_data = {'docs': [], 'chapters': [], 'kps': [], 'doc_refs': []}
+    try:
+        from app.rag_routes import _ds_db_path
+        _db_path = _ds_db_path()
+        if _db_path.exists():
+            _conn_ds = _sqlite3.connect(str(_db_path))
+            _conn_ds.row_factory = _sqlite3.Row
+            try:
+                _docs = _conn_ds.execute(
+                    "SELECT doc_id, filename, subject, status, display_name, architecture_json "
+                    "FROM ds_docs WHERE owner_id=?", (user.id,)
+                ).fetchall()
+                _doc_ids = [d['doc_id'] for d in _docs]
+                kg_data['docs'] = [dict(d) for d in _docs]
+                for _doc_id in _doc_ids:
+                    for _ch in _conn_ds.execute(
+                        "SELECT chapter_num, chapter_name, parent_chapter_num, parent_chapter_name, "
+                        "section_name, raw_text FROM ds_chapters WHERE doc_id=?", (_doc_id,)
+                    ).fetchall():
+                        kg_data['chapters'].append({'doc_id': _doc_id, **dict(_ch)})
+                    for _kp in _conn_ds.execute(
+                        "SELECT chapter_name, chapter_num, kp_name, kp_content, relations_json, "
+                        "teaching_focus, knowledge_type, cognitive_dimension, "
+                        "section_name, sub_section_name FROM ds_kps WHERE doc_id=?", (_doc_id,)
+                    ).fetchall():
+                        kg_data['kps'].append({'doc_id': _doc_id, **dict(_kp)})
+                    for _ref in _conn_ds.execute(
+                        "SELECT chapter_num, ref_text FROM ds_doc_refs WHERE doc_id=?", (_doc_id,)
+                    ).fetchall():
+                        kg_data['doc_refs'].append({'doc_id': _doc_id, **dict(_ref)})
+            finally:
+                _conn_ds.close()
+    except Exception:
+        pass
+
+    # ── 面试题库（主数据库）──────────────────────────────────────────────────────
+    interview_data = {'pools': [], 'pool_questions': [], 'configs': [], 'sessions': [], 'sets': []}
+    try:
+        from sqlalchemy import text as _sa_text
+        with db.engine.connect() as _conn_sql:
+            _pool_rows = _conn_sql.execute(_sa_text(
+                "SELECT id, pool_name, description, created_at FROM interview_pools WHERE owner_id=:uid"
+            ), {'uid': user.id}).fetchall()
+            _pool_ids = [r[0] for r in _pool_rows]
+            interview_data['pools'] = [
+                {'id': r[0], 'pool_name': r[1], 'description': r[2] or '', 'created_at': str(r[3] or '')}
+                for r in _pool_rows
+            ]
+
+            _sess_rows = _conn_sql.execute(_sa_text(
+                "SELECT id, pool_id, config_id, session_name, interview_count, sets_multiplier, "
+                "score_per_slot_json, created_at FROM interview_sessions WHERE owner_id=:uid"
+            ), {'uid': user.id}).fetchall()
+            _session_ids = [r[0] for r in _sess_rows]
+            interview_data['sessions'] = [
+                {'id': r[0], 'pool_id': r[1], 'config_id': r[2], 'session_name': r[3],
+                 'interview_count': r[4], 'sets_multiplier': r[5],
+                 'score_per_slot_json': r[6] or '{}', 'created_at': str(r[7] or '')}
+                for r in _sess_rows
+            ]
+
+            if _pool_ids:
+                _pid_list = ','.join(str(p) for p in _pool_ids)
+                interview_data['pool_questions'] = [
+                    {'pool_id': r[0], 'question_id': r[1], 'drawn': bool(r[2]),
+                     'drawn_at': str(r[3] or ''), 'added_at': str(r[4] or '')}
+                    for r in _conn_sql.execute(_sa_text(
+                        f"SELECT pool_id, question_id, drawn, drawn_at, added_at "
+                        f"FROM interview_pool_questions WHERE pool_id IN ({_pid_list})"
+                    )).fetchall()
+                ]
+                interview_data['configs'] = [
+                    {'id': r[0], 'pool_id': r[1], 'config_name': r[2] or 'default',
+                     'slots_json': r[3] or '[]', 'created_at': str(r[4] or ''),
+                     'updated_at': str(r[5] or '')}
+                    for r in _conn_sql.execute(_sa_text(
+                        f"SELECT id, pool_id, config_name, slots_json, created_at, updated_at "
+                        f"FROM interview_configs WHERE pool_id IN ({_pid_list})"
+                    )).fetchall()
+                ]
+
+            if _session_ids:
+                _sid_list = ','.join(str(s) for s in _session_ids)
+                interview_data['sets'] = [
+                    {'id': r[0], 'session_id': r[1], 'set_code': r[2],
+                     'question_ids_json': r[3] or '[]', 'is_used': bool(r[4]),
+                     'used_at': str(r[5] or ''), 'created_at': str(r[6] or '')}
+                    for r in _conn_sql.execute(_sa_text(
+                        f"SELECT id, session_id, set_code, question_ids_json, is_used, used_at, created_at "
+                        f"FROM interview_sets WHERE session_id IN ({_sid_list})"
+                    )).fetchall()
+                ]
+    except Exception:
+        pass
+
     payload = {
-        'version': '1.0',
+        'version': '2.0',
         'exported_by': user.username,
         'exported_at': datetime.now().isoformat(),
         'question_count': len(questions),
@@ -1422,6 +1521,8 @@ def export_full_json():
         ],
         'questions': [q.to_dict() for q in questions],
         'exams': exam_list,
+        'knowledge_graph': kg_data,
+        'interview': interview_data,
     }
 
     buf = BytesIO(json.dumps(payload, ensure_ascii=False, indent=2).encode('utf-8'))
@@ -1440,10 +1541,14 @@ def export_full_json():
 def import_full_json():
     """
     从 JSON 备份文件导入全部数据到当前账号。
+    支持 v1.0（题目+试卷+自定义题型）和 v2.0（+知识图谱+面试题库）格式。
     - 自定义题型：按名称匹配，不存在则创建
     - 题目：question_id 冲突时自动生成新 ID，建立旧→新映射
     - 试卷：用映射更新题目列表，exam_id 冲突时自动生成新 ID
+    - 知识图谱：文档生成新 doc_id，章节/知识点跟随新 doc_id 写入
+    - 面试题库：题库/场次/套题生成新 ID，题目引用用旧→新映射更新
     """
+    import sqlite3 as _sqlite3
     if 'file' not in request.files:
         return jsonify({'error': '未上传文件'}), 400
     f = request.files['file']
@@ -1455,13 +1560,20 @@ def import_full_json():
     except Exception:
         return jsonify({'error': '文件解析失败，请确认是有效的 JSON 备份'}), 400
 
-    if payload.get('version') != '1.0':
+    version = payload.get('version', '1.0')
+    if version not in ('1.0', '2.0'):
         return jsonify({'error': '不支持的备份版本'}), 400
 
     user = get_current_user()
     now_dt = datetime.now()
-    stats = {'types_created': 0, 'questions_imported': 0, 'questions_skipped': 0,
-             'exams_imported': 0, 'exams_skipped': 0}
+    ts = now_dt.strftime('%Y%m%d%H%M%S')
+    now_str = now_dt.strftime('%Y-%m-%d %H:%M:%S')
+    stats = {
+        'types_created': 0, 'questions_imported': 0, 'questions_skipped': 0,
+        'exams_imported': 0, 'exams_skipped': 0,
+        'kg_docs_imported': 0, 'kps_imported': 0,
+        'pools_imported': 0, 'sessions_imported': 0,
+    }
 
     # ── 1. 导入自定义题型 ─────────────────────────────────────────────────────
     existing_type_names = {
@@ -1504,7 +1616,7 @@ def import_full_json():
         if old_id and not QuestionModel.query.filter_by(question_id=old_id).first():
             new_id = old_id
         else:
-            new_id = 'q_imp_{}_{}'.format(now_dt.strftime('%Y%m%d%H%M%S'), idx)
+            new_id = 'q_imp_{}_{}'.format(ts, idx)
 
         id_map[old_id] = new_id
 
@@ -1529,7 +1641,7 @@ def import_full_json():
             difficulty=q_data.get('difficulty') or None,
             language=q_data.get('language') or 'zh',
             metadata_json=json.dumps(q_data.get('metadata') or {}, ensure_ascii=False),
-            is_used=False,
+            is_used=bool(q_data.get('is_used', False)),
             owner_id=user.id,
             visibility='private',
             created_at=now_dt,
@@ -1555,7 +1667,7 @@ def import_full_json():
         if old_exam_id and not ExamModel.query.filter_by(exam_id=old_exam_id).first():
             new_exam_id = old_exam_id
         else:
-            new_exam_id = 'exam_imp_{}_{}'.format(now_dt.strftime('%Y%m%d%H%M%S'), eidx)
+            new_exam_id = 'exam_imp_{}_{}'.format(ts, eidx)
 
         db.session.add(ExamModel(
             exam_id=new_exam_id,
@@ -1587,6 +1699,181 @@ def import_full_json():
         db.session.rollback()
         return jsonify({'error': '试卷导入失败：' + str(exc)}), 500
 
+    # ── 4. 导入知识图谱（v2.0，ds_knowledge.db）──────────────────────────────
+    if version == '2.0':
+        kg_data = payload.get('knowledge_graph', {})
+        if kg_data.get('docs'):
+            try:
+                import uuid as _uuid
+                from app.rag_routes import _ds_db_path, _init_ds_db
+                _init_ds_db()
+                _conn_ds = _sqlite3.connect(str(_ds_db_path()))
+                _conn_ds.row_factory = _sqlite3.Row
+                try:
+                    _doc_id_map = {}  # old_doc_id → new_doc_id
+                    for _doc in kg_data['docs']:
+                        _old_doc_id = _doc.get('doc_id', '')
+                        _new_doc_id = 'doc_imp_' + _uuid.uuid4().hex[:12]
+                        _doc_id_map[_old_doc_id] = _new_doc_id
+                        _conn_ds.execute(
+                            "INSERT OR IGNORE INTO ds_docs "
+                            "(doc_id, filename, subject, status, display_name, architecture_json, owner_id) "
+                            "VALUES (?,?,?,?,?,?,?)",
+                            (_new_doc_id, _doc.get('filename') or '',
+                             _doc.get('subject') or '', _doc.get('status') or 'uploaded',
+                             _doc.get('display_name') or '', _doc.get('architecture_json') or '{}',
+                             user.id)
+                        )
+                        stats['kg_docs_imported'] += 1
+
+                    for _ch in kg_data.get('chapters', []):
+                        _new_doc_id = _doc_id_map.get(_ch.get('doc_id'))
+                        if not _new_doc_id:
+                            continue
+                        _conn_ds.execute(
+                            "INSERT INTO ds_chapters "
+                            "(doc_id, chapter_num, chapter_name, parent_chapter_num, "
+                            "parent_chapter_name, section_name, raw_text) VALUES (?,?,?,?,?,?,?)",
+                            (_new_doc_id, _ch.get('chapter_num') or 0,
+                             _ch.get('chapter_name') or '',
+                             _ch.get('parent_chapter_num') or 0,
+                             _ch.get('parent_chapter_name') or '',
+                             _ch.get('section_name') or '',
+                             _ch.get('raw_text') or '')
+                        )
+
+                    for _kp in kg_data.get('kps', []):
+                        _new_doc_id = _doc_id_map.get(_kp.get('doc_id'))
+                        if not _new_doc_id:
+                            continue
+                        _conn_ds.execute(
+                            "INSERT INTO ds_kps "
+                            "(doc_id, chapter_name, chapter_num, kp_name, kp_content, relations_json, "
+                            "teaching_focus, knowledge_type, cognitive_dimension, "
+                            "section_name, sub_section_name) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                            (_new_doc_id, _kp.get('chapter_name') or '',
+                             _kp.get('chapter_num') or 0, _kp.get('kp_name') or '',
+                             _kp.get('kp_content') or '', _kp.get('relations_json') or '[]',
+                             _kp.get('teaching_focus') or '', _kp.get('knowledge_type') or '',
+                             _kp.get('cognitive_dimension') or '',
+                             _kp.get('section_name') or '', _kp.get('sub_section_name') or '')
+                        )
+                        stats['kps_imported'] += 1
+
+                    for _ref in kg_data.get('doc_refs', []):
+                        _new_doc_id = _doc_id_map.get(_ref.get('doc_id'))
+                        if not _new_doc_id:
+                            continue
+                        _conn_ds.execute(
+                            "INSERT INTO ds_doc_refs (doc_id, chapter_num, ref_text) VALUES (?,?,?)",
+                            (_new_doc_id, _ref.get('chapter_num') or 0, _ref.get('ref_text') or '')
+                        )
+
+                    _conn_ds.commit()
+                finally:
+                    _conn_ds.close()
+            except Exception:
+                pass  # 知识图谱导入失败不中断整体流程
+
+        # ── 5. 导入面试题库（v2.0）────────────────────────────────────────────
+        interview_data = payload.get('interview', {})
+        if interview_data.get('pools'):
+            try:
+                from sqlalchemy import text as _sa_text
+                _pool_id_map = {}    # old_pool_id → new_pool_id
+                _config_id_map = {}  # old_config_id → new_config_id
+                _session_id_map = {} # old_session_id → new_session_id
+
+                with db.engine.begin() as _conn_sql:
+                    for _pool in interview_data['pools']:
+                        _conn_sql.execute(_sa_text(
+                            "INSERT INTO interview_pools (pool_name, description, created_at, owner_id) "
+                            "VALUES (:name,:desc,:cat,:uid)"
+                        ), {'name': _pool['pool_name'], 'desc': _pool.get('description') or '',
+                            'cat': _pool.get('created_at') or now_str, 'uid': user.id})
+                        _new_pid = _conn_sql.execute(_sa_text(
+                            "SELECT last_insert_rowid()"
+                        )).scalar()
+                        _pool_id_map[_pool['id']] = _new_pid
+                        stats['pools_imported'] += 1
+
+                    for _cfg in interview_data.get('configs', []):
+                        _new_pid = _pool_id_map.get(_cfg['pool_id'])
+                        if not _new_pid:
+                            continue
+                        _conn_sql.execute(_sa_text(
+                            "INSERT INTO interview_configs "
+                            "(pool_id, config_name, slots_json, created_at, updated_at) "
+                            "VALUES (:pid,:name,:slots,:cat,:uat)"
+                        ), {'pid': _new_pid, 'name': _cfg.get('config_name') or 'default',
+                            'slots': _cfg.get('slots_json') or '[]',
+                            'cat': _cfg.get('created_at') or now_str,
+                            'uat': _cfg.get('updated_at') or now_str})
+                        _new_cid = _conn_sql.execute(_sa_text(
+                            "SELECT last_insert_rowid()"
+                        )).scalar()
+                        _config_id_map[_cfg['id']] = _new_cid
+
+                    for _sess in interview_data.get('sessions', []):
+                        _new_pid = _pool_id_map.get(_sess['pool_id'])
+                        if not _new_pid:
+                            continue
+                        _new_cid = _config_id_map.get(_sess.get('config_id'))
+                        _conn_sql.execute(_sa_text(
+                            "INSERT INTO interview_sessions "
+                            "(pool_id, config_id, session_name, interview_count, sets_multiplier, "
+                            "score_per_slot_json, created_at, owner_id) "
+                            "VALUES (:pid,:cid,:name,:ic,:sm,:sp,:cat,:uid)"
+                        ), {'pid': _new_pid, 'cid': _new_cid,
+                            'name': _sess['session_name'],
+                            'ic': _sess.get('interview_count') or 1,
+                            'sm': _sess.get('sets_multiplier') or 3,
+                            'sp': _sess.get('score_per_slot_json') or '{}',
+                            'cat': _sess.get('created_at') or now_str, 'uid': user.id})
+                        _new_sid = _conn_sql.execute(_sa_text(
+                            "SELECT last_insert_rowid()"
+                        )).scalar()
+                        _session_id_map[_sess['id']] = _new_sid
+                        stats['sessions_imported'] += 1
+
+                    for _pq in interview_data.get('pool_questions', []):
+                        _new_pid = _pool_id_map.get(_pq['pool_id'])
+                        _new_qid = id_map.get(_pq['question_id'], _pq['question_id'])
+                        if not _new_pid or not _new_qid:
+                            continue
+                        try:
+                            _conn_sql.execute(_sa_text(
+                                "INSERT OR IGNORE INTO interview_pool_questions "
+                                "(pool_id, question_id, drawn, drawn_at, added_at) "
+                                "VALUES (:pid,:qid,:drawn,:dat,:aat)"
+                            ), {'pid': _new_pid, 'qid': _new_qid,
+                                'drawn': 1 if _pq.get('drawn') else 0,
+                                'dat': _pq.get('drawn_at') or None,
+                                'aat': _pq.get('added_at') or now_str})
+                        except Exception:
+                            pass
+
+                    for _s in interview_data.get('sets', []):
+                        _new_sid = _session_id_map.get(_s['session_id'])
+                        if not _new_sid:
+                            continue
+                        try:
+                            _old_qids = json.loads(_s.get('question_ids_json') or '[]')
+                        except Exception:
+                            _old_qids = []
+                        _new_qids = [id_map.get(_qid, _qid) for _qid in _old_qids if _qid]
+                        _conn_sql.execute(_sa_text(
+                            "INSERT INTO interview_sets "
+                            "(session_id, set_code, question_ids_json, is_used, used_at, created_at) "
+                            "VALUES (:sid,:code,:qids,:used,:uat,:cat)"
+                        ), {'sid': _new_sid, 'code': _s.get('set_code') or '',
+                            'qids': json.dumps(_new_qids, ensure_ascii=False),
+                            'used': 1 if _s.get('is_used') else 0,
+                            'uat': _s.get('used_at') or None,
+                            'cat': _s.get('created_at') or now_str})
+            except Exception:
+                pass  # 面试题库导入失败不中断整体流程
+
     return jsonify({
         'ok': True,
         'types_created': stats['types_created'],
@@ -1594,6 +1881,10 @@ def import_full_json():
         'questions_skipped': stats['questions_skipped'],
         'exams_imported': stats['exams_imported'],
         'exams_skipped': stats['exams_skipped'],
+        'kg_docs_imported': stats['kg_docs_imported'],
+        'kps_imported': stats['kps_imported'],
+        'pools_imported': stats['pools_imported'],
+        'sessions_imported': stats['sessions_imported'],
     })
 
 
