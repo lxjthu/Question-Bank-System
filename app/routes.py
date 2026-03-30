@@ -1569,8 +1569,9 @@ def import_full_json():
     ts = now_dt.strftime('%Y%m%d%H%M%S')
     now_str = now_dt.strftime('%Y-%m-%d %H:%M:%S')
     stats = {
-        'types_created': 0, 'questions_imported': 0, 'questions_skipped': 0,
-        'exams_imported': 0, 'exams_skipped': 0,
+        'types_created': 0,
+        'questions_imported': 0, 'questions_updated': 0, 'questions_skipped': 0,
+        'exams_imported': 0, 'exams_updated': 0, 'exams_skipped': 0,
         'kg_docs_imported': 0, 'kps_imported': 0,
         'pools_imported': 0, 'sessions_imported': 0,
     }
@@ -1604,6 +1605,7 @@ def import_full_json():
         return jsonify({'error': '题型导入失败'}), 500
 
     # ── 2. 导入题目，建立旧ID→新ID映射 ───────────────────────────────────────
+    # 三分支：同用户已存在→覆盖；他人ID冲突→生成新ID；不存在→沿用原ID
     id_map = {}   # {old_question_id: new_question_id}
     for idx, q_data in enumerate(payload.get('questions', [])):
         old_id = (q_data.get('question_id') or '').strip()
@@ -1612,42 +1614,59 @@ def import_full_json():
             stats['questions_skipped'] += 1
             continue
 
-        # 决定新 ID：原 ID 不冲突就沿用，否则生成新 ID
-        if old_id and not QuestionModel.query.filter_by(question_id=old_id).first():
-            new_id = old_id
-        else:
-            new_id = 'q_imp_{}_{}'.format(ts, idx)
-
-        id_map[old_id] = new_id
-
         options_raw = q_data.get('options', [])
         options_str = json.dumps(options_raw if isinstance(options_raw, list) else [], ensure_ascii=False)
         options_en_raw = q_data.get('options_en', [])
         options_en_str = json.dumps(options_en_raw if isinstance(options_en_raw, list) else [], ensure_ascii=False)
+        meta_str = json.dumps(q_data.get('metadata') or {}, ensure_ascii=False)
 
-        db.session.add(QuestionModel(
-            question_id=new_id,
-            question_type=q_data.get('question_type') or '简答',
-            content=content,
-            options=options_str,
-            answer=q_data.get('answer') or '',
-            reference_answer=q_data.get('reference_answer') or '',
-            explanation=q_data.get('explanation') or '',
-            content_en=q_data.get('content_en') or None,
-            options_en=options_en_str if options_en_raw else None,
-            subject=q_data.get('subject') or None,
-            knowledge_point=q_data.get('knowledge_point') or None,
-            tags=q_data.get('tags') or None,
-            difficulty=q_data.get('difficulty') or None,
-            language=q_data.get('language') or 'zh',
-            metadata_json=json.dumps(q_data.get('metadata') or {}, ensure_ascii=False),
-            is_used=bool(q_data.get('is_used', False)),
-            owner_id=user.id,
-            visibility='private',
-            created_at=now_dt,
-            updated_at=now_dt,
-        ))
-        stats['questions_imported'] += 1
+        existing_q = QuestionModel.query.filter_by(question_id=old_id).first() if old_id else None
+
+        if existing_q is not None and existing_q.owner_id == user.id:
+            # 同一用户已有此题 → 覆盖更新，保留原 ID
+            new_id = old_id
+            existing_q.question_type = q_data.get('question_type') or '简答'
+            existing_q.content = content
+            existing_q.options = options_str
+            existing_q.answer = q_data.get('answer') or ''
+            existing_q.reference_answer = q_data.get('reference_answer') or ''
+            existing_q.explanation = q_data.get('explanation') or ''
+            existing_q.content_en = q_data.get('content_en') or None
+            existing_q.options_en = options_en_str if options_en_raw else None
+            existing_q.subject = q_data.get('subject') or None
+            existing_q.knowledge_point = q_data.get('knowledge_point') or None
+            existing_q.tags = q_data.get('tags') or None
+            existing_q.difficulty = q_data.get('difficulty') or None
+            existing_q.language = q_data.get('language') or 'zh'
+            existing_q.metadata_json = meta_str
+            existing_q.is_used = bool(q_data.get('is_used', False))
+            existing_q.updated_at = now_dt
+            stats['questions_updated'] += 1
+        else:
+            # ID 冲突（他人）或不存在 → INSERT
+            new_id = old_id if (old_id and existing_q is None) else 'q_imp_{}_{}'.format(ts, idx)
+            db.session.add(QuestionModel(
+                question_id=new_id,
+                question_type=q_data.get('question_type') or '简答',
+                content=content, options=options_str,
+                answer=q_data.get('answer') or '',
+                reference_answer=q_data.get('reference_answer') or '',
+                explanation=q_data.get('explanation') or '',
+                content_en=q_data.get('content_en') or None,
+                options_en=options_en_str if options_en_raw else None,
+                subject=q_data.get('subject') or None,
+                knowledge_point=q_data.get('knowledge_point') or None,
+                tags=q_data.get('tags') or None,
+                difficulty=q_data.get('difficulty') or None,
+                language=q_data.get('language') or 'zh',
+                metadata_json=meta_str,
+                is_used=bool(q_data.get('is_used', False)),
+                owner_id=user.id, visibility='private',
+                created_at=now_dt, updated_at=now_dt,
+            ))
+            stats['questions_imported'] += 1
+
+        id_map[old_id] = new_id
 
     try:
         db.session.flush()
@@ -1656,6 +1675,7 @@ def import_full_json():
         return jsonify({'error': '题目导入失败'}), 500
 
     # ── 3. 导入试卷 ───────────────────────────────────────────────────────────
+    # 三分支：同用户已存在→覆盖；他人ID冲突→生成新ID；不存在→沿用原ID
     for eidx, e_data in enumerate(payload.get('exams', [])):
         old_exam_id = (e_data.get('exam_id') or '').strip()
         name = (e_data.get('name') or '').strip()
@@ -1663,24 +1683,35 @@ def import_full_json():
             stats['exams_skipped'] += 1
             continue
 
-        # 决定新 exam_id
-        if old_exam_id and not ExamModel.query.filter_by(exam_id=old_exam_id).first():
-            new_exam_id = old_exam_id
-        else:
-            new_exam_id = 'exam_imp_{}_{}'.format(ts, eidx)
+        existing_e = ExamModel.query.filter_by(exam_id=old_exam_id).first() if old_exam_id else None
 
-        db.session.add(ExamModel(
-            exam_id=new_exam_id,
-            name=name,
-            subject=e_data.get('subject') or None,
-            config=json.dumps(e_data.get('config') or {}, ensure_ascii=False),
-            is_confirmed=bool(e_data.get('is_confirmed', False)),
-            owner_id=user.id,
-            visibility='private',
-            created_at=now_dt,
-            updated_at=now_dt,
-        ))
-        db.session.flush()  # 先写入 exam 行
+        if existing_e is not None and existing_e.owner_id == user.id:
+            # 同一用户已有此试卷 → 覆盖更新
+            new_exam_id = old_exam_id
+            existing_e.name = name
+            existing_e.subject = e_data.get('subject') or None
+            existing_e.config = json.dumps(e_data.get('config') or {}, ensure_ascii=False)
+            existing_e.is_confirmed = bool(e_data.get('is_confirmed', False))
+            existing_e.updated_at = now_dt
+            db.session.flush()
+            # 清空旧题目关联，重新写入
+            db.session.execute(
+                exam_questions.delete().where(exam_questions.c.exam_id == new_exam_id)
+            )
+            stats['exams_updated'] += 1
+        else:
+            # ID 冲突（他人）或不存在 → INSERT
+            new_exam_id = old_exam_id if (old_exam_id and existing_e is None) else 'exam_imp_{}_{}'.format(ts, eidx)
+            db.session.add(ExamModel(
+                exam_id=new_exam_id, name=name,
+                subject=e_data.get('subject') or None,
+                config=json.dumps(e_data.get('config') or {}, ensure_ascii=False),
+                is_confirmed=bool(e_data.get('is_confirmed', False)),
+                owner_id=user.id, visibility='private',
+                created_at=now_dt, updated_at=now_dt,
+            ))
+            db.session.flush()
+            stats['exams_imported'] += 1
 
         for pos, old_qid in enumerate(e_data.get('question_ids', []), start=1):
             new_qid = id_map.get(old_qid)
@@ -1691,7 +1722,6 @@ def import_full_json():
                     exam_id=new_exam_id, question_id=new_qid, position=pos
                 )
             )
-        stats['exams_imported'] += 1
 
     try:
         db.session.commit()
@@ -1878,8 +1908,10 @@ def import_full_json():
         'ok': True,
         'types_created': stats['types_created'],
         'questions_imported': stats['questions_imported'],
+        'questions_updated': stats['questions_updated'],
         'questions_skipped': stats['questions_skipped'],
         'exams_imported': stats['exams_imported'],
+        'exams_updated': stats['exams_updated'],
         'exams_skipped': stats['exams_skipped'],
         'kg_docs_imported': stats['kg_docs_imported'],
         'kps_imported': stats['kps_imported'],

@@ -1645,8 +1645,19 @@
                     </div>
                 </div>
 
-                <!-- ── AI 功能区（仅 AI 用户可见） ── -->
+                <!-- ── AI 功能区（AI 用户完整功能；非AI用户导入过KG时只读查看） ── -->
                 <div id="ai-full-section">
+
+                <!-- 只读横幅：非AI用户查看导入的知识图谱时显示 -->
+                <div id="kg-readonly-banner" style="display:none;margin-bottom:12px;padding:10px 16px;
+                    background:#fff8e1;border:1px solid #ffe082;border-radius:8px;
+                    font-size:0.85rem;color:#795548;display:none;align-items:center;gap:10px;">
+                    <i class="fas fa-eye" style="color:#f9a825;font-size:1rem;flex-shrink:0;"></i>
+                    <span>只读模式：这是您导入的知识图谱，可浏览知识点和关系图谱。
+                    <a href="#" onclick="showAiUpgradeModal();return false;"
+                        style="color:#e65100;font-weight:600;">升级 VIP</a>
+                    后可解锁 AI 上传、提取和出题功能。</span>
+                </div>
 
                 <!-- Top: Two columns -->
                 <div id="ai-two-col" style="display:flex; gap:16px; margin-bottom:16px; align-items:flex-start;">
@@ -1781,7 +1792,7 @@
                     </div>
 
                     <!-- Right column: Generation config (remaining width) -->
-                    <div style="flex:1; min-width:0;">
+                    <div id="rag-gen-col" style="flex:1; min-width:0;">
                         <div class="form-container" style="padding:16px;">
                             <h3 style="margin-bottom:14px;"><i class="fas fa-sliders-h"></i> 出题配置</h3>
 
@@ -2735,13 +2746,46 @@
                 if (tabId === 'usage-management') loadUsedQuestions();
                 if (tabId === 'ai-generation') {
                     if (!_isAiUser()) {
-                        document.getElementById('ai-full-section').style.display = 'none';
-                        document.getElementById('demo-kp-section').style.display = 'block';
-                        document.getElementById('demo-kp-upgrade-hint').style.display = 'block';
-                        loadDemoGraph();
-                        showAiUpgradeModal();
+                        // 非AI用户：先查是否有导入的知识图谱
+                        (async () => {
+                            let hasDocs = false;
+                            try {
+                                const _r = await fetch('/api/rag/ds-docs');
+                                if (_r.ok) {
+                                    const _docs = await _r.json();
+                                    hasDocs = Array.isArray(_docs) && _docs.length > 0;
+                                }
+                            } catch (e) {}
+
+                            if (hasDocs) {
+                                // 有导入数据 → 只读查看模式
+                                _kgReadonly = true;
+                                document.getElementById('demo-kp-section').style.display = 'none';
+                                document.getElementById('ai-full-section').style.display = 'block';
+                                document.getElementById('kg-readonly-banner').style.display = 'flex';
+                                document.getElementById('ds-upload-area').style.display = 'none';
+                                const _fileInput = document.getElementById('ds-file-input');
+                                if (_fileInput) _fileInput.style.display = 'none';
+                                const _pdfDetails = document.querySelector('#ds-kb-panel details');
+                                if (_pdfDetails) _pdfDetails.style.display = 'none';
+                                document.getElementById('rag-gen-col').style.display = 'none';
+                                document.getElementById('rag-admin-api-card').style.display = 'none';
+                                document.getElementById('rag-user-api-card').style.display = 'none';
+                                loadDsDocs();
+                            } else {
+                                // 无数据 → 沿用原有逻辑
+                                _kgReadonly = false;
+                                document.getElementById('ai-full-section').style.display = 'none';
+                                document.getElementById('demo-kp-section').style.display = 'block';
+                                document.getElementById('demo-kp-upgrade-hint').style.display = 'block';
+                                loadDemoGraph();
+                                showAiUpgradeModal();
+                            }
+                        })();
                         return;
                     }
+                    _kgReadonly = false;
+                    document.getElementById('kg-readonly-banner').style.display = 'none';
                     document.getElementById('demo-kp-section').style.display = 'none';
                     document.getElementById('ai-full-section').style.display = 'block';
                     loadDsDocs(); loadRagConfig();
@@ -3450,14 +3494,16 @@
                 if (!res.ok) { msg.style.color='#e74c3c'; msg.textContent=data.error||'导入失败'; return; }
                 msg.style.color='#27ae60';
                 const parts = [
-                    `题目：导入 ${data.questions_imported} 道`,
+                    data.questions_imported > 0 ? `新增题目 ${data.questions_imported} 道` : null,
+                    data.questions_updated > 0 ? `覆盖题目 ${data.questions_updated} 道` : null,
                     data.questions_skipped > 0 ? `跳过 ${data.questions_skipped} 道（内容为空）` : null,
-                    `试卷：导入 ${data.exams_imported} 份`,
+                    data.exams_imported > 0 ? `新增试卷 ${data.exams_imported} 份` : null,
+                    data.exams_updated > 0 ? `覆盖试卷 ${data.exams_updated} 份` : null,
                     data.types_created > 0 ? `新建题型 ${data.types_created} 个` : null,
                     data.kg_docs_imported > 0 ? `知识图谱文档 ${data.kg_docs_imported} 个（知识点 ${data.kps_imported} 条）` : null,
                     data.pools_imported > 0 ? `面试题库 ${data.pools_imported} 个（场次 ${data.sessions_imported} 个）` : null,
                 ].filter(Boolean);
-                msg.textContent = '导入成功！' + parts.join('，');
+                msg.textContent = (parts.length ? '导入成功！' + parts.join('，') : '导入成功（无新增数据）');
                 // 刷新题库和试卷列表
                 if (typeof loadQuestions === 'function') loadQuestions();
                 if (typeof loadExams === 'function') loadExams();
@@ -6374,6 +6420,7 @@ Now please start generating questions. Output question content directly without 
         // ── 状态变量 ────────────────────────────────────────────────────────────
         let _ragAllDocs = [];       // 已完成文档列表（done/paused）
         let _ragAllChapters = [];   // [{num, name}, ...]
+        let _kgReadonly = false;    // 非AI用户查看导入KG时为true，隐藏编辑/AI操作
         let _ragAllSections = [];   // [{num, name}, ...]
         let _ragAllKps = [];        // DS 模式知识点列表
         let _ragCurrentMode = 'zh'; // zh / bilingual / en
@@ -6420,9 +6467,11 @@ Now please start generating questions. Output question content directly without 
                         ? `已提取 ${d.ch_with_kps || 0}/${d.chapter_count || 0} 章 · ${d.kp_count || 0} 个知识点`
                     : `${d.chapter_count || 0} 章，待提取`;
 
-                // 操作按钮区
+                // 操作按钮区（只读模式下不显示提取类按钮）
                 let actionBtns = '';
-                if (d.status === 'extracting') {
+                if (_kgReadonly) {
+                    actionBtns = ''; // 只读：无操作按钮
+                } else if (d.status === 'extracting') {
                     actionBtns = '<span style="font-size:0.75rem;color:#f39c12;padding:2px 4px;">提取中...</span>';
                 } else if (d.status === 'paused') {
                     actionBtns = `
@@ -6470,11 +6519,11 @@ Now please start generating questions. Output question content directly without 
                                 <i class="fas fa-project-diagram"></i>
                             </button>` : ''}
                             ${actionBtns}
-                            <button onclick="dsDeleteDoc('${escapeHtml(d.doc_id)}')" title="删除文档"
+                            ${_kgReadonly ? '' : `<button onclick="dsDeleteDoc('${escapeHtml(d.doc_id)}')" title="删除文档"
                                 style="background:none;border:none;color:#e74c3c;cursor:pointer;padding:2px 5px;font-size:0.9rem;"
                                 onmouseover="this.style.background='#ffeaea'" onmouseout="this.style.background='none'">
                                 <i class="fas fa-trash-alt"></i>
-                            </button>
+                            </button>`}
                         </div>
                     </div>
                 </div>`;
