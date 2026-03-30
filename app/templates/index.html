@@ -1763,10 +1763,10 @@
                     <!-- Right column: Generation config (remaining width) -->
                     <div id="rag-gen-col" style="flex:1; min-width:0;">
                         <div class="form-container" style="padding:16px;">
-                            <h3 style="margin-bottom:14px;"><i class="fas fa-sliders-h"></i> 出题配置</h3>
+                            <h3 id="rag-gen-col-header" style="margin-bottom:14px;"><i class="fas fa-sliders-h"></i> 出题配置</h3>
 
                             <!-- 出题科目 -->
-                            <div style="margin-bottom:14px;">
+                            <div id="rag-subject-section" style="margin-bottom:14px;">
                                 <label style="display:block; margin-bottom:5px; font-weight:500; color:var(--primary-color);">出题科目</label>
                                 <input type="text" id="rag-subject" placeholder="如：林业经济学"
                                     style="width:100%; padding:10px 15px; border:1px solid #ddd; border-radius:var(--border-radius); font-size:1rem;">
@@ -1913,7 +1913,7 @@
                             </div>
 
                             <!-- 出题语言 + 题型与数量：左右两列，不使用 form-group 避免 min-width 干扰 -->
-                            <div style="display:flex; gap:24px; align-items:flex-start;">
+                            <div id="rag-lang-type-section" style="display:flex; gap:24px; align-items:flex-start;">
                                 <!-- 出题语言 -->
                                 <div style="flex-shrink:0; width:90px;">
                                     <label style="display:block; margin-bottom:5px; font-weight:500; color:var(--primary-color);">出题语言</label>
@@ -1953,7 +1953,7 @@
                 </div>
 
                 <!-- Prompt editor -->
-                <div class="form-container" style="padding:16px; margin-bottom:16px;">
+                <div id="rag-prompt-section" class="form-container" style="padding:16px; margin-bottom:16px;">
                     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px;">
                         <h3 style="margin:0;"><i class="fas fa-edit"></i> 提示词模板（可编辑）</h3>
                         <div style="display:flex; gap:6px;">
@@ -1987,7 +1987,7 @@
                 </div>
 
                 <!-- Generate button -->
-                <div style="text-align:center; margin-bottom:16px;">
+                <div id="rag-generate-section" style="text-align:center; margin-bottom:16px;">
                     <button id="rag-generate-btn" class="btn btn-success" onclick="ragGenerate()" style="padding:12px 40px; font-size:1.1rem;">
                         <i class="fas fa-magic"></i> 一键出题
                     </button>
@@ -2004,7 +2004,7 @@
                 </div>
 
                 <!-- Results area -->
-                <div class="form-container" style="padding:16px;">
+                <div id="rag-result-section" class="form-container" style="padding:16px;">
                     <h3 style="margin-bottom:10px;"><i class="fas fa-list-alt"></i> 生成结果</h3>
                     <textarea id="rag-result"
                         style="width:100%; height:400px; font-family:monospace; font-size:0.82rem; padding:10px; border:1px solid #ddd; border-radius:6px; resize:vertical; line-height:1.5; background:#fff;"
@@ -2737,9 +2737,15 @@
                                 if (_fileInput) _fileInput.style.display = 'none';
                                 const _pdfDetails = document.querySelector('#ds-kb-panel details');
                                 if (_pdfDetails) _pdfDetails.style.display = 'none';
-                                document.getElementById('rag-gen-col').style.display = 'none';
                                 document.getElementById('rag-admin-api-card').style.display = 'none';
                                 document.getElementById('rag-user-api-card').style.display = 'none';
+                                // 显示知识浏览区，隐藏 AI 专属部分
+                                document.getElementById('rag-gen-col').style.display = '';
+                                ['rag-subject-section','rag-lang-type-section',
+                                 'rag-prompt-section','rag-generate-section','rag-result-section'
+                                ].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+                                const _hdr = document.getElementById('rag-gen-col-header');
+                                if (_hdr) _hdr.innerHTML = '<i class="fas fa-search"></i> 知识浏览';
                                 loadDsDocs();
                             } else {
                                 // 无数据 → 显示升级提示
@@ -2755,6 +2761,13 @@
                     document.getElementById('kg-readonly-banner').style.display = 'none';
                     document.getElementById('ai-kg-upgrade-hint').style.display = 'none';
                     document.getElementById('ai-full-section').style.display = 'block';
+                    document.getElementById('rag-gen-col').style.display = '';
+                    // 恢复 AI 专属区块
+                    ['rag-subject-section','rag-lang-type-section',
+                     'rag-prompt-section','rag-generate-section','rag-result-section'
+                    ].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = ''; });
+                    const _hdrAi = document.getElementById('rag-gen-col-header');
+                    if (_hdrAi) _hdrAi.innerHTML = '<i class="fas fa-sliders-h"></i> 出题配置';
                     loadDsDocs(); loadRagConfig();
                 }
                 if (tabId === 'interview-draw') { ivInitTab(); }
@@ -6483,11 +6496,11 @@ Now please start generating questions. Output question content directly without 
                                 <i class="fas fa-project-diagram"></i>
                             </button>` : ''}
                             ${actionBtns}
-                            ${_kgReadonly ? '' : `<button onclick="dsDeleteDoc('${escapeHtml(d.doc_id)}')" title="删除文档"
+                            <button onclick="dsDeleteDoc('${escapeHtml(d.doc_id)}')" title="删除文档"
                                 style="background:none;border:none;color:#e74c3c;cursor:pointer;padding:2px 5px;font-size:0.9rem;"
                                 onmouseover="this.style.background='#ffeaea'" onmouseout="this.style.background='none'">
                                 <i class="fas fa-trash-alt"></i>
-                            </button>`}
+                            </button>
                         </div>
                     </div>
                 </div>`;
@@ -8461,10 +8474,10 @@ Now please start generating questions. Output question content directly without 
                             ${badges ? `<span style="display:flex;gap:2px;flex-wrap:wrap;margin-top:1px;">${badges}</span>` : ''}
                         </span>
                     </label>
-                    <button class="rag-edit-btn" title="编辑知识点名"
+                    ${_kgReadonly ? '' : `<button class="rag-edit-btn" title="编辑知识点名"
                             data-kp-id="${s.num}"
                             data-kp-name="${escapeHtml(s.display_name || s.name)}"
-                            onclick="startKpEdit(this)">✎</button>
+                            onclick="startKpEdit(this)">✎</button>`}
                     <button onclick="_jumpToKpInGraph(${s.num},'${escapeHtml(s.name).replace(/'/g, "\\'")}')"
                         title="在知识图谱中查看"
                         style="flex-shrink:0;padding:1px 5px;font-size:0.68rem;border:1px solid #c39;
