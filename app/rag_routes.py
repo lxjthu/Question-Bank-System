@@ -1403,13 +1403,13 @@ def list_ds_docs():
     with _ds_db_conn() as conn:
         if user and getattr(user, 'role', None) != 'admin':
             rows = conn.execute(
-                "SELECT doc_id, filename, subject, status, error_msg FROM ds_docs "
+                "SELECT doc_id, filename, subject, status, error_msg, display_name FROM ds_docs "
                 "WHERE owner_id=? OR owner_id IS NULL ORDER BY created_at DESC",
                 (user.id,),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT doc_id, filename, subject, status, error_msg FROM ds_docs "
+                "SELECT doc_id, filename, subject, status, error_msg, display_name FROM ds_docs "
                 "ORDER BY created_at DESC"
             ).fetchall()
     result = []
@@ -1428,6 +1428,7 @@ def list_ds_docs():
         result.append({
             'doc_id': r['doc_id'],
             'filename': r['filename'] or '',
+            'display_name': r['display_name'] or '',
             'subject': r['subject'] or '',
             'status': r['status'],
             'error_msg': r['error_msg'] or '',

@@ -1764,10 +1764,25 @@ def import_full_json():
                     _doc_id_map = {}  # old_doc_id → new_doc_id
                     for _doc in kg_data['docs']:
                         _old_doc_id = _doc.get('doc_id', '')
-                        _new_doc_id = 'doc_imp_' + _uuid.uuid4().hex[:12]
+                        # 三分支：同用户同doc_id → 覆盖；他人已占用 → 新ID；不存在 → 沿用原ID
+                        _existing_doc = None
+                        if _old_doc_id:
+                            _existing_doc = _conn_ds.execute(
+                                "SELECT doc_id, owner_id FROM ds_docs WHERE doc_id=?", (_old_doc_id,)
+                            ).fetchone()
+                        if _existing_doc is not None and _existing_doc['owner_id'] == user.id:
+                            _new_doc_id = _old_doc_id
+                            _conn_ds.execute("DELETE FROM ds_kps WHERE doc_id=?", (_new_doc_id,))
+                            _conn_ds.execute("DELETE FROM ds_chapters WHERE doc_id=?", (_new_doc_id,))
+                            _conn_ds.execute("DELETE FROM ds_doc_refs WHERE doc_id=?", (_new_doc_id,))
+                            _conn_ds.execute("DELETE FROM ds_docs WHERE doc_id=?", (_new_doc_id,))
+                        elif _existing_doc is not None:
+                            _new_doc_id = 'doc_imp_' + _uuid.uuid4().hex[:12]
+                        else:
+                            _new_doc_id = _old_doc_id or ('doc_imp_' + _uuid.uuid4().hex[:12])
                         _doc_id_map[_old_doc_id] = _new_doc_id
                         _conn_ds.execute(
-                            "INSERT OR IGNORE INTO ds_docs "
+                            "INSERT INTO ds_docs "
                             "(doc_id, filename, subject, status, display_name, architecture_json, owner_id) "
                             "VALUES (?,?,?,?,?,?,?)",
                             (_new_doc_id, _doc.get('filename') or '',
@@ -1837,6 +1852,28 @@ def import_full_json():
 
                 with db.engine.begin() as _conn_sql:
                     for _pool in interview_data['pools']:
+                        # 同名题库 → 先删旧数据再重建（覆盖）
+                        _exist_pool = _conn_sql.execute(_sa_text(
+                            "SELECT id FROM interview_pools WHERE pool_name=:name AND owner_id=:uid"
+                        ), {'name': _pool['pool_name'], 'uid': user.id}).fetchone()
+                        if _exist_pool:
+                            _epid = _exist_pool[0]
+                            _conn_sql.execute(_sa_text(
+                                "DELETE FROM interview_sets WHERE session_id IN "
+                                "(SELECT id FROM interview_sessions WHERE pool_id=:pid)"
+                            ), {'pid': _epid})
+                            _conn_sql.execute(_sa_text(
+                                "DELETE FROM interview_sessions WHERE pool_id=:pid"
+                            ), {'pid': _epid})
+                            _conn_sql.execute(_sa_text(
+                                "DELETE FROM interview_pool_questions WHERE pool_id=:pid"
+                            ), {'pid': _epid})
+                            _conn_sql.execute(_sa_text(
+                                "DELETE FROM interview_configs WHERE pool_id=:pid"
+                            ), {'pid': _epid})
+                            _conn_sql.execute(_sa_text(
+                                "DELETE FROM interview_pools WHERE id=:pid"
+                            ), {'pid': _epid})
                         _conn_sql.execute(_sa_text(
                             "INSERT INTO interview_pools (pool_name, description, created_at, owner_id) "
                             "VALUES (:name,:desc,:cat,:uid)"

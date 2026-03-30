@@ -522,15 +522,6 @@
 
         /* ── 知识图谱 Tab 移动端适配 (≤768px) ── */
         @media (max-width: 768px) {
-            /* 示例知识图谱：图 + 详情面板竖向堆叠 */
-            #demo-kp-layout {
-                flex-direction: column;
-            }
-            #demo-kp-detail {
-                width: 100% !important;
-                box-sizing: border-box;
-            }
-
             /* AI 功能区：左列（文档管理）+ 右列（出题配置）竖向堆叠 */
             #ai-two-col {
                 flex-direction: column;
@@ -1609,40 +1600,18 @@
             <!-- AI Generation Tab -->
             <div id="ai-generation" class="tab-content">
 
-                <!-- ── 示例知识图谱（所有用户可见） ── -->
-                <div id="demo-kp-section" style="margin-bottom:16px;padding:16px;background:#f0f7ff;border:1px solid #c8e1f7;border-radius:10px;">
-                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-                        <h4 style="margin:0;color:#1a5276;font-size:0.95rem;">
-                            <i class="fas fa-project-diagram" style="color:#2980b9;"></i> 示例知识图谱：农产品供给曲线
-                        </h4>
-                        <span style="background:#2980b9;color:#fff;padding:1px 8px;border-radius:10px;font-size:0.7rem;">预览</span>
-                        <span style="font-size:0.75rem;color:#7fb3d3;margin-left:auto;">点击节点查看详情</span>
+                <!-- ── 非AI用户无KG数据时的升级提示 ── -->
+                <div id="ai-kg-upgrade-hint" style="display:none;padding:32px 20px;text-align:center;color:#888;">
+                    <i class="fas fa-project-diagram" style="font-size:2.5rem;color:#c8e1f7;display:block;margin-bottom:12px;"></i>
+                    <div style="font-size:0.95rem;margin-bottom:10px;color:#555;">知识图谱功能需要 VIP 账号</div>
+                    <div style="font-size:0.83rem;color:#999;margin-bottom:14px;">
+                        升级后可上传教材、AI 提取知识点、生成题目。<br>
+                        已有备份文件也可通过"系统设置→导入"恢复知识图谱。
                     </div>
-                    <!-- 图 + 详情面板 -->
-                    <div id="demo-kp-layout" style="display:flex;gap:12px;align-items:flex-start;">
-                        <div id="demo-kp-graph" style="flex:1;min-width:0;height:260px;background:#fff;border-radius:8px;border:1px solid #d4e6f1;position:relative;overflow:hidden;">
-                            <svg id="demo-kp-svg" width="100%" height="100%"></svg>
-                            <div id="demo-kp-loading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:0.85rem;">加载中...</div>
-                        </div>
-                        <div id="demo-kp-detail" style="display:none;width:220px;flex-shrink:0;background:#fff;border:1px solid #d4e6f1;border-radius:8px;padding:14px;font-size:0.82rem;position:relative;">
-                            <button onclick="document.getElementById('demo-kp-detail').style.display='none'"
-                                style="position:absolute;top:8px;right:8px;border:none;background:none;cursor:pointer;color:#bbb;font-size:1rem;">×</button>
-                            <div id="demo-detail-name" style="font-weight:700;color:#1a5276;font-size:0.9rem;margin-bottom:8px;padding-right:16px;"></div>
-                            <div id="demo-detail-content" style="color:#444;line-height:1.6;max-height:160px;overflow-y:auto;margin-bottom:10px;"></div>
-                            <div id="demo-detail-rels" style="margin-bottom:10px;"></div>
-                            <button id="demo-detail-hide-btn" style="display:none;width:100%;padding:5px;background:#fff0f0;color:#e74c3c;border:1px solid #f5c6c6;border-radius:5px;cursor:pointer;font-size:0.78rem;"
-                                onclick="hideDemoNodeFromDetail()">
-                                <i class="fas fa-eye-slash"></i> 对我隐藏此节点
-                            </button>
-                        </div>
-                    </div>
-                    <div id="demo-kp-upgrade-hint" style="display:none;margin-top:10px;padding:10px 14px;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;font-size:0.85rem;color:#856404;">
-                        <i class="fas fa-star" style="color:#f39c12;"></i>
-                        AI 知识图谱提取功能需要邀请账号。请发邮件至
-                        <a href="mailto:langxiaojuan@zuel.edu.cn" style="color:#e67e22;font-weight:600;">langxiaojuan@zuel.edu.cn</a>
-                        申请邀请码，或点击
-                        <a href="#" onclick="showAiUpgradeModal();return false;" style="color:#2980b9;font-weight:600;">立即激活</a>。
-                    </div>
+                    <button onclick="showAiUpgradeModal()"
+                        style="padding:8px 20px;background:#3498db;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.88rem;">
+                        <i class="fas fa-star"></i> 了解如何升级
+                    </button>
                 </div>
 
                 <!-- ── AI 功能区（AI 用户完整功能；非AI用户导入过KG时只读查看） ── -->
@@ -2760,7 +2729,7 @@
                             if (hasDocs) {
                                 // 有导入数据 → 只读查看模式
                                 _kgReadonly = true;
-                                document.getElementById('demo-kp-section').style.display = 'none';
+                                document.getElementById('ai-kg-upgrade-hint').style.display = 'none';
                                 document.getElementById('ai-full-section').style.display = 'block';
                                 document.getElementById('kg-readonly-banner').style.display = 'flex';
                                 document.getElementById('ds-upload-area').style.display = 'none';
@@ -2773,12 +2742,10 @@
                                 document.getElementById('rag-user-api-card').style.display = 'none';
                                 loadDsDocs();
                             } else {
-                                // 无数据 → 沿用原有逻辑
+                                // 无数据 → 显示升级提示
                                 _kgReadonly = false;
                                 document.getElementById('ai-full-section').style.display = 'none';
-                                document.getElementById('demo-kp-section').style.display = 'block';
-                                document.getElementById('demo-kp-upgrade-hint').style.display = 'block';
-                                loadDemoGraph();
+                                document.getElementById('ai-kg-upgrade-hint').style.display = 'block';
                                 showAiUpgradeModal();
                             }
                         })();
@@ -2786,7 +2753,7 @@
                     }
                     _kgReadonly = false;
                     document.getElementById('kg-readonly-banner').style.display = 'none';
-                    document.getElementById('demo-kp-section').style.display = 'none';
+                    document.getElementById('ai-kg-upgrade-hint').style.display = 'none';
                     document.getElementById('ai-full-section').style.display = 'block';
                     loadDsDocs(); loadRagConfig();
                 }
@@ -6251,14 +6218,11 @@ ${label}格式：
             setRagPromptMode('zh');
             renderRagPromptSelector();
             renderImportPromptSelector();
-            // AI 用户：隐藏示例区，加载完整功能；非 AI 用户：显示示例区，隐藏完整功能
+            // AI 用户：预加载文档列表；非 AI 用户：隐藏 AI 功能区（tab 切换时再按需判断）
             if (_isAiUser()) {
-                document.getElementById('demo-kp-section').style.display = 'none';
                 loadDsDocs();
             } else {
                 document.getElementById('ai-full-section').style.display = 'none';
-                document.getElementById('demo-kp-upgrade-hint').style.display = 'block';
-                loadDemoGraph();
             }
         }
 
@@ -6506,7 +6470,7 @@ Now please start generating questions. Output question content directly without 
                         <div style="flex:1;min-width:0;overflow:hidden;">
                             <div style="display:flex;align-items:center;gap:5px;font-size:0.82rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
                                 ${statusIcon}
-                                <span title="${escapeHtml(d.doc_id)}">${escapeHtml(d.doc_id)}</span>
+                                <span title="${escapeHtml(d.doc_id)}">${escapeHtml(d.display_name || d.filename || d.doc_id)}</span>
                             </div>
                             <div style="color:#888;font-size:0.75rem;margin-top:2px;">${kpInfo}</div>
                         </div>
@@ -6546,7 +6510,7 @@ Now please start generating questions. Output question content directly without 
 
         function filterRagDocs() {
             const q = (document.getElementById('rag-doc-search')?.value || '').toLowerCase();
-            const filtered = q ? _ragAllDocs.filter(d => d.doc_id.toLowerCase().includes(q)) : _ragAllDocs;
+            const filtered = q ? _ragAllDocs.filter(d => (d.display_name || d.filename || d.doc_id).toLowerCase().includes(q)) : _ragAllDocs;
             _renderDocList(filtered);
         }
 
@@ -6564,7 +6528,7 @@ Now please start generating questions. Output question content directly without 
                 return `<label style="display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer;font-size:0.85rem;">
                     <input type="checkbox" class="rag-doc-cb" value="${escapeHtml(d.doc_id)}" ${checked ? 'checked' : ''}
                         onchange="updateRagMeta()">
-                    ${escapeHtml(d.doc_id)}
+                    ${escapeHtml(d.display_name || d.filename || d.doc_id)}
                     <span style="color:#aaa;font-size:0.75rem;">(${d.kp_count || 0}个KP)</span>
                 </label>`;
             }).join('');
@@ -8307,200 +8271,10 @@ Now please start generating questions. Output question content directly without 
                 );
         }
 
-        // ── 示例知识图谱（D3 力图） ──────────────────────────────────────────
-
-        let _demoSelectedNode = null;
-
-        async function loadDemoGraph() {
-            const loadingEl = document.getElementById('demo-kp-loading');
-            const svgEl     = document.getElementById('demo-kp-svg');
-            if (!svgEl) return;
-
-            // 清空旧图（window.d3 避免 d3 未声明时抛 ReferenceError）
-            window.d3 && window.d3.select('#demo-kp-svg').selectAll('*').remove();
-
-            try {
-                const res = await fetch('/api/rag/demo-graph');
-                if (!res.ok) {
-                    if (loadingEl) loadingEl.textContent = '加载失败';
-                    return;
-                }
-                const data = await res.json();
-                const rawNodes = data.nodes || [];
-                if (!rawNodes.length) {
-                    if (loadingEl) loadingEl.textContent = '示例节点已全部隐藏';
-                    return;
-                }
-                if (loadingEl) loadingEl.style.display = 'none';
-
-                // 构建节点名称→id映射
-                const nameToId = {};
-                rawNodes.forEach(n => { nameToId[n.name] = n.id; });
-
-                // 构建 links（只保留示例节点间的边，去重）
-                const linkSet = new Set();
-                const links = [];
-                rawNodes.forEach(n => {
-                    (n.relations || []).forEach(r => {
-                        const tid = nameToId[r.target];
-                        if (tid === undefined || tid === n.id) return;
-                        const key = [Math.min(n.id, tid), Math.max(n.id, tid), r.type].join('|');
-                        if (linkSet.has(key)) return;
-                        linkSet.add(key);
-                        links.push({ source: n.id, target: tid, type: r.type || '' });
-                    });
-                });
-
-                _renderDemoGraph(rawNodes, links);
-            } catch(e) {
-                if (loadingEl) loadingEl.textContent = '加载出错：' + e.message;
-            }
-        }
-
-        function _renderDemoGraph(nodes, links) {
-            // 确保 D3 已加载
-            if (!window.d3) {
-                const s = document.createElement('script');
-                s.src = 'https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js';
-                s.onload = () => _renderDemoGraph(nodes, links);
-                document.head.appendChild(s);
-                return;
-            }
-
-            const container = document.getElementById('demo-kp-graph');
-            const W = container.clientWidth  || 500;
-            const H = container.clientHeight || 260;
-
-            const svg = d3.select('#demo-kp-svg')
-                .attr('width', W).attr('height', H);
-            svg.selectAll('*').remove();
-
-            // 箭头
-            const defs = svg.append('defs');
-            defs.append('marker')
-                .attr('id', 'demo-arrow')
-                .attr('viewBox', '0 -4 10 8').attr('refX', 28).attr('refY', 0)
-                .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
-                .append('path').attr('d', 'M0,-4L10,0L0,4').attr('fill', '#7fb3d3');
-
-            const g = svg.append('g');
-            svg.call(d3.zoom().scaleExtent([0.4, 3])
-                .on('zoom', e => g.attr('transform', e.transform)));
-
-            const nodesD = nodes.map(n => ({...n}));
-            const linksD = links.map(l => ({...l}));
-
-            const sim = d3.forceSimulation(nodesD)
-                .force('link',      d3.forceLink(linksD).id(d => d.id).distance(120).strength(0.5))
-                .force('charge',    d3.forceManyBody().strength(-260))
-                .force('center',    d3.forceCenter(W / 2, H / 2))
-                .force('collision', d3.forceCollide(42));
-
-            // 边
-            const edgeLine = g.append('g').selectAll('line').data(linksD).enter().append('line')
-                .attr('stroke', '#a8d1e7').attr('stroke-width', 1.5).attr('stroke-opacity', 0.7)
-                .attr('marker-end', 'url(#demo-arrow)');
-
-            const edgeLabel = g.append('g').selectAll('text').data(linksD).enter().append('text')
-                .attr('font-size', 9).attr('fill', '#7fb3d3').attr('text-anchor', 'middle').attr('dy', -3)
-                .attr('pointer-events', 'none')
-                .text(d => d.type);
-
-            // 节点组
-            const nodeG = g.append('g').selectAll('g').data(nodesD).enter().append('g')
-                .style('cursor', 'pointer')
-                .call(d3.drag()
-                    .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-                    .on('drag',  (e, d) => { d.fx = e.x; d.fy = e.y; })
-                    .on('end',   (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }));
-
-            nodeG.append('circle')
-                .attr('r', 28)
-                .attr('fill', '#2980b9').attr('fill-opacity', 0.85)
-                .attr('stroke', '#fff').attr('stroke-width', 2.5);
-
-            nodeG.append('text')
-                .attr('text-anchor', 'middle').attr('dy', '0.35em')
-                .attr('font-size', 8.5).attr('fill', '#fff').attr('font-weight', '700')
-                .attr('stroke', 'rgba(0,0,0,0.2)').attr('stroke-width', 1.5)
-                .style('paint-order', 'stroke').attr('pointer-events', 'none')
-                .text(d => d.name.length > 6 ? d.name.slice(0, 6) + '…' : d.name);
-
-            // 点击节点 → 显示详情
-            nodeG.on('click', (e, d) => {
-                e.stopPropagation();
-                _demoSelectedNode = d;
-                // 高亮选中
-                nodeG.select('circle')
-                    .attr('fill', n => n.id === d.id ? '#1a5276' : '#2980b9')
-                    .attr('stroke', n => n.id === d.id ? '#ffe000' : '#fff')
-                    .attr('stroke-width', n => n.id === d.id ? 4 : 2.5);
-                _showDemoDetail(d, nodes);
-            });
-
-            svg.on('click', () => {
-                nodeG.select('circle').attr('fill', '#2980b9').attr('stroke', '#fff').attr('stroke-width', 2.5);
-                document.getElementById('demo-kp-detail').style.display = 'none';
-                _demoSelectedNode = null;
-            });
-
-            sim.on('tick', () => {
-                edgeLine
-                    .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
-                    .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
-                edgeLabel
-                    .attr('x', d => (d.source.x + d.target.x) / 2)
-                    .attr('y', d => (d.source.y + d.target.y) / 2);
-                nodeG.attr('transform', d => `translate(${d.x},${d.y})`);
-            });
-        }
-
-        function _showDemoDetail(node, allNodes) {
-            const detail  = document.getElementById('demo-kp-detail');
-            const nameEl  = document.getElementById('demo-detail-name');
-            const contEl  = document.getElementById('demo-detail-content');
-            const relsEl  = document.getElementById('demo-detail-rels');
-            const hideBtn = document.getElementById('demo-detail-hide-btn');
-            if (!detail) return;
-
-            nameEl.textContent = node.name;
-            contEl.textContent = node.content || '（暂无详细说明）';
-
-            // 关联关系
-            const nameToId = {};
-            allNodes.forEach(n => { nameToId[n.name] = n.id; });
-            const relHtml = (node.relations || [])
-                .filter(r => nameToId[r.target] !== undefined)
-                .map(r => `<span style="display:inline-block;background:#e8f4f8;color:#1a5276;border-radius:10px;
-                                padding:2px 8px;font-size:0.72rem;margin:2px 2px 0 0;">
-                                ${escapeHtml(r.type)} → ${escapeHtml(r.target)}
-                            </span>`)
-                .join('');
-            relsEl.innerHTML = relHtml || '<span style="color:#aaa;font-size:0.75rem;">无关联边</span>';
-
-            // 非 AI 用户才看到示例区，隐藏按钮始终不显示
-            if (hideBtn) hideBtn.style.display = 'none';
-
-            detail.style.display = 'block';
-        }
-
-        async function hideDemoNodeFromDetail() {
-            if (!_demoSelectedNode) return;
-            const kpId = _demoSelectedNode.id;
-            try {
-                const res = await fetch(`/api/rag/demo-graph/${kpId}`, { method: 'DELETE' });
-                if (res.ok) {
-                    document.getElementById('demo-kp-detail').style.display = 'none';
-                    _demoSelectedNode = null;
-                    loadDemoGraph();  // 重新渲染
-                }
-            } catch(e) {}
-        }
-
-        // 兼容旧调用（不再使用，保留避免报错）
+        // ── 示例知识图谱已移除 ──────────────────────────────────────────────────
+        // 兼容旧调用，避免 onclick 引用报错
+        async function hideDemoNodeFromDetail() {}
         async function hideDemoNode() {}
-
-        // 暴露到全局，供 HTML onclick 调用
         window.hideDemoNodeFromDetail = hideDemoNodeFromDetail;
 
         // ── API 配置 读/写 ────────────────────────────────────────────────────
