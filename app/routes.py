@@ -398,6 +398,9 @@ def delete_question(question_id):
     return jsonify({'message': 'Question deleted successfully'})
 
 
+_SQLITE_CHUNK = 500  # SQLite 绑定变量上限 999，分批取 500 留余量
+
+
 @bp.route('/api/questions/batch-delete', methods=['POST'])
 @login_required
 @guest_readonly
@@ -405,29 +408,44 @@ def batch_delete_questions():
     """Delete multiple questions at once"""
     user = get_current_user()
     data = request.json
-    question_ids = data.get('question_ids', [])
+    question_ids = list(data.get('question_ids', []))
 
     if not question_ids:
         return jsonify({'error': 'No question IDs provided'}), 400
 
-    # 非 admin 只能删自己的题目
+    # 非 admin：批量过滤出属于自己的 ID（分批查询，避免超 SQLite 变量限制）
     if user.role != 'admin':
-        question_ids = [
-            qid for qid in question_ids
-            if QuestionModel.query.filter_by(question_id=qid, owner_id=user.id).first()
-        ]
+        owned = set()
+        for i in range(0, len(question_ids), _SQLITE_CHUNK):
+            chunk = question_ids[i:i + _SQLITE_CHUNK]
+            rows = QuestionModel.query.filter(
+                QuestionModel.question_id.in_(chunk),
+                QuestionModel.owner_id == user.id
+            ).with_entities(QuestionModel.question_id).all()
+            owned.update(r[0] for r in rows)
+        question_ids = [qid for qid in question_ids if qid in owned]
+
+    if not question_ids:
+        return jsonify({'message': '0 questions deleted', 'deleted_count': 0})
 
     for qid in question_ids:
         delete_question_images(qid)
 
-    db.session.execute(
-        exam_questions.delete().where(exam_questions.c.question_id.in_(question_ids))
-    )
-    deleted = QuestionModel.query.filter(QuestionModel.question_id.in_(question_ids)).delete(
-        synchronize_session=False
-    )
-    db.session.commit()
+    # 分批删除 exam_questions 关联，再分批删除题目本身
+    for i in range(0, len(question_ids), _SQLITE_CHUNK):
+        chunk = question_ids[i:i + _SQLITE_CHUNK]
+        db.session.execute(
+            exam_questions.delete().where(exam_questions.c.question_id.in_(chunk))
+        )
 
+    deleted = 0
+    for i in range(0, len(question_ids), _SQLITE_CHUNK):
+        chunk = question_ids[i:i + _SQLITE_CHUNK]
+        deleted += QuestionModel.query.filter(
+            QuestionModel.question_id.in_(chunk)
+        ).delete(synchronize_session=False)
+
+    db.session.commit()
     return jsonify({'message': f'{deleted} questions deleted successfully', 'deleted_count': deleted})
 
 
@@ -438,7 +456,7 @@ def batch_update_question_type():
     """Change question_type for multiple questions at once"""
     user = get_current_user()
     data = request.json
-    question_ids = data.get('question_ids', [])
+    question_ids = list(data.get('question_ids', []))
     new_type = data.get('question_type', '')
 
     if not question_ids:
@@ -458,13 +476,16 @@ def batch_update_question_type():
         return jsonify({'error': f'Question type "{new_type}" not found'}), 400
 
     now = datetime.now()
-    q_filter = [QuestionModel.question_id.in_(question_ids)]
-    if user.role != 'admin':
-        q_filter.append(QuestionModel.owner_id == user.id)
-    updated = QuestionModel.query.filter(*q_filter).update({
-        QuestionModel.question_type: new_type,
-        QuestionModel.updated_at: now,
-    }, synchronize_session=False)
+    updated = 0
+    for i in range(0, len(question_ids), _SQLITE_CHUNK):
+        chunk = question_ids[i:i + _SQLITE_CHUNK]
+        q_filter = [QuestionModel.question_id.in_(chunk)]
+        if user.role != 'admin':
+            q_filter.append(QuestionModel.owner_id == user.id)
+        updated += QuestionModel.query.filter(*q_filter).update({
+            QuestionModel.question_type: new_type,
+            QuestionModel.updated_at: now,
+        }, synchronize_session=False)
     db.session.commit()
 
     return jsonify({'message': f'{updated} questions updated to "{new_type}"', 'updated_count': updated})
