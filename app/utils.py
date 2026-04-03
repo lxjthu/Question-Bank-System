@@ -677,13 +677,15 @@ def parse_question_template(content: str) -> list:
     
     current_question = None
     current_section = None  # 'question', 'options', 'answer', 'explanation', 'reference_answer'
-    
+    content_en_accumulating = False  # True when collecting multi-line 英文题目
+
     i = 0
     while i < len(lines):
         line = lines[i].strip()
         
         if line.startswith('[') and ']' in line[:20] and not (len(line) >= 3 and line[1].isalpha() and line[2] == ']') and not re.match(r'^\[[A-Z]_en\]', line):
             # Found a new question
+            content_en_accumulating = False
             if current_question:
                 questions.append(current_question)
             
@@ -769,22 +771,31 @@ def parse_question_template(content: str) -> list:
                 current_question['explanation'] = line[content_start:]
         
         elif line.startswith('</参考答案>') or line.startswith('</解析>'):
+            content_en_accumulating = False
             current_section = None
-        
+
         elif current_section == 'reference_answer':
             current_question['reference_answer'] += '\n' + line
-        
+
         elif current_section == 'explanation':
             if re.match(r'^科目[:：]', line):
+                content_en_accumulating = False
                 current_question['subject'] = re.sub(r'^科目[:：]\s*', '', line)
             elif re.match(r'^知识点[:：]', line):
+                content_en_accumulating = False
                 current_question['knowledge_point'] = re.sub(r'^知识点[:：]\s*', '', line)
             elif re.match(r'^标签[:：]', line):
+                content_en_accumulating = False
                 current_question['tags'] = re.sub(r'^标签[:：]\s*', '', line)
             elif re.match(r'^英文题目[:：]', line):
+                content_en_accumulating = True
                 current_question['content_en'] = re.sub(r'^英文题目[:：]\s*', '', line)
             elif re.match(r'^难度[:：]', line):
+                content_en_accumulating = False
                 current_question['difficulty'] = re.sub(r'^难度[:：]\s*', '', line)
+            elif content_en_accumulating:
+                # Continuation lines of a multi-line English question
+                current_question['content_en'] += '\n' + line
             else:
                 current_question['explanation'] += '\n' + line
         
