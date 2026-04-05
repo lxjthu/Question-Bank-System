@@ -8,3 +8,6 @@ openpyxl>=3.0
 pandas>=2.0
 cryptography>=42.0   # Fernet API Key 加密
 gunicorn>=21.0       # 生产服务器
+qrcode[pil]>=7.4    # 生成二维码
+PyJWT>=2.8          # 微信小程序 JWT 认证
+requests>=2.31      # 调用微信 API

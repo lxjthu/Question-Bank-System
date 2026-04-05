@@ -1141,6 +1141,9 @@
                             <button id="revert-exam-btn" class="btn btn-warning" style="display: none;">
                                 <i class="fas fa-lock-open"></i> 取消确认
                             </button>
+                            <button id="publish-exam-btn" class="btn btn-success" style="display: none;" onclick="openPublishModal()">
+                                <i class="fas fa-share-alt"></i> 发布考试
+                            </button>
                             <span style="color:#ccc; margin: 0 4px;">|</span>
                             <label for="export-mode-select" style="font-weight:500;">语言：</label>
                             <select id="export-mode-select" style="padding:8px 12px; border:1px solid #ddd; border-radius:var(--border-radius);">
@@ -3918,9 +3921,11 @@
             if (exam.is_confirmed) {
                 document.getElementById('confirm-exam-btn').style.display = 'none';
                 document.getElementById('revert-exam-btn').style.display = 'inline-flex';
+                document.getElementById('publish-exam-btn').style.display = 'inline-flex';
             } else {
                 document.getElementById('confirm-exam-btn').style.display = 'inline-flex';
                 document.getElementById('revert-exam-btn').style.display = 'none';
+                document.getElementById('publish-exam-btn').style.display = 'none';
             }
 
             document.getElementById('exam-preview-section').scrollIntoView({ behavior: 'smooth' });
@@ -12713,6 +12718,129 @@ async function doUpgrade() {
         </div>
     </div>
 </div>
+
+<!-- ===== 发布考试模态框 ===== -->
+<div id="publish-modal-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:9999; display:none; align-items:center; justify-content:center;">
+    <div style="background:#fff; border-radius:12px; padding:28px; width:420px; max-width:90vw; box-shadow:0 8px 40px rgba(0,0,0,0.2);">
+        <h3 style="margin:0 0 16px; font-size:1.15rem;"><i class="fas fa-share-alt"></i> 发布考试场次</h3>
+        <div style="margin-bottom:14px;">
+            <label style="display:block; font-size:0.9rem; color:#555; margin-bottom:6px;">场次名称</label>
+            <input id="publish-title" type="text" style="width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;" placeholder="例：2024年春季期末考试">
+        </div>
+        <div style="margin-bottom:14px;">
+            <label style="display:block; font-size:0.9rem; color:#555; margin-bottom:6px;">答题时限（分钟，0=不限时）</label>
+            <input id="publish-duration" type="number" min="0" value="0" style="width:100%; padding:9px 12px; border:1px solid #ddd; border-radius:8px; font-size:0.95rem; box-sizing:border-box;">
+        </div>
+        <div style="margin-bottom:14px; display:flex; gap:20px;">
+            <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                <input type="checkbox" id="publish-shuffle" checked> 乱序防作弊
+            </label>
+            <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                <input type="checkbox" id="publish-retake"> 允许重做
+            </label>
+            <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+                <input type="checkbox" id="publish-show-answer" checked> 交卷后显示答案
+            </label>
+        </div>
+        <div id="publish-result" style="display:none; margin-bottom:16px; padding:14px; background:#f0faf0; border-radius:8px; border:1px solid #b7e4c7;">
+            <div style="font-weight:600; color:#2d7a2d; margin-bottom:8px;"><i class="fas fa-check-circle"></i> 场次已创建！</div>
+            <div style="font-size:0.9rem; color:#444; margin-bottom:6px;">考试码：<strong id="publish-code" style="font-size:1.1rem; color:#1a6b1a; letter-spacing:2px;"></strong></div>
+            <div style="font-size:0.85rem; color:#666;">学生可在微信小程序输入考试码加入，或扫描二维码。</div>
+            <div style="margin-top:10px;">
+                <button class="btn btn-outline btn-sm" onclick="downloadQrcode()"><i class="fas fa-qrcode"></i> 下载二维码</button>
+                <button class="btn btn-success btn-sm" style="margin-left:8px;" onclick="copyCode()"><i class="fas fa-copy"></i> 复制考试码</button>
+            </div>
+        </div>
+        <div style="display:flex; gap:10px; justify-content:flex-end;">
+            <button class="btn btn-outline" onclick="closePublishModal()">关闭</button>
+            <button id="publish-submit-btn" class="btn btn-success" onclick="submitPublish()"><i class="fas fa-paper-plane"></i> 创建场次</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ===== 发布考试相关 =====
+let publishedSessionId = null;
+let publishedCode = '';
+
+function openPublishModal() {
+    if (!currentExam) { alert('请先加载试卷'); return; }
+    if (!currentExam.is_confirmed) { alert('请先最终确认试卷，再发布考试'); return; }
+    document.getElementById('publish-title').value = currentExam.name || '';
+    document.getElementById('publish-result').style.display = 'none';
+    document.getElementById('publish-submit-btn').style.display = 'inline-flex';
+    const overlay = document.getElementById('publish-modal-overlay');
+    overlay.style.display = 'flex';
+}
+
+function closePublishModal() {
+    document.getElementById('publish-modal-overlay').style.display = 'none';
+}
+
+async function submitPublish() {
+    const title = document.getElementById('publish-title').value.trim();
+    if (!title) { alert('请填写场次名称'); return; }
+
+    const token = localStorage.getItem('mp_token');
+    if (!token) { alert('请先在微信小程序绑定教师账号，获取 API token'); return; }
+
+    const btn = document.getElementById('publish-submit-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 创建中...';
+
+    try {
+        const resp = await fetch('/api/sessions/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({
+                exam_id: currentExam.exam_id,
+                title: title,
+                duration_minutes: parseInt(document.getElementById('publish-duration').value) || 0,
+                shuffle_questions: document.getElementById('publish-shuffle').checked,
+                allow_retake: document.getElementById('publish-retake').checked,
+                show_answer: document.getElementById('publish-show-answer').checked,
+            })
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+            publishedSessionId = data.session.id;
+            publishedCode = data.session.code;
+            document.getElementById('publish-code').textContent = publishedCode;
+            document.getElementById('publish-result').style.display = 'block';
+            btn.style.display = 'none';
+        } else {
+            alert('创建失败：' + (data.error || resp.statusText));
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-paper-plane"></i> 创建场次';
+        }
+    } catch (e) {
+        alert('请求失败：' + e.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-paper-plane"></i> 创建场次';
+    }
+}
+
+function copyCode() {
+    navigator.clipboard.writeText(publishedCode).then(() => {
+        alert('考试码已复制：' + publishedCode);
+    }).catch(() => {
+        prompt('请手动复制考试码：', publishedCode);
+    });
+}
+
+async function downloadQrcode() {
+    if (!publishedSessionId) return;
+    const token = localStorage.getItem('mp_token');
+    const url = `/api/sessions/${publishedSessionId}/qrcode`;
+    const resp = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!resp.ok) { alert('获取二维码失败'); return; }
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `考试二维码_${publishedCode}.png`;
+    a.click();
+}
+</script>
 
 </body>
 </html>

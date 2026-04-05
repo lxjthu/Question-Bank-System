@@ -66,6 +66,25 @@ def create_app(config_name=None):
     except Exception:
         pass
 
+    # ── 微信小程序相关（新增）────────────────────────────────────────────
+    try:
+        from app.mp_auth_routes import mp_bp
+        app.register_blueprint(mp_bp)
+    except Exception as e:
+        app.logger.warning(f'[mp_auth] 加载失败: {e}')
+
+    try:
+        from app.session_routes import session_bp
+        app.register_blueprint(session_bp)
+    except Exception as e:
+        app.logger.warning(f'[session] 加载失败: {e}')
+
+    try:
+        from app.answer_routes import answer_bp
+        app.register_blueprint(answer_bp)
+    except Exception as e:
+        app.logger.warning(f'[answer] 加载失败: {e}')
+
     @app.route('/api/shutdown', methods=['POST'])
     def _shutdown():
         def _kill():
@@ -145,6 +164,56 @@ def _migrate_db():
             user_id INTEGER NOT NULL,
             kp_id   INTEGER NOT NULL,
             PRIMARY KEY (user_id, kp_id)
+        )""",
+        # ── 微信小程序相关（新增）──────────────────────────────────────────
+        """CREATE TABLE IF NOT EXISTS wx_users (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            openid      VARCHAR(64) UNIQUE NOT NULL,
+            user_id     INTEGER NOT NULL REFERENCES users(id),
+            nickname    VARCHAR(128) DEFAULT '',
+            avatar_url  TEXT DEFAULT '',
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            last_login  DATETIME
+        )""",
+        """CREATE TABLE IF NOT EXISTS exam_sessions (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            exam_id           VARCHAR(64) NOT NULL REFERENCES exams(exam_id),
+            teacher_id        INTEGER NOT NULL REFERENCES users(id),
+            title             VARCHAR(256) NOT NULL,
+            code              VARCHAR(8) UNIQUE NOT NULL,
+            qr_key            VARCHAR(64) UNIQUE NOT NULL,
+            status            VARCHAR(16) DEFAULT 'draft',
+            duration_minutes  INTEGER DEFAULT 0,
+            allow_retake      BOOLEAN DEFAULT 0,
+            shuffle_questions BOOLEAN DEFAULT 1,
+            show_answer       BOOLEAN DEFAULT 1,
+            created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+            started_at        DATETIME,
+            ended_at          DATETIME
+        )""",
+        """CREATE TABLE IF NOT EXISTS student_exams (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id     INTEGER NOT NULL REFERENCES exam_sessions(id),
+            wx_user_id     INTEGER NOT NULL REFERENCES wx_users(id),
+            question_order TEXT DEFAULT '[]',
+            status         VARCHAR(16) DEFAULT 'joined',
+            obj_score      REAL DEFAULT 0,
+            total_score    REAL,
+            started_at     DATETIME,
+            submitted_at   DATETIME,
+            graded_at      DATETIME,
+            grader_id      INTEGER REFERENCES users(id)
+        )""",
+        """CREATE TABLE IF NOT EXISTS student_answers (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_exam_id INTEGER NOT NULL REFERENCES student_exams(id),
+            question_id     VARCHAR(64) NOT NULL REFERENCES questions(question_id),
+            answer_text     TEXT DEFAULT '',
+            is_correct      BOOLEAN,
+            auto_score      REAL DEFAULT 0,
+            manual_score    REAL,
+            answered_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(student_exam_id, question_id)
         )""",
     ]
     with db.engine.connect() as conn:
