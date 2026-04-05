@@ -1605,13 +1605,20 @@
                     <i class="fas fa-project-diagram" style="font-size:2.5rem;color:#c8e1f7;display:block;margin-bottom:12px;"></i>
                     <div style="font-size:0.95rem;margin-bottom:10px;color:#555;">知识图谱功能需要 VIP 账号</div>
                     <div style="font-size:0.83rem;color:#999;margin-bottom:14px;">
-                        升级后可上传教材、AI 提取知识点、生成题目。<br>
-                        已有备份文件也可通过"系统设置→导入"恢复知识图谱。
+                        升级后可上传教材、AI 提取知识点、生成题目。
                     </div>
-                    <button onclick="showAiUpgradeModal()"
-                        style="padding:8px 20px;background:#3498db;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.88rem;">
-                        <i class="fas fa-star"></i> 了解如何升级
-                    </button>
+                    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+                        <button onclick="showAiUpgradeModal()"
+                            style="padding:8px 20px;background:#3498db;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.88rem;">
+                            <i class="fas fa-star"></i> 了解如何升级
+                        </button>
+                        <input type="file" id="kg-import-json-input-upgrade" accept=".json" style="display:none"
+                               onchange="importKgJson(this.files[0])">
+                        <button onclick="document.getElementById('kg-import-json-input-upgrade').click()"
+                            style="padding:8px 20px;background:#27ae60;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.88rem;">
+                            <i class="fas fa-file-import"></i> 导入知识图谱
+                        </button>
+                    </div>
                 </div>
 
                 <!-- ── AI 功能区（AI 用户完整功能；非AI用户导入过KG时只读查看） ── -->
@@ -1620,12 +1627,25 @@
                 <!-- 只读横幅：非AI用户查看导入的知识图谱时显示 -->
                 <div id="kg-readonly-banner" style="display:none;margin-bottom:12px;padding:10px 16px;
                     background:#fff8e1;border:1px solid #ffe082;border-radius:8px;
-                    font-size:0.85rem;color:#795548;display:none;align-items:center;gap:10px;">
+                    font-size:0.85rem;color:#795548;display:none;align-items:center;gap:10px;flex-wrap:wrap;">
                     <i class="fas fa-eye" style="color:#f9a825;font-size:1rem;flex-shrink:0;"></i>
-                    <span>只读模式：这是您导入的知识图谱，可浏览知识点和关系图谱。
+                    <span style="flex:1;min-width:120px;">只读模式：这是您导入的知识图谱，可浏览知识点和关系图谱。
                     <a href="#" onclick="showAiUpgradeModal();return false;"
                         style="color:#e65100;font-weight:600;">升级 VIP</a>
                     后可解锁 AI 上传、提取和出题功能。</span>
+                    <div style="display:flex;gap:6px;flex-shrink:0;">
+                        <button onclick="exportKgJson()" title="导出知识图谱为 JSON 备份"
+                            style="padding:4px 10px;background:#3498db;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:0.8rem;white-space:nowrap;">
+                            <i class="fas fa-download"></i> 导出
+                        </button>
+                        <input type="file" id="kg-import-json-input-banner" accept=".json" style="display:none"
+                               onchange="importKgJson(this.files[0])">
+                        <button onclick="document.getElementById('kg-import-json-input-banner').click()"
+                            title="从 JSON 备份文件导入知识图谱"
+                            style="padding:4px 10px;background:#27ae60;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:0.8rem;white-space:nowrap;">
+                            <i class="fas fa-file-import"></i> 导入
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Top: Two columns -->
@@ -1636,12 +1656,26 @@
 
                         <!-- DS 知识点提取面板（DeepSeek 直出模式，默认显示） -->
                         <div id="ds-kb-panel" class="form-container" style="padding:16px;">
-                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
                                 <h3 style="margin:0;font-size:0.95rem;"><i class="fas fa-brain"></i> 文档知识提取</h3>
                                 <button onclick="showDsKgModal()"
                                     style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;font-size:0.78rem;background:linear-gradient(135deg,#6c3483,#2980b9);color:#fff;border:none;border-radius:14px;cursor:pointer;white-space:nowrap;box-shadow:0 2px 5px rgba(0,0,0,0.15);"
                                     title="可视化展示已提取的知识点关系图谱">
                                     <i class="fas fa-project-diagram"></i> 知识图谱
+                                </button>
+                            </div>
+                            <!-- KG JSON 导入/导出（AI 用户） -->
+                            <div style="display:flex;gap:6px;margin-bottom:10px;">
+                                <button onclick="exportKgJson()" title="导出知识图谱为 JSON 备份文件"
+                                    style="flex:1;padding:4px 6px;background:#3498db;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:0.78rem;">
+                                    <i class="fas fa-download"></i> 导出 JSON
+                                </button>
+                                <input type="file" id="kg-import-json-input" accept=".json" style="display:none"
+                                       onchange="importKgJson(this.files[0])">
+                                <button onclick="document.getElementById('kg-import-json-input').click()"
+                                    title="从 JSON 备份文件导入知识图谱"
+                                    style="flex:1;padding:4px 6px;background:#27ae60;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:0.78rem;">
+                                    <i class="fas fa-file-import"></i> 导入 JSON
                                 </button>
                             </div>
 
@@ -6683,6 +6717,37 @@ Now please start generating questions. Output question content directly without 
             return _dsKgPalette[(idx < 0 ? 0 : idx) % _dsKgPalette.length];
         }
 
+        // ── 节点类型辅助函数（骨架节点尺寸/透明度统一维护）──────────────────
+        function _dsKgNodeR(d) {
+            if (d.type === 'root')    return 38;
+            if (d.type === 'chapter') return 28;
+            if (d.type === 'section') return 20;
+            return 18;
+        }
+        function _dsKgNodeFillOp(d) {
+            if (d.type === 'root')    return 1.0;
+            if (d.type === 'chapter') return 0.10;  // 空心圆环
+            if (d.type === 'section') return 0.05;  // 极淡空心环
+            return 0.85;  // 知识点：实心
+        }
+        function _dsKgNodeStroke(d) {
+            if (d.type === 'root')    return '#ecf0f1';
+            if (d.type === 'section') return '#95a5a6';  // 节：灰色环
+            return _dsKgColorOf(d.chapter);  // 章 & 知识点：章色
+        }
+        function _dsKgNodeStrokeW(d) {
+            if (d.type === 'root')    return 3;
+            if (d.type === 'chapter') return 5;    // 粗环
+            if (d.type === 'section') return 3.5;  // 中环
+            return 1.5;  // 知识点：细轮廓
+        }
+        function _dsKgNodeStrokeOp(d) {
+            if (d.type === 'root')    return 0.9;
+            if (d.type === 'chapter') return 0.88;
+            if (d.type === 'section') return 0.65;
+            return 0.30;  // 知识点：淡轮廓
+        }
+
         // ── 构建左侧筛选面板 ──────────────────────────────────────────────────
         function _buildDsKgFilterPanel() {
             // 章节复选框：显示"章名 > 节名"（section_name 为空时只显示章名）
@@ -6730,34 +6795,52 @@ Now please start generating questions. Output question content directly without 
             const selectedRel = new Set([...document.querySelectorAll('.ds-kg-rel-cb:checked')].map(cb => cb.value));
             const searchText  = (document.getElementById('ds-kg-kp-search')?.value || '').trim().toLowerCase();
 
-            // 筛选节点：按章节（章名+节名联合键）+ 知识点关键词
-            // value 格式：章名 + '|||' + 节名
+            // 计算被选中的大章名集合（章节 checkbox value = 章名 + '|||' + 节名）
+            const selectedChapterNames = new Set([...selectedCh].map(v => v.split('|||')[0]));
+
+            // 筛选节点：
+            //   root    → 始终保留（骨架根节点）
+            //   chapter → 该章至少有一个节被选中则保留
+            //   section → 对应的 章名|||节名 键被选中则保留
+            //   kp      → 对应的 章名|||节名 键被选中，且通过关键词过滤
             let filteredNodes = _dsKgAllNodes.filter(n => {
+                if (n.type === 'root') return true;
+                if (n.type === 'chapter') return selectedChapterNames.has(n.chapter);
+                if (n.type === 'section') {
+                    return selectedCh.has(n.chapter + '|||' + n.section_name);
+                }
+                // kp 节点
                 const nodeKey = n.chapter + '|||' + (n.section_name || '');
                 return selectedCh.has(nodeKey);
             });
             if (searchText) {
+                // 搜索仅过滤 KP 节点，骨架节点保持可见
                 filteredNodes = filteredNodes.filter(n =>
+                    (n.type && n.type !== 'kp') ||
                     n.name.toLowerCase().includes(searchText) ||
                     (n.content || '').toLowerCase().includes(searchText)
                 );
             }
 
-            // 筛选边：两端均在可见节点内 + 关系类型被勾选
+            // 筛选边：两端均可见；骨架边始终保留（不受关系类型复选框控制）
             const nodeIds = new Set(filteredNodes.map(n => n.id));
             const knownTypes = new Set(Object.keys(_dsKgRelColors));
             const filteredLinks = _dsKgAllLinks.filter(l => {
-                if (!nodeIds.has(l.source) || !nodeIds.has(l.target)) return false;
+                const srcId = typeof l.source === 'object' ? l.source.id : l.source;
+                const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
+                if (!nodeIds.has(srcId) || !nodeIds.has(tgtId)) return false;
+                if (l.type === 'structural') return true; // 骨架连线无条件显示
                 const key = knownTypes.has(l.type) ? l.type : '_other';
                 return selectedRel.has(key);
             });
 
-            // 更新统计文字
+            // 统计：只统计 KP 节点和语义关系
+            const kpCount  = filteredNodes.filter(n => !n.type || n.type === 'kp').length;
+            const semCount = filteredLinks.filter(l => l.type !== 'structural').length;
             const stats = document.getElementById('ds-kg-filter-stats');
-            if (stats) stats.textContent = `${filteredNodes.length} 个知识点 · ${filteredLinks.length} 条关系`;
+            if (stats) stats.textContent = `${kpCount} 个知识点 · ${semCount} 条关系`;
 
-            // 只把有可见节点的章节传给渲染（用于图例）
-            const visCh = new Set(filteredNodes.map(n => n.chapter));
+            const visCh = new Set(filteredNodes.filter(n => !n.type || n.type === 'kp').map(n => n.chapter));
             const filteredChapters = _dsKgAllChapters.filter(c => visCh.has(c.name));
             _renderDsKg(filteredNodes, filteredLinks, filteredChapters);
         }
@@ -7137,6 +7220,94 @@ Now please start generating questions. Output question content directly without 
             }
         }
 
+        // ── 知识图谱 JSON 导入 / 导出（所有登录用户可用）────────────────────────
+        async function exportKgJson() {
+            // 先拉取文档列表，再弹选择 Modal
+            const listEl = document.getElementById('kg-export-doc-list');
+            listEl.innerHTML = '<div style="text-align:center;color:#bbb;padding:12px;font-size:0.85rem;"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>';
+            document.getElementById('kg-export-select-modal').style.display = 'flex';
+            document.getElementById('kg-export-select-all').checked = true;
+            try {
+                const resp = await fetch('/api/rag/ds-docs');
+                const docs = resp.ok ? await resp.json() : [];
+                if (!docs.length) {
+                    listEl.innerHTML = '<div style="text-align:center;color:#bbb;padding:12px;font-size:0.85rem;">暂无文档</div>';
+                    return;
+                }
+                listEl.innerHTML = docs.map(d => `
+                    <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;
+                        border-bottom:1px solid #f5f5f5;font-size:0.85rem;">
+                        <input type="checkbox" class="kg-export-doc-cb" value="${escapeHtml(d.doc_id)}" checked
+                            style="cursor:pointer;flex-shrink:0;">
+                        <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                            title="${escapeHtml(d.doc_id)}">
+                            ${escapeHtml(d.display_name || d.filename || d.doc_id)}
+                        </span>
+                        <span style="color:#aaa;font-size:0.75rem;flex-shrink:0;">${d.kp_count || 0} 个知识点</span>
+                    </label>`).join('');
+            } catch (e) {
+                listEl.innerHTML = `<div style="color:#e74c3c;padding:10px;font-size:0.85rem;">加载失败：${e.message}</div>`;
+            }
+        }
+        window.exportKgJson = exportKgJson;
+
+        function toggleKgExportAll(checked) {
+            document.querySelectorAll('.kg-export-doc-cb').forEach(cb => cb.checked = checked);
+        }
+        window.toggleKgExportAll = toggleKgExportAll;
+
+        async function doExportKgJson() {
+            const checked = [...document.querySelectorAll('.kg-export-doc-cb:checked')].map(cb => cb.value);
+            if (!checked.length) { alert('请至少选择一个文档'); return; }
+            document.getElementById('kg-export-select-modal').style.display = 'none';
+            try {
+                const qs = checked.map(id => 'doc_id=' + encodeURIComponent(id)).join('&');
+                const resp = await fetch('/api/rag/export-kg-json?' + qs);
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.error || `HTTP ${resp.status}`);
+                }
+                const blob = await resp.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                const cd = resp.headers.get('Content-Disposition') || '';
+                const fnMatch = cd.match(/filename\*?=['"]?([^'";\n]+)/);
+                a.download = fnMatch ? decodeURIComponent(fnMatch[1]) : 'knowledge_graph.json';
+                a.click();
+            } catch (e) {
+                alert('导出失败：' + e.message);
+            }
+        }
+        window.doExportKgJson = doExportKgJson;
+
+        async function importKgJson(file) {
+            if (!file) return;
+            // 重置所有 KG 导入 input，避免下次选同一文件无法触发
+            ['kg-import-json-input','kg-import-json-input-banner','kg-import-json-input-upgrade']
+                .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+            const fd = new FormData();
+            fd.append('file', file);
+            try {
+                const resp = await fetch('/api/rag/import-kg-json', { method: 'POST', body: fd });
+                const data = await resp.json().catch(() => ({}));
+                if (!resp.ok) {
+                    alert('导入失败：' + (data.error || `HTTP ${resp.status}`));
+                    return;
+                }
+                alert(data.message || '导入成功！');
+                // 刷新文档列表；非AI用户重新触发 tab 逻辑以切换到只读查看模式
+                if (_isAiUser()) {
+                    loadDsDocs();
+                } else {
+                    const tabBtn = document.querySelector('.tab-button[data-tab="ai-generation"]');
+                    if (tabBtn) tabBtn.click();
+                }
+            } catch (e) {
+                alert('导入出错：' + e.message);
+            }
+        }
+        window.importKgJson = importKgJson;
+
         async function _exportDsKgXlsx() {
             // 从 subtitle 中提取当前 doc_id（格式：（doc_id））
             const subtitle = document.getElementById('ds-kg-subtitle');
@@ -7277,16 +7448,17 @@ Now please start generating questions. Output question content directly without 
             const legend    = document.getElementById('ds-kg-legend');
             container.innerHTML = '';
 
-            if (!nodes.length) {
+            const kpNodes = nodes.filter(n => !n.type || n.type === 'kp');
+            if (!kpNodes.length) {
                 container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#aaa;font-size:0.88rem;"><i class="fas fa-info-circle" style="margin-right:6px;"></i>暂无知识点数据，请先完成知识点提取</div>';
                 if (legend) legend.innerHTML = '';
                 return;
             }
 
-            // ── 颜色映射（使用全局常量，章节色以全量列表为基准保证一致） ──────
-            const colorOf = ch => _dsKgColorOf(ch);
-            const relColor = t => _dsKgRelColors[t] || '#aaa';
-            const chNames  = chapters.map(c => c.name); // 供图例区使用（当前可见章节）
+            // ── 颜色映射 ──────────────────────────────────────────────────────
+            const colorOf  = ch => _dsKgColorOf(ch);
+            const relColor = t  => _dsKgRelColors[t] || '#aaa';
+            const chNames  = [...new Set(chapters.map(c => c.name))];
 
             // ── 图例 ──────────────────────────────────────────────────────────
             if (legend) {
@@ -7305,10 +7477,11 @@ Now please start generating questions. Output question content directly without 
                 legend.innerHTML = chHtml
                     + (chHtml && relHtml ? '<span style="color:#ddd;margin:0 6px;">│</span>' : '')
                     + relHtml;
-                // 统计信息更新到标题行
                 const statsEl = document.getElementById('ds-kg-stats');
-                if (statsEl) statsEl.textContent = `${nodes.length} 个知识点 · ${links.length} 条关系`;
-                // 移动端默认折叠图例
+                if (statsEl) {
+                    const semLinks = links.filter(l => l.type !== 'structural').length;
+                    statsEl.textContent = `${kpNodes.length} 个知识点 · ${semLinks} 条关系`;
+                }
                 if (window.matchMedia && window.matchMedia('(max-width:600px)').matches) {
                     const wrap = document.getElementById('ds-kg-legend-wrap');
                     if (wrap && !wrap._legendExpanded) _collapseDsKgLegend();
@@ -7318,56 +7491,131 @@ Now please start generating questions. Output question content directly without 
             // ── D3 绘图 ───────────────────────────────────────────────────────
             const W = container.clientWidth  || 900;
             const H = container.clientHeight || 520;
+            const cx = W / 2, cy = H / 2;
 
             const svg = d3.select(container)
                 .append('svg')
                 .attr('width', W).attr('height', H)
                 .style('cursor', 'grab');
 
-            // 箭头标记
+            // 箭头标记（仅语义关系类型，骨架边不需要）
             const defs = svg.append('defs');
             [...Object.keys(_dsKgRelColors), '_default'].forEach(t => {
                 const col = _dsKgRelColors[t] || '#aaa';
                 defs.append('marker')
                     .attr('id', `dskg-arrow-${t}`)
-                    .attr('viewBox', '0 -5 10 10').attr('refX', 32).attr('refY', 0)
+                    .attr('viewBox', '0 -5 10 10').attr('refX', 28).attr('refY', 0)
                     .attr('markerWidth', 5).attr('markerHeight', 5).attr('orient', 'auto')
                     .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', col);
             });
 
             const g = svg.append('g');
+            svg.call(d3.zoom().scaleExtent([0.08, 6]).on('zoom', e => g.attr('transform', e.transform)));
 
-            // 缩放平移
-            svg.call(
-                d3.zoom().scaleExtent([0.1, 5])
-                    .on('zoom', e => { g.attr('transform', e.transform); })
-            );
-
-            // 克隆数据（D3 会直接修改 source/target 为对象引用）
+            // ── 克隆数据 ──────────────────────────────────────────────────────
             const nodesD = nodes.map(n => ({...n}));
             const linksD = links.map(l => ({...l}));
 
-            // 力仿真
+            // ── 预置径向初始位置（骨架节点层次放射状，减少力仿真迭代次数）──
+            const rootD    = nodesD.filter(n => n.type === 'root');
+            const chapterD = nodesD.filter(n => n.type === 'chapter')
+                                   .sort((a, b) => a.chapter_num - b.chapter_num);
+            const sectionD = nodesD.filter(n => n.type === 'section');
+            const kpD      = nodesD.filter(n => !n.type || n.type === 'kp');
+
+            // 根节点：画布中心
+            rootD.forEach(n => { n.x = cx; n.y = cy; });
+
+            // 大章：以根为圆心，均匀分布在半径 185 的圆上
+            const chAngle = {};  // key = doc_id + '__' + chapter_num → angle (rad)
+            chapterD.forEach((n, i) => {
+                const angle = (2 * Math.PI * i / Math.max(chapterD.length, 1)) - Math.PI / 2;
+                n.x = cx + Math.cos(angle) * 185;
+                n.y = cy + Math.sin(angle) * 185;
+                chAngle[n.doc_id + '__' + n.chapter_num] = angle;
+            });
+
+            // 节：按所属大章角度聚集在半径 340 处，同章节节点小范围展开
+            const secByChap = {};  // key → [section nodes]
+            sectionD.forEach(n => {
+                const k = n.doc_id + '__' + n.chapter_num;
+                (secByChap[k] = secByChap[k] || []).push(n);
+            });
+            const secAngle = {};  // key = doc_id + '__' + chapter_num + '__' + section_name → angle
+            Object.entries(secByChap).forEach(([k, secs]) => {
+                const base = chAngle[k] ?? 0;
+                const spread = Math.min(Math.PI * 0.32, 0.28 * secs.length);
+                secs.forEach((n, i) => {
+                    const off = secs.length > 1 ? (i / (secs.length - 1) - 0.5) * spread * 2 : 0;
+                    const a = base + off;
+                    n.x = cx + Math.cos(a) * 340;
+                    n.y = cy + Math.sin(a) * 340;
+                    secAngle[n.doc_id + '__' + n.chapter_num + '__' + n.section_name] = a;
+                });
+            });
+
+            // KP：按所属节（或章）角度聚集在半径 490+ 处
+            const kpByParent = {};
+            kpD.forEach(n => {
+                const sk = n.doc_id + '__' + n.chapter_num + '__' + (n.section_name || '');
+                const ck = n.doc_id + '__' + n.chapter_num;
+                const k  = (n.section_name && secAngle[sk] !== undefined) ? sk : ck;
+                (kpByParent[k] = kpByParent[k] || []).push(n);
+            });
+            Object.entries(kpByParent).forEach(([k, kps]) => {
+                const base = secAngle[k] ?? chAngle[k] ?? 0;
+                const spread = Math.min(Math.PI * 0.22, 0.14 * kps.length);
+                kps.forEach((n, i) => {
+                    const off = kps.length > 1 ? (i / (kps.length - 1) - 0.5) * spread * 2 : 0;
+                    const r   = 490 + (Math.random() - 0.5) * 30;
+                    n.x = cx + Math.cos(base + off) * r;
+                    n.y = cy + Math.sin(base + off) * r;
+                });
+            });
+
+            // ── 力仿真（分层参数）─────────────────────────────────────────────
             const sim = d3.forceSimulation(nodesD)
-                .force('link',      d3.forceLink(linksD).id(d => d.id).distance(140).strength(0.4))
-                .force('charge',    d3.forceManyBody().strength(-320))
-                .force('center',    d3.forceCenter(W / 2, H / 2))
-                .force('collision', d3.forceCollide(46));
+                .force('link', d3.forceLink(linksD).id(d => d.id)
+                    .distance(d => {
+                        if (d.type !== 'structural') return 100;
+                        const st = typeof d.source === 'object' ? d.source.type : '';
+                        if (st === 'root')    return 190;
+                        if (st === 'chapter') return 160;
+                        return 120;  // section → kp
+                    })
+                    .strength(d => d.type === 'structural' ? 0.9 : 0.25))
+                .force('charge', d3.forceManyBody().strength(d => {
+                    if (d.type === 'root')    return -1500;
+                    if (d.type === 'chapter') return -800;
+                    if (d.type === 'section') return -450;
+                    return -180;
+                }))
+                .force('center', d3.forceCenter(cx, cy).strength(0.04))
+                .force('collision', d3.forceCollide(d => {
+                    if (d.type === 'root')    return 55;
+                    if (d.type === 'chapter') return 42;
+                    if (d.type === 'section') return 30;
+                    return 28;
+                }));
             window._dsKgSimulation = sim;
 
-            // 边
+            // ── 边 ────────────────────────────────────────────────────────────
             const edgeG = g.append('g');
             const edgeLine = edgeG.selectAll('line').data(linksD).enter().append('line')
-                .attr('stroke', d => relColor(d.type))
-                .attr('stroke-width', 1.5).attr('stroke-opacity', 0.65)
-                .attr('marker-end', d => `url(#dskg-arrow-${d.type in _dsKgRelColors ? d.type : '_default'})`);
+                .attr('stroke', d => d.type === 'structural' ? '#c8d6e5' : relColor(d.type))
+                .attr('stroke-width', d => d.type === 'structural' ? 1.0 : 1.5)
+                .attr('stroke-opacity', d => d.type === 'structural' ? 0.5 : 0.65)
+                .attr('marker-end', d =>
+                    d.type === 'structural' ? null
+                    : `url(#dskg-arrow-${d.type in _dsKgRelColors ? d.type : '_default'})`
+                );
 
             const edgeLabel = edgeG.selectAll('text').data(linksD).enter().append('text')
                 .attr('font-size', 8.5).attr('fill', d => relColor(d.type))
                 .attr('text-anchor', 'middle').attr('dy', -3)
-                .text(d => d.type || '');
+                .text(d => d.type === 'structural' ? '' : (d.type || ''));
 
-            // 节点
+            // ── 节点 ──────────────────────────────────────────────────────────
             const nodeG = g.append('g').selectAll('g').data(nodesD).enter().append('g')
                 .call(d3.drag()
                     .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
@@ -7376,47 +7624,70 @@ Now please start generating questions. Output question content directly without 
                 );
 
             nodeG.append('circle')
-                .attr('r', d => d.id === _dsKgSelectedNodeId ? 30 : 22)
-                .attr('fill', d => colorOf(d.chapter))
-                .attr('fill-opacity', d => d.id === _dsKgSelectedNodeId ? 1 : 0.82)
-                .attr('stroke', d => d.id === _dsKgSelectedNodeId ? '#ffe000' : colorOf(d.chapter))
-                .attr('stroke-width', d => d.id === _dsKgSelectedNodeId ? 5 : 2.5)
-                .attr('stroke-opacity', d => d.id === _dsKgSelectedNodeId ? 1 : 0.4);
+                .attr('r', d => d.id === _dsKgSelectedNodeId ? _dsKgNodeR(d) + 8 : _dsKgNodeR(d))
+                .attr('fill', d => {
+                    if (d.type === 'root')    return '#2c3e50';
+                    if (d.type === 'section') return '#ffffff';  // 空心环，fill 近透明
+                    return colorOf(d.chapter);
+                })
+                .attr('fill-opacity', d => d.id === _dsKgSelectedNodeId ? 1 : _dsKgNodeFillOp(d))
+                .attr('stroke', d => d.id === _dsKgSelectedNodeId ? '#ffe000' : _dsKgNodeStroke(d))
+                .attr('stroke-width', d => d.id === _dsKgSelectedNodeId ? 5 : _dsKgNodeStrokeW(d))
+                .attr('stroke-opacity', d => d.id === _dsKgSelectedNodeId ? 1 : _dsKgNodeStrokeOp(d));
 
+            const _labelMaxLen = d => d.type === 'root' ? 10 : d.type === 'chapter' ? 8 : 7;
             nodeG.append('text')
                 .attr('text-anchor', 'middle').attr('dy', '0.35em')
-                .attr('font-size', 9).attr('fill', '#1a1a1a').attr('font-weight', '700')
-                .attr('stroke', 'rgba(255,255,255,0.75)').attr('stroke-width', 2.5)
+                .attr('font-size', d => d.type === 'root' ? 12 : d.type === 'chapter' ? 10 : 9)
+                .attr('fill', d => {
+                    if (d.type === 'root')    return '#fff';
+                    if (d.type === 'chapter') return colorOf(d.chapter);  // 章色文字
+                    if (d.type === 'section') return '#555';               // 灰色文字
+                    return '#1a1a1a';  // 知识点：深色文字
+                })
+                .attr('font-weight', '700')
+                .attr('stroke', d => d.type === 'root' ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.75)')
+                .attr('stroke-width', 2.5)
                 .style('paint-order', 'stroke')
                 .attr('pointer-events', 'none')
-                .text(d => d.name.length > 7 ? d.name.slice(0, 7) + '…' : d.name);
+                .text(d => {
+                    const ml = _labelMaxLen(d);
+                    return d.name.length > ml ? d.name.slice(0, ml) + '…' : d.name;
+                });
 
-            // Tooltip
+            // ── Tooltip & 点击 ────────────────────────────────────────────────
             const tt = document.getElementById('ds-kg-tooltip');
             nodeG.on('mouseenter', (e, d) => {
                 if (!tt) return;
                 tt.style.display = 'block';
+                const isStruct = d.type === 'root' || d.type === 'chapter' || d.type === 'section';
+                const typeLabel = d.type === 'root' ? '文档根节点'
+                    : d.type === 'chapter' ? '章'
+                    : d.type === 'section' ? '节'
+                    : '';
                 tt.innerHTML =
                     `<div style="font-weight:600;color:#2c3e50;margin-bottom:4px;font-size:0.83rem;">${escapeHtml(d.name)}</div>` +
-                    `<div style="color:#8e44ad;font-size:0.71rem;margin-bottom:5px;"><i class="fas fa-book-open" style="font-size:0.65rem;"></i> ${escapeHtml(d.chapter || '')}</div>` +
-                    `<div style="color:#555;max-height:110px;overflow:hidden;">${escapeHtml((d.content || '').slice(0, 220))}${(d.content||'').length > 220 ? '…' : ''}</div>` +
-                    `<div style="margin-top:5px;font-size:0.68rem;color:#aaa;">点击查看完整详情并编辑</div>`;
+                    (typeLabel ? `<div style="color:#7f8c8d;font-size:0.71rem;margin-bottom:4px;">${typeLabel}</div>` : '') +
+                    (!isStruct ? `<div style="color:#8e44ad;font-size:0.71rem;margin-bottom:5px;"><i class="fas fa-book-open" style="font-size:0.65rem;"></i> ${escapeHtml(d.chapter || '')}</div>` : '') +
+                    (!isStruct && d.content ? `<div style="color:#555;max-height:110px;overflow:hidden;">${escapeHtml(d.content.slice(0, 220))}${d.content.length > 220 ? '…' : ''}</div>` : '') +
+                    (!isStruct ? `<div style="margin-top:5px;font-size:0.68rem;color:#aaa;">点击查看完整详情并编辑</div>` : '');
                 _moveDsKgTt(e);
             }).on('mousemove', _moveDsKgTt).on('mouseleave', () => { if (tt) tt.style.display = 'none'; })
             .on('click', (e, d) => {
                 e.stopPropagation();
                 if (tt) tt.style.display = 'none';
+                // 骨架节点（根/章/节）不打开详情面板
+                if (d.type === 'root' || d.type === 'chapter' || d.type === 'section') return;
                 _dsKgSelectedNodeId = d.id;
                 d3.selectAll('#ds-kg-container circle')
-                    .attr('r', n => n.id === _dsKgSelectedNodeId ? 30 : 22)
-                    .attr('fill-opacity', n => n.id === _dsKgSelectedNodeId ? 1 : 0.82)
-                    .attr('stroke', n => n.id === _dsKgSelectedNodeId ? '#ffe000' : _dsKgColorOf(n.chapter))
-                    .attr('stroke-width', n => n.id === _dsKgSelectedNodeId ? 5 : 2.5)
-                    .attr('stroke-opacity', n => n.id === _dsKgSelectedNodeId ? 1 : 0.4);
+                    .attr('r', n => n.id === _dsKgSelectedNodeId ? _dsKgNodeR(n) + 8 : _dsKgNodeR(n))
+                    .attr('fill-opacity', n => n.id === _dsKgSelectedNodeId ? 1 : _dsKgNodeFillOp(n))
+                    .attr('stroke', n => n.id === _dsKgSelectedNodeId ? '#ffe000' : _dsKgNodeStroke(n))
+                    .attr('stroke-width', n => n.id === _dsKgSelectedNodeId ? 5 : _dsKgNodeStrokeW(n))
+                    .attr('stroke-opacity', n => n.id === _dsKgSelectedNodeId ? 1 : _dsKgNodeStrokeOp(n));
                 _openKpPanel(d);
             });
 
-            // 点击画布空白区域关闭面板
             svg.on('click', () => { _closeKpPanel(); });
 
             sim.on('tick', () => {
@@ -7475,9 +7746,11 @@ Now please start generating questions. Output question content directly without 
             // 清除节点高亮，恢复默认样式
             _dsKgSelectedNodeId = null;
             d3.selectAll('#ds-kg-container circle')
-                .attr('r', 22).attr('fill-opacity', 0.82)
-                .attr('stroke', d => _dsKgColorOf(d.chapter))
-                .attr('stroke-width', 2.5).attr('stroke-opacity', 0.4);
+                .attr('r', d => _dsKgNodeR(d))
+                .attr('fill-opacity', d => _dsKgNodeFillOp(d))
+                .attr('stroke', d => _dsKgNodeStroke(d))
+                .attr('stroke-width', d => _dsKgNodeStrokeW(d))
+                .attr('stroke-opacity', d => _dsKgNodeStrokeOp(d));
         }
 
         function _renderKpPanel(d) {
@@ -8525,11 +8798,11 @@ Now please start generating questions. Output question content directly without 
             // 5. 设置持久选中高亮并打开详情面板
             _dsKgSelectedNodeId = nodeId;
             d3.selectAll('#ds-kg-container circle')
-                .attr('r', n => n.id === _dsKgSelectedNodeId ? 30 : 22)
-                .attr('fill-opacity', n => n.id === _dsKgSelectedNodeId ? 1 : 0.82)
-                .attr('stroke', n => n.id === _dsKgSelectedNodeId ? '#ffe000' : _dsKgColorOf(n.chapter))
-                .attr('stroke-width', n => n.id === _dsKgSelectedNodeId ? 5 : 2.5)
-                .attr('stroke-opacity', n => n.id === _dsKgSelectedNodeId ? 1 : 0.4);
+                .attr('r', n => n.id === _dsKgSelectedNodeId ? _dsKgNodeR(n) + 8 : _dsKgNodeR(n))
+                .attr('fill-opacity', n => n.id === _dsKgSelectedNodeId ? 1 : _dsKgNodeFillOp(n))
+                .attr('stroke', n => n.id === _dsKgSelectedNodeId ? '#ffe000' : _dsKgNodeStroke(n))
+                .attr('stroke-width', n => n.id === _dsKgSelectedNodeId ? 5 : _dsKgNodeStrokeW(n))
+                .attr('stroke-opacity', n => n.id === _dsKgSelectedNodeId ? 1 : _dsKgNodeStrokeOp(n));
             if (typeof _openKpPanel === 'function') _openKpPanel(node);
         }
 
@@ -8537,7 +8810,7 @@ Now please start generating questions. Output question content directly without 
             if (typeof d3 === 'undefined') return;
             d3.selectAll('#ds-kg-container circle')
                 .filter(d => d.id === nodeId)
-                .attr('r', 30)
+                .attr('r', d => _dsKgNodeR(d) + 8)
                 .attr('stroke-width', 4)
                 .attr('stroke-opacity', 1);
             d3.selectAll('#ds-kg-container circle')
@@ -8545,8 +8818,10 @@ Now please start generating questions. Output question content directly without 
                 .attr('fill-opacity', 0.3);
             setTimeout(() => {
                 d3.selectAll('#ds-kg-container circle')
-                    .attr('r', 22).attr('stroke-width', 2.5)
-                    .attr('stroke-opacity', 0.4).attr('fill-opacity', 0.82);
+                    .attr('r', d => _dsKgNodeR(d))
+                    .attr('stroke-width', d => _dsKgNodeStrokeW(d))
+                    .attr('stroke-opacity', d => _dsKgNodeStrokeOp(d))
+                    .attr('fill-opacity', d => _dsKgNodeFillOp(d));
             }, 3000);
         }
 
@@ -12392,6 +12667,36 @@ async function doUpgrade() {
 </div>
 
 <!-- 导出超长字段警告 Modal（放在 body 顶层，避免被 tab display:none 影响） -->
+<!-- ── 知识图谱导出文档选择 Modal ── -->
+<div id="kg-export-select-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:10px;max-width:440px;width:92%;padding:22px;box-shadow:0 8px 32px rgba(0,0,0,0.22);">
+        <div style="font-size:1rem;font-weight:700;color:#2c3e50;margin-bottom:14px;">
+            <i class="fas fa-download" style="color:#3498db;margin-right:6px;"></i>选择要导出的文档
+        </div>
+        <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px;">
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:0.85rem;color:#555;">
+                <input type="checkbox" id="kg-export-select-all" onchange="toggleKgExportAll(this.checked)"
+                    style="cursor:pointer;">
+                全选 / 取消全选
+            </label>
+        </div>
+        <div id="kg-export-doc-list"
+            style="max-height:280px;overflow-y:auto;border:1px solid #e0e0e0;border-radius:6px;padding:4px 8px;margin-bottom:16px;">
+            <div style="text-align:center;color:#bbb;padding:12px;font-size:0.85rem;">加载中...</div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+            <button onclick="document.getElementById('kg-export-select-modal').style.display='none'"
+                style="padding:7px 18px;background:#f0f0f0;color:#555;border:none;border-radius:6px;cursor:pointer;font-size:0.88rem;">
+                取消
+            </button>
+            <button onclick="doExportKgJson()"
+                style="padding:7px 18px;background:#3498db;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.88rem;">
+                <i class="fas fa-download"></i> 导出
+            </button>
+        </div>
+    </div>
+</div>
+
 <div id="export-warn-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9999;align-items:center;justify-content:center;">
     <div style="background:#fff;border-radius:10px;max-width:480px;width:92%;padding:24px;box-shadow:0 8px 32px rgba(0,0,0,0.22);">
         <div style="font-size:1rem;font-weight:700;color:#c0392b;margin-bottom:10px;">

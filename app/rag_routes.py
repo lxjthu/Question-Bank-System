@@ -3222,6 +3222,9 @@ def ds_doc_kps(doc_id):
 def ds_graph():
     """返回 DS 知识图谱数据（节点 + 边），供前端 D3 力导向图可视化。
 
+    无章节过滤时额外返回 root/chapter/section 骨架节点和 structural 骨架连线，
+    实现层次放射状布局。
+
     Query params:
         doc_id  (可重复): 限定文档，不传则返回当前用户所有已完成文档
         chapter (可重复): 章节名称过滤
@@ -3246,7 +3249,6 @@ def ds_graph():
                 ).fetchall()
             doc_ids = [r['doc_id'] for r in rows_d]
         else:
-            # 验证每个 doc_id 的所有权
             for did in doc_ids:
                 _, err = _check_doc_access(did, user, conn)
                 if err:
@@ -3254,6 +3256,16 @@ def ds_graph():
 
         if not doc_ids:
             return jsonify({'nodes': [], 'links': [], 'chapters': []})
+
+        # 获取文档显示名（供根节点标签使用）
+        ph_d = ','.join('?' for _ in doc_ids)
+        doc_info: dict = {
+            r['doc_id']: (r['display_name'] or r['filename'] or r['doc_id'])
+            for r in conn.execute(
+                f"SELECT doc_id, display_name, filename FROM ds_docs WHERE doc_id IN ({ph_d})",
+                doc_ids,
+            ).fetchall()
+        }
 
         ph = ','.join('?' for _ in doc_ids)
         query = (
@@ -3274,10 +3286,15 @@ def ds_graph():
         return jsonify({'nodes': [], 'links': [], 'chapters': []})
 
     nodes: list = []
+    links: list = []
     name_to_id: dict = {}
-    # 用 (chapter_name, section_name) 元组去重，保留 chapter_num
     sections_seen: dict = {}  # (chapter_name, section_name) -> chapter_num
 
+    # 用于构建骨架节点（保持插入顺序，dict 在 Python 3.7+ 有序）
+    chapters_struct: dict = {}   # (doc_id, chapter_num) -> chapter_name
+    sections_struct: dict = {}   # (doc_id, chapter_num, section_name) -> True
+
+    # ── KP 节点 ──────────────────────────────────────────────────────────────
     for row in rows:
         nid = f"kp_{row['id']}"
         name_to_id[(row['doc_id'], row['kp_name'])] = nid
@@ -3285,6 +3302,7 @@ def ds_graph():
         sec_name = row['section_name'] or ''
         nodes.append({
             'id': nid,
+            'type': 'kp',
             'name': row['kp_name'],
             'chapter': row['chapter_name'],
             'chapter_num': row['chapter_num'],
@@ -3296,7 +3314,15 @@ def ds_graph():
         if key not in sections_seen:
             sections_seen[key] = row['chapter_num']
 
-    links: list = []
+        ck = (row['doc_id'], row['chapter_num'])
+        if ck not in chapters_struct:
+            chapters_struct[ck] = row['chapter_name']
+        if sec_name:
+            sk = (row['doc_id'], row['chapter_num'], sec_name)
+            if sk not in sections_struct:
+                sections_struct[sk] = True
+
+    # ── KP → KP 语义关系 ─────────────────────────────────────────────────────
     for row in rows:
         try:
             rels = _json.loads(row['relations_json'] or '[]')
@@ -3313,18 +3339,93 @@ def ds_graph():
         except Exception:
             pass
 
-    # 按 chapter_num 排序，section_name 空字符在前（章级别条目先显示）
+    # ── 骨架节点 + 骨架连线（无章节过滤时添加，用于层次放射状布局）──────────
+    if not chapters_filter:
+        # 根节点（每个文档一个）
+        for doc_id in doc_ids:
+            nodes.append({
+                'id': f"root__{doc_id}",
+                'type': 'root',
+                'name': doc_info.get(doc_id, doc_id),
+                'doc_id': doc_id,
+                'chapter': '',
+                'chapter_num': 0,
+                'section_name': '',
+                'content': '',
+            })
+
+        # 大章节点
+        for (doc_id, ch_num), ch_name in sorted(
+            chapters_struct.items(), key=lambda x: (x[0][0], x[0][1])
+        ):
+            ch_nid = f"ch__{doc_id}__{ch_num}"
+            nodes.append({
+                'id': ch_nid,
+                'type': 'chapter',
+                'name': ch_name,
+                'doc_id': doc_id,
+                'chapter': ch_name,
+                'chapter_num': ch_num,
+                'section_name': '',
+                'content': '',
+            })
+            links.append({
+                'source': f"root__{doc_id}",
+                'target': ch_nid,
+                'type': 'structural',
+            })
+
+        # 节节点
+        for (doc_id, ch_num, sec_name) in sorted(
+            sections_struct.keys(), key=lambda x: (x[0], x[1], x[2])
+        ):
+            sec_nid = f"sec__{doc_id}__{ch_num}__{sec_name}"
+            ch_name = chapters_struct.get((doc_id, ch_num), '')
+            nodes.append({
+                'id': sec_nid,
+                'type': 'section',
+                'name': sec_name,
+                'doc_id': doc_id,
+                'chapter': ch_name,
+                'chapter_num': ch_num,
+                'section_name': sec_name,
+                'content': '',
+            })
+            links.append({
+                'source': f"ch__{doc_id}__{ch_num}",
+                'target': sec_nid,
+                'type': 'structural',
+            })
+
+        # KP 骨架连线：section → KP（无节名时 chapter → KP）
+        for n in nodes:
+            if n.get('type') != 'kp':
+                continue
+            doc_id = n['doc_id']
+            ch_num = n['chapter_num']
+            sec_name = n['section_name']
+            parent_nid = (
+                f"sec__{doc_id}__{ch_num}__{sec_name}"
+                if sec_name else
+                f"ch__{doc_id}__{ch_num}"
+            )
+            links.append({'source': parent_nid, 'target': n['id'], 'type': 'structural'})
+
+    # ── 侧边栏章节列表（供前端筛选面板使用，仅含 KP 级节名） ──────────────────
     chapters = sorted(
         [{'name': ch, 'num': num, 'section_name': sec}
          for (ch, sec), num in sections_seen.items()],
         key=lambda c: (c['num'], c['section_name']),
     )
+
+    kp_count = sum(1 for n in nodes if n.get('type') == 'kp')
+    sem_links = sum(1 for l in links if l.get('type') != 'structural')
     return jsonify({
         'nodes': nodes,
         'links': links,
         'chapters': chapters,
-        'total_nodes': len(nodes),
-        'total_links': len(links),
+        'total_nodes': kp_count,
+        'total_links': sem_links,
     })
 
 
@@ -3824,3 +3925,200 @@ def ds_generate_task_status(task_id):
     if not task:
         return jsonify({'error': '任务不存在'}), 404
     return jsonify(task)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 知识图谱 JSON 导入 / 导出（所有已登录用户可用，包括非 AI 账号）
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@rag_bp.route('/api/rag/export-kg-json', methods=['GET'])
+@login_required
+def export_kg_json():
+    """将当前用户的知识图谱导出为 JSON 文件（knowledge_graph 格式，与全量备份兼容）。
+
+    Query params:
+      doc_id  — 可多次传，限定导出范围；不传则导出全部文档。
+    """
+    import json as _json
+    from io import BytesIO
+    from datetime import datetime
+    from flask import send_file
+
+    _init_ds_db()
+    user = get_current_user()
+    filter_doc_ids = request.args.getlist('doc_id')  # [] 表示不过滤
+
+    kg_data: dict = {'docs': [], 'chapters': [], 'kps': [], 'doc_refs': []}
+    try:
+        with _ds_db_conn() as conn:
+            if filter_doc_ids:
+                placeholders = ','.join('?' * len(filter_doc_ids))
+                docs = conn.execute(
+                    f"SELECT doc_id, filename, subject, status, display_name, architecture_json "
+                    f"FROM ds_docs WHERE owner_id=? AND doc_id IN ({placeholders}) "
+                    f"ORDER BY created_at DESC",
+                    [user.id] + filter_doc_ids,
+                ).fetchall()
+            else:
+                docs = conn.execute(
+                    "SELECT doc_id, filename, subject, status, display_name, architecture_json "
+                    "FROM ds_docs WHERE owner_id=? ORDER BY created_at DESC",
+                    (user.id,),
+                ).fetchall()
+            doc_ids = [d['doc_id'] for d in docs]
+            kg_data['docs'] = [dict(d) for d in docs]
+            for doc_id in doc_ids:
+                for ch in conn.execute(
+                    "SELECT chapter_num, chapter_name, parent_chapter_num, "
+                    "parent_chapter_name, section_name, raw_text "
+                    "FROM ds_chapters WHERE doc_id=?", (doc_id,)
+                ).fetchall():
+                    kg_data['chapters'].append({'doc_id': doc_id, **dict(ch)})
+                for kp in conn.execute(
+                    "SELECT chapter_name, chapter_num, kp_name, kp_content, relations_json, "
+                    "teaching_focus, knowledge_type, cognitive_dimension, "
+                    "section_name, sub_section_name FROM ds_kps WHERE doc_id=?", (doc_id,)
+                ).fetchall():
+                    kg_data['kps'].append({'doc_id': doc_id, **dict(kp)})
+                for ref in conn.execute(
+                    "SELECT chapter_num, ref_text FROM ds_doc_refs WHERE doc_id=?", (doc_id,)
+                ).fetchall():
+                    kg_data['doc_refs'].append({'doc_id': doc_id, **dict(ref)})
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 500
+
+    payload = {
+        'version': '2.0',
+        'exported_by': user.username,
+        'exported_at': datetime.now().isoformat(),
+        'knowledge_graph': kg_data,
+    }
+    buf = BytesIO(_json.dumps(payload, ensure_ascii=False, indent=2).encode('utf-8'))
+    buf.seek(0)
+    # 单文档时用文档名作文件名
+    if len(doc_ids) == 1:
+        safe_name = doc_ids[0].replace('/', '_')[:40]
+        filename = f"kg_{safe_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    else:
+        filename = f"knowledge_graph_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    return send_file(buf, mimetype='application/json',
+                     as_attachment=True, download_name=filename)
+
+
+@rag_bp.route('/api/rag/import-kg-json', methods=['POST'])
+@login_required
+def import_kg_json():
+    """从 JSON 文件导入知识图谱（支持全量备份格式或仅含 knowledge_graph 的格式）。
+    非 AI 用户同样可以调用此接口，导入后可只读浏览。"""
+    import json as _json
+    import uuid as _uuid
+
+    if 'file' not in request.files:
+        return jsonify({'error': '请上传 JSON 文件'}), 400
+    f = request.files['file']
+    if not f.filename.lower().endswith('.json'):
+        return jsonify({'error': '仅支持 .json 文件'}), 400
+
+    try:
+        payload = _json.loads(f.read().decode('utf-8'))
+    except Exception:
+        return jsonify({'error': 'JSON 格式错误，无法解析'}), 400
+
+    # 兼容两种格式：全量备份（含 knowledge_graph 字段）或直接是 knowledge_graph 内容
+    if 'knowledge_graph' in payload:
+        kg_data = payload['knowledge_graph']
+    elif 'docs' in payload:
+        kg_data = payload
+    else:
+        return jsonify({'error': '无法识别的格式，需包含 knowledge_graph 或 docs 字段'}), 400
+
+    if not kg_data.get('docs'):
+        return jsonify({'error': 'JSON 中没有知识图谱文档数据'}), 400
+
+    _init_ds_db()
+    user = get_current_user()
+    stats = {'kg_docs_imported': 0, 'kps_imported': 0, 'kg_docs_skipped': 0}
+
+    try:
+        conn = _ds_db_conn()
+        try:
+            doc_id_map: dict = {}
+            for doc in kg_data['docs']:
+                old_doc_id = doc.get('doc_id', '')
+                existing = None
+                if old_doc_id:
+                    existing = conn.execute(
+                        "SELECT doc_id, owner_id FROM ds_docs WHERE doc_id=?", (old_doc_id,)
+                    ).fetchone()
+                if existing is not None and existing['owner_id'] == user.id:
+                    # 同用户已存在相同文档 → 跳过，不覆盖
+                    stats['kg_docs_skipped'] += 1
+                    continue  # doc_id_map 中不记录，章节/知识点循环会自动跳过
+                elif existing is not None:
+                    new_doc_id = 'doc_imp_' + _uuid.uuid4().hex[:12]
+                else:
+                    new_doc_id = old_doc_id or ('doc_imp_' + _uuid.uuid4().hex[:12])
+                doc_id_map[old_doc_id] = new_doc_id
+                conn.execute(
+                    "INSERT INTO ds_docs "
+                    "(doc_id, filename, subject, status, display_name, architecture_json, owner_id) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (new_doc_id, doc.get('filename') or '',
+                     doc.get('subject') or '', doc.get('status') or 'uploaded',
+                     doc.get('display_name') or '', doc.get('architecture_json') or '{}',
+                     user.id),
+                )
+                stats['kg_docs_imported'] += 1
+
+            for ch in kg_data.get('chapters', []):
+                new_doc_id = doc_id_map.get(ch.get('doc_id'))
+                if not new_doc_id:
+                    continue
+                conn.execute(
+                    "INSERT INTO ds_chapters "
+                    "(doc_id, chapter_num, chapter_name, parent_chapter_num, "
+                    "parent_chapter_name, section_name, raw_text) VALUES (?,?,?,?,?,?,?)",
+                    (new_doc_id, ch.get('chapter_num') or 0, ch.get('chapter_name') or '',
+                     ch.get('parent_chapter_num') or 0, ch.get('parent_chapter_name') or '',
+                     ch.get('section_name') or '', ch.get('raw_text') or ''),
+                )
+
+            for kp in kg_data.get('kps', []):
+                new_doc_id = doc_id_map.get(kp.get('doc_id'))
+                if not new_doc_id:
+                    continue
+                conn.execute(
+                    "INSERT INTO ds_kps "
+                    "(doc_id, chapter_name, chapter_num, kp_name, kp_content, relations_json, "
+                    "teaching_focus, knowledge_type, cognitive_dimension, "
+                    "section_name, sub_section_name) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (new_doc_id, kp.get('chapter_name') or '', kp.get('chapter_num') or 0,
+                     kp.get('kp_name') or '', kp.get('kp_content') or '',
+                     kp.get('relations_json') or '[]', kp.get('teaching_focus') or '',
+                     kp.get('knowledge_type') or '', kp.get('cognitive_dimension') or '',
+                     kp.get('section_name') or '', kp.get('sub_section_name') or ''),
+                )
+                stats['kps_imported'] += 1
+
+            for ref in kg_data.get('doc_refs', []):
+                new_doc_id = doc_id_map.get(ref.get('doc_id'))
+                if not new_doc_id:
+                    continue
+                conn.execute(
+                    "INSERT INTO ds_doc_refs (doc_id, chapter_num, ref_text) VALUES (?,?,?)",
+                    (new_doc_id, ref.get('chapter_num') or 0, ref.get('ref_text') or ''),
+                )
+
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:
+        return jsonify({'error': f'导入失败：{exc}'}), 500
+
+    parts = [f'导入 {stats["kg_docs_imported"]} 个文档，{stats["kps_imported"]} 个知识点']
+    if stats['kg_docs_skipped']:
+        parts.append(f'跳过 {stats["kg_docs_skipped"]} 个已存在文档')
+    return jsonify({
+        'message': '导入完成！' + '，'.join(parts) + '。',
+        **stats,
+    })
