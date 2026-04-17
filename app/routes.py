@@ -2140,6 +2140,7 @@ def generate_exam():
     tags_filter = [t.strip() for t in (data.get('tags') or []) if str(t).strip()]
     is_used_filter = data.get('is_used_filter', 'unused')
     language_filter = (data.get('language') or '').strip()
+    kp_balance = bool(data.get('kp_balance', False))
     now = datetime.now()
 
     exam = ExamModel(
@@ -2157,6 +2158,8 @@ def generate_exam():
 
     position = 0
     shortages = []   # 记录题目不足的题型
+    used_kps = set()  # 均衡模式：已选知识点，跨题型共享
+
     for question_type, settings in config.items():
         count = settings.get('count', 0)
         if count <= 0:
@@ -2185,7 +2188,28 @@ def generate_exam():
         if language_filter:
             q_query = q_query.filter(QuestionModel.language == language_filter)
 
-        available = q_query.order_by(db.func.random()).limit(count).all()
+        if kp_balance:
+            # 抓更多候选以保证有足够的知识点多样性
+            fetch_limit = min(count * 5, 200)
+            candidates = q_query.order_by(db.func.random()).limit(fetch_limit).all()
+            selected = []
+            fallback = []
+            for q in candidates:
+                kp = (q.knowledge_point or '').strip()
+                if not kp or kp not in used_kps:
+                    selected.append(q)
+                    if kp:
+                        used_kps.add(kp)
+                else:
+                    fallback.append(q)
+                if len(selected) == count:
+                    break
+            # 候选不足时用已用 KP 的题目补足，保证不缺题
+            needed = count - len(selected)
+            selected.extend(fallback[:needed])
+            available = selected
+        else:
+            available = q_query.order_by(db.func.random()).limit(count).all()
 
         if len(available) < count:
             shortages.append({

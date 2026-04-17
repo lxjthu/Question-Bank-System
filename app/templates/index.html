@@ -1056,6 +1056,14 @@
                                 <input type="radio" name="exam-is-used" value="" onchange="updateExamAvailableCount()"> 全部
                             </label>
                         </div>
+                        <!-- 知识点均衡 -->
+                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
+                            <label style="font-weight:500;min-width:68px;font-size:0.88rem;"><i class="fas fa-balance-scale"></i> 均衡：</label>
+                            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:0.88rem;">
+                                <input type="checkbox" id="exam-kp-balance">
+                                均衡知识点（同一卷内同一知识点只出现一次）
+                            </label>
+                        </div>
                         <div id="exam-available-count" style="font-size:0.82rem;color:#888;"></div>
                     </div>
 
@@ -3715,6 +3723,7 @@
             const kp = document.getElementById('exam-kp-filter').value.trim();
             const language = document.getElementById('exam-language-filter').value;
             const isUsedFilter = (document.querySelector('input[name="exam-is-used"]:checked') || {}).value ?? 'unused';
+            const kpBalance = document.getElementById('exam-kp-balance')?.checked ?? false;
             const subjectSuffix = examSubject ? `_${examSubject}` : '';
             const examData = {
                 name: `自动组卷${subjectSuffix}_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`,
@@ -3725,6 +3734,7 @@
                 tags: [..._examSelectedTags],
                 is_used_filter: isUsedFilter,
                 language: language || '',
+                kp_balance: kpBalance,
             };
 
             try {
