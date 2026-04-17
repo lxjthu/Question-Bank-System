@@ -714,6 +714,13 @@
         }
         .exam-tag-selected-item .rm-tag { cursor:pointer; color:#888; margin-left:1px; }
         .exam-tag-selected-item .rm-tag:hover { color:#e00; }
+        .kp-chip {
+            display:inline-flex; align-items:center; padding:3px 9px; border-radius:12px;
+            border:1px solid #ccc; background:#f5f5f5; cursor:pointer; font-size:0.82rem;
+            transition:all 0.15s; user-select:none;
+        }
+        .kp-chip:hover { border-color:#2980b9; color:#2980b9; }
+        .kp-chip-active { background:#2980b9 !important; color:#fff !important; border-color:#2980b9 !important; }
     </style>
 </head>
 <body>
@@ -983,7 +990,7 @@
                         <label style="font-weight:500; color:var(--primary-color);" for="exam-subject-filter">
                             <i class="fas fa-book-open"></i> 组卷科目：
                         </label>
-                        <select id="exam-subject-filter" style="padding:8px 14px; border:1px solid #ddd; border-radius:var(--border-radius); min-width:160px; font-size:0.95rem;" onchange="updateExamAvailableCount()">
+                        <select id="exam-subject-filter" style="padding:8px 14px; border:1px solid #ddd; border-radius:var(--border-radius); min-width:160px; font-size:0.95rem;" onchange="updateExamAvailableCount(); scheduleLoadKpSuggestions();">
                             <option value="">不限科目（所有题目）</option>
                             <!-- populated dynamically -->
                         </select>
@@ -1001,18 +1008,21 @@
                         <!-- 难度 -->
                         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
                             <label style="font-weight:500;min-width:68px;font-size:0.88rem;"><i class="fas fa-tachometer-alt"></i> 难度：</label>
-                            <select id="exam-difficulty-filter" onchange="updateExamAvailableCount()"
-                                    style="padding:5px 10px;border:1px solid #ddd;border-radius:5px;font-size:0.88rem;">
-                                <option value="">不限难度</option>
-                                <option value="easy">简单</option>
-                                <option value="medium">中等</option>
-                                <option value="hard">困难</option>
-                            </select>
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.88rem;">
+                                <input type="checkbox" class="exam-difficulty-cb" value="easy" onchange="onExamDifficultyChange()"> 简单
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.88rem;">
+                                <input type="checkbox" class="exam-difficulty-cb" value="medium" onchange="onExamDifficultyChange()"> 中等
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.88rem;">
+                                <input type="checkbox" class="exam-difficulty-cb" value="hard" onchange="onExamDifficultyChange()"> 困难
+                            </label>
+                            <span style="font-size:0.8rem;color:#aaa;">（不选 = 不限难度）</span>
                         </div>
                         <!-- 语言 -->
                         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
                             <label style="font-weight:500;min-width:68px;font-size:0.88rem;"><i class="fas fa-language"></i> 语言：</label>
-                            <select id="exam-language-filter" onchange="updateExamAvailableCount()"
+                            <select id="exam-language-filter" onchange="updateExamAvailableCount(); scheduleLoadKpSuggestions();"
                                     style="padding:5px 10px;border:1px solid #ddd;border-radius:5px;font-size:0.88rem;">
                                 <option value="">不限语言</option>
                                 <option value="zh">仅中文</option>
@@ -1021,10 +1031,23 @@
                             </select>
                         </div>
                         <!-- 知识点 -->
-                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
-                            <label style="font-weight:500;min-width:68px;font-size:0.88rem;"><i class="fas fa-brain"></i> 知识点：</label>
-                            <input type="text" id="exam-kp-filter" placeholder="知识点关键词（模糊匹配）" oninput="updateExamAvailableCount()"
-                                   style="flex:1;min-width:180px;padding:5px 10px;border:1px solid #ddd;border-radius:5px;font-size:0.88rem;">
+                        <div style="margin-bottom:10px;">
+                            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap;">
+                                <label style="font-weight:500;min-width:68px;font-size:0.88rem;flex-shrink:0;"><i class="fas fa-brain"></i> 知识点：</label>
+                                <input type="text" id="exam-kp-search" placeholder="搜索知识点…"
+                                       oninput="filterKpChips(this.value)"
+                                       style="flex:1;min-width:160px;padding:5px 10px;border:1px solid #ddd;border-radius:5px;font-size:0.88rem;">
+                                <button type="button" onclick="clearExamKps()" style="font-size:0.8rem;padding:4px 8px;border:1px solid #ddd;border-radius:4px;background:#fff;cursor:pointer;color:#666;">清空已选</button>
+                            </div>
+                            <!-- 候选 chip 区 -->
+                            <div id="exam-kp-candidates" style="display:flex;flex-wrap:wrap;gap:5px;max-height:130px;overflow-y:auto;padding:6px 8px;background:#fff;border:1px solid #e0e0e0;border-radius:6px;min-height:36px;">
+                                <span style="font-size:0.82rem;color:#bbb;" id="exam-kp-placeholder">请先选择科目或打开高级筛选以加载知识点</span>
+                            </div>
+                            <!-- 已选 chip 区 -->
+                            <div id="exam-kp-selected-bar" style="display:none;margin-top:5px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+                                <span style="font-size:0.8rem;color:#555;flex-shrink:0;">已选：</span>
+                                <div id="exam-kp-selected-chips" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
+                            </div>
                         </div>
                         <!-- 标签 -->
                         <div style="display:flex;align-items:flex-start;gap:10px;margin-bottom:10px;flex-wrap:wrap;">
@@ -1047,13 +1070,13 @@
                         <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:8px;">
                             <label style="font-weight:500;min-width:68px;font-size:0.88rem;"><i class="fas fa-check-circle"></i> 状态：</label>
                             <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.88rem;">
-                                <input type="radio" name="exam-is-used" value="unused" checked onchange="updateExamAvailableCount()"> 仅未使用
+                                <input type="radio" name="exam-is-used" value="unused" checked onchange="updateExamAvailableCount(); scheduleLoadKpSuggestions();"> 仅未使用
                             </label>
                             <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.88rem;">
-                                <input type="radio" name="exam-is-used" value="used" onchange="updateExamAvailableCount()"> 仅已使用
+                                <input type="radio" name="exam-is-used" value="used" onchange="updateExamAvailableCount(); scheduleLoadKpSuggestions();"> 仅已使用
                             </label>
                             <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:0.88rem;">
-                                <input type="radio" name="exam-is-used" value="" onchange="updateExamAvailableCount()"> 全部
+                                <input type="radio" name="exam-is-used" value="" onchange="updateExamAvailableCount(); scheduleLoadKpSuggestions();"> 全部
                             </label>
                         </div>
                         <!-- 知识点均衡 -->
@@ -3719,8 +3742,7 @@
         document.getElementById('generate-exam-btn').addEventListener('click', async () => {
             const config = getExamConfig();
             const examSubject = document.getElementById('exam-subject-filter').value;
-            const difficulty = document.getElementById('exam-difficulty-filter').value;
-            const kp = document.getElementById('exam-kp-filter').value.trim();
+            const difficulties = Array.from(document.querySelectorAll('.exam-difficulty-cb:checked')).map(c => c.value);
             const language = document.getElementById('exam-language-filter').value;
             const isUsedFilter = (document.querySelector('input[name="exam-is-used"]:checked') || {}).value ?? 'unused';
             const kpBalance = document.getElementById('exam-kp-balance')?.checked ?? false;
@@ -3729,8 +3751,8 @@
                 name: `自动组卷${subjectSuffix}_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}`,
                 config: config,
                 subject: examSubject || null,
-                difficulty: difficulty || '',
-                knowledge_point: kp || '',
+                difficulties: difficulties,
+                knowledge_points: [..._examSelectedKps],
                 tags: [..._examSelectedTags],
                 is_used_filter: isUsedFilter,
                 language: language || '',
@@ -9956,13 +9978,133 @@ Sub-question (3) (5 pts): scoring criteria...
 
         let _examAdvancedOpen = false;
         const _examSelectedTags = new Set();
+        const _examSelectedKps = new Set();
+        let _examKpCandidates = [];   // 从后端拉回的全量候选 [{kp, count}]
+        let _examKpLoadTimer = null;
+
+        // ── 难度复选框变化 ──────────────────────────────────────────
+        function onExamDifficultyChange() {
+            updateExamAvailableCount();
+            scheduleLoadKpSuggestions();
+        }
+
+        // ── 知识点候选加载 ──────────────────────────────────────────
+        function scheduleLoadKpSuggestions() {
+            clearTimeout(_examKpLoadTimer);
+            _examKpLoadTimer = setTimeout(loadKpSuggestions, 300);
+        }
+
+        async function loadKpSuggestions() {
+            const subject = document.getElementById('exam-subject-filter').value;
+            const difficulties = Array.from(document.querySelectorAll('.exam-difficulty-cb:checked')).map(c => c.value);
+            const isUsedEl = document.querySelector('input[name="exam-is-used"]:checked');
+            const isUsed = isUsedEl ? isUsedEl.value : 'unused';
+            const language = document.getElementById('exam-language-filter').value;
+
+            const params = new URLSearchParams();
+            if (subject) params.set('subject', subject);
+            if (difficulties.length) params.set('difficulties', difficulties.join(','));
+            if (isUsed === 'unused') params.set('is_used', '0');
+            else if (isUsed === 'used') params.set('is_used', '1');
+            if (language) params.set('language', language);
+
+            try {
+                const r = await fetch('/api/questions/knowledge-points?' + params);
+                const d = await r.json();
+                _examKpCandidates = d.items || [];
+                filterKpChips(document.getElementById('exam-kp-search')?.value || '');
+            } catch { /* ignore */ }
+        }
+
+        function filterKpChips(keyword) {
+            const kw = keyword.trim().toLowerCase();
+            const filtered = kw
+                ? _examKpCandidates.filter(item => item.kp.toLowerCase().includes(kw))
+                : _examKpCandidates;
+
+            const container = document.getElementById('exam-kp-candidates');
+            const placeholder = document.getElementById('exam-kp-placeholder');
+
+            if (_examKpCandidates.length === 0) {
+                container.innerHTML = '<span id="exam-kp-placeholder" style="font-size:0.82rem;color:#bbb;">当前筛选条件下暂无知识点</span>';
+                return;
+            }
+            if (filtered.length === 0) {
+                container.innerHTML = '<span id="exam-kp-placeholder" style="font-size:0.82rem;color:#bbb;">无匹配知识点</span>';
+                return;
+            }
+
+            container.innerHTML = filtered.map(item => {
+                const selected = _examSelectedKps.has(item.kp);
+                return `<span class="kp-chip${selected ? ' kp-chip-active' : ''}"
+                              onclick="toggleExamKp(this,'${escapeHtml(item.kp)}')"
+                              data-kp="${escapeHtml(item.kp)}">
+                    ${escapeHtml(item.kp)}<span style="font-size:0.75em;color:${selected?'#fff':'#aaa'};margin-left:3px;">${item.count}</span>
+                </span>`;
+            }).join('');
+        }
+
+        function toggleExamKp(el, kp) {
+            if (_examSelectedKps.has(kp)) {
+                _examSelectedKps.delete(kp);
+                el.classList.remove('kp-chip-active');
+                el.querySelector('span').style.color = '#aaa';
+            } else {
+                _examSelectedKps.add(kp);
+                el.classList.add('kp-chip-active');
+                el.querySelector('span').style.color = '#fff';
+            }
+            _renderSelectedKps();
+            updateExamAvailableCount();
+        }
+
+        function _renderSelectedKps() {
+            const bar = document.getElementById('exam-kp-selected-bar');
+            const chips = document.getElementById('exam-kp-selected-chips');
+            if (_examSelectedKps.size === 0) {
+                bar.style.display = 'none';
+                return;
+            }
+            bar.style.display = 'flex';
+            chips.innerHTML = [..._examSelectedKps].map(kp =>
+                `<span style="display:inline-flex;align-items:center;gap:3px;background:#2980b9;color:#fff;
+                              border-radius:4px;padding:2px 7px;font-size:0.82rem;">
+                    ${escapeHtml(kp)}
+                    <span style="cursor:pointer;margin-left:2px;" onclick="removeExamKp('${escapeHtml(kp)}')">×</span>
+                </span>`
+            ).join('');
+        }
+
+        function removeExamKp(kp) {
+            _examSelectedKps.delete(kp);
+            // 同步取消候选区对应 chip 的选中状态
+            const el = document.querySelector(`#exam-kp-candidates [data-kp="${CSS.escape(kp)}"]`);
+            if (el) {
+                el.classList.remove('kp-chip-active');
+                const cnt = el.querySelector('span');
+                if (cnt) cnt.style.color = '#aaa';
+            }
+            _renderSelectedKps();
+            updateExamAvailableCount();
+        }
+
+        function clearExamKps() {
+            _examSelectedKps.clear();
+            // 重新渲染候选区（取消所有选中）
+            filterKpChips(document.getElementById('exam-kp-search')?.value || '');
+            _renderSelectedKps();
+            updateExamAvailableCount();
+        }
 
         function toggleExamAdvanced() {
             _examAdvancedOpen = !_examAdvancedOpen;
             document.getElementById('exam-advanced-panel').style.display = _examAdvancedOpen ? 'block' : 'none';
             document.getElementById('exam-advanced-icon').className =
                 'fas ' + (_examAdvancedOpen ? 'fa-chevron-up' : 'fa-chevron-down');
-            if (_examAdvancedOpen) updateExamAvailableCount();
+            if (_examAdvancedOpen) {
+                updateExamAvailableCount();
+                scheduleLoadKpSuggestions();
+            }
         }
 
         function toggleExamTag(btn) {
@@ -10015,29 +10157,30 @@ Sub-question (3) (5 pts): scoring criteria...
         }
 
         let _examCountTimer = null;
+        function _getExamFilterParams() {
+            const subject = document.getElementById('exam-subject-filter').value;
+            const difficulties = Array.from(document.querySelectorAll('.exam-difficulty-cb:checked')).map(c => c.value);
+            const language = document.getElementById('exam-language-filter').value;
+            const isUsedEl = document.querySelector('input[name="exam-is-used"]:checked');
+            const isUsed = isUsedEl ? isUsedEl.value : 'unused';
+            const tags = [..._examSelectedTags].join(',');
+            const params = new URLSearchParams();
+            if (subject) params.set('subject', subject);
+            if (difficulties.length) params.set('difficulties', difficulties.join(','));
+            if (_examSelectedKps.size) params.set('knowledge_points', [..._examSelectedKps].join('||'));
+            if (language) params.set('language', language);
+            if (tags) params.set('tags', tags);
+            if (isUsed === 'unused') params.set('is_used', '0');
+            else if (isUsed === 'used') params.set('is_used', '1');
+            return params;
+        }
+
         function updateExamAvailableCount() {
             if (!_examAdvancedOpen) return;
             clearTimeout(_examCountTimer);
             _examCountTimer = setTimeout(async () => {
-                const subject = document.getElementById('exam-subject-filter').value;
-                const difficulty = document.getElementById('exam-difficulty-filter').value;
-                const kp = document.getElementById('exam-kp-filter').value.trim();
-                const language = document.getElementById('exam-language-filter').value;
-                const isUsedEl = document.querySelector('input[name="exam-is-used"]:checked');
-                const isUsed = isUsedEl ? isUsedEl.value : 'unused';
-                const tags = [..._examSelectedTags].join(',');
-
-                const params = new URLSearchParams();
-                if (subject) params.set('subject', subject);
-                if (difficulty) params.set('difficulty', difficulty);
-                if (kp) params.set('knowledge_point', kp);
-                if (language) params.set('language', language);
-                if (tags) params.set('tags', tags);
-                if (isUsed === 'unused') params.set('is_used', '0');
-                else if (isUsed === 'used') params.set('is_used', '1');
-
                 try {
-                    const r = await fetch('/api/questions/count?' + params);
+                    const r = await fetch('/api/questions/count?' + _getExamFilterParams());
                     const d = await r.json();
                     document.getElementById('exam-available-count').textContent =
                         `当前筛选条件下题库共有 ${d.count} 道题目可用`;

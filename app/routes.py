@@ -220,10 +220,9 @@ def get_questions():
 @login_required
 def count_questions():
     """返回满足筛选条件的题目数量（用于组卷预估）。"""
-    from datetime import timedelta
     subject = request.args.get('subject', '').strip()
-    difficulty = request.args.get('difficulty', '').strip()
-    kp = request.args.get('knowledge_point', '').strip()
+    difficulties = [d for d in request.args.get('difficulties', '').split(',') if d.strip()]
+    kps = [k for k in request.args.get('knowledge_points', '').split('||') if k.strip()]
     tags_str = request.args.get('tags', '').strip()
     is_used = request.args.get('is_used', '')
     language = request.args.get('language', '').strip()
@@ -232,10 +231,10 @@ def count_questions():
     q = QuestionModel.query.filter(_visible_q_filter(user))
     if subject:
         q = q.filter_by(subject=subject)
-    if difficulty:
-        q = q.filter_by(difficulty=difficulty)
-    if kp:
-        q = q.filter(QuestionModel.knowledge_point.contains(kp))
+    if difficulties:
+        q = q.filter(QuestionModel.difficulty.in_(difficulties))
+    if kps:
+        q = q.filter(QuestionModel.knowledge_point.in_(kps))
     if tags_str:
         tags_list = [t.strip() for t in tags_str.split(',') if t.strip()]
         if tags_list:
@@ -247,6 +246,41 @@ def count_questions():
     if language:
         q = q.filter_by(language=language)
     return jsonify({'count': q.count()})
+
+
+@bp.route('/api/questions/knowledge-points', methods=['GET'])
+@login_required
+def list_knowledge_points():
+    """返回当前筛选条件下题库涉及的所有知识点及题目数，按数量降序。"""
+    subject = request.args.get('subject', '').strip()
+    difficulties = [d for d in request.args.get('difficulties', '').split(',') if d.strip()]
+    is_used = request.args.get('is_used', '')
+    language = request.args.get('language', '').strip()
+
+    user = get_current_user()
+    q = QuestionModel.query.filter(
+        _visible_q_filter(user),
+        QuestionModel.knowledge_point.isnot(None),
+        QuestionModel.knowledge_point != '',
+    )
+    if subject:
+        q = q.filter_by(subject=subject)
+    if difficulties:
+        q = q.filter(QuestionModel.difficulty.in_(difficulties))
+    if is_used == '0':
+        q = q.filter_by(is_used=False)
+    elif is_used == '1':
+        q = q.filter_by(is_used=True)
+    if language:
+        q = q.filter_by(language=language)
+
+    rows = (
+        q.with_entities(QuestionModel.knowledge_point, db.func.count().label('cnt'))
+        .group_by(QuestionModel.knowledge_point)
+        .order_by(db.desc('cnt'))
+        .all()
+    )
+    return jsonify({'items': [{'kp': r.knowledge_point, 'count': r.cnt} for r in rows]})
 
 
 @bp.route('/api/questions/subjects', methods=['GET'])
@@ -2135,8 +2169,8 @@ def generate_exam():
     name = data.get('name', f"Exam_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
     config = data.get('config', {})
     subject_filter = data.get('subject') or None
-    difficulty_filter = (data.get('difficulty') or '').strip()
-    kp_filter = (data.get('knowledge_point') or '').strip()
+    difficulty_filter = [d.strip() for d in (data.get('difficulties') or []) if str(d).strip()]
+    kp_filter = [k.strip() for k in (data.get('knowledge_points') or []) if str(k).strip()]
     tags_filter = [t.strip() for t in (data.get('tags') or []) if str(t).strip()]
     is_used_filter = data.get('is_used_filter', 'unused')
     language_filter = (data.get('language') or '').strip()
@@ -2178,9 +2212,9 @@ def generate_exam():
         if subject_filter:
             q_query = q_query.filter(QuestionModel.subject == subject_filter)
         if difficulty_filter:
-            q_query = q_query.filter(QuestionModel.difficulty == difficulty_filter)
+            q_query = q_query.filter(QuestionModel.difficulty.in_(difficulty_filter))
         if kp_filter:
-            q_query = q_query.filter(QuestionModel.knowledge_point.contains(kp_filter))
+            q_query = q_query.filter(QuestionModel.knowledge_point.in_(kp_filter))
         if tags_filter:
             q_query = q_query.filter(
                 db.or_(*[QuestionModel.tags.contains(t) for t in tags_filter])
