@@ -2488,6 +2488,31 @@ def revert_exam_confirmation(exam_id):
 
 
 # Usage Management Routes
+@bp.route('/api/questions/batch-mark-used', methods=['POST'])
+@login_required
+@guest_readonly
+def batch_mark_used_questions():
+    """Mark multiple questions as used"""
+    user = get_current_user()
+    data = request.json
+    question_ids = data.get('question_ids', [])
+
+    if not question_ids:
+        return jsonify({'error': 'No question IDs provided'}), 400
+
+    now = datetime.now()
+    marked = 0
+    for qid in question_ids:
+        q = db.session.get(QuestionModel, qid)
+        if q and q.owner_id == user.id and not q.is_used:
+            q.is_used = True
+            q.used_date = now
+            marked += 1
+
+    db.session.commit()
+    return jsonify({'message': f'{marked} questions marked as used', 'marked_count': marked})
+
+
 @bp.route('/api/questions/batch-release', methods=['POST'])
 @login_required
 @guest_readonly

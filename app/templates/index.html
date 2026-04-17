@@ -943,6 +943,9 @@
                     <button id="batch-export-xlsx-btn" class="btn btn-success btn-sm">
                         <i class="fas fa-file-excel"></i> 导出xlsx
                     </button>
+                    <button id="batch-mark-used-btn" class="btn btn-warning btn-sm">
+                        <i class="fas fa-check-circle"></i> 题目已使用
+                    </button>
                     <button id="batch-delete-btn" class="btn btn-danger btn-sm">
                         <i class="fas fa-trash"></i> 批量删除 (<span id="batch-count">0</span>)
                     </button>
@@ -3071,6 +3074,34 @@
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-file-excel"></i> 导出xlsx';
+            }
+        });
+
+        document.getElementById('batch-mark-used-btn').addEventListener('click', async () => {
+            if (selectedQuestionIds.size === 0) return;
+            if (!confirm(`将选中的 ${selectedQuestionIds.size} 道题目标记为"已使用"（已标记的将跳过）？`)) return;
+
+            const btn = document.getElementById('batch-mark-used-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 处理中...';
+            try {
+                const resp = await fetch('/api/questions/batch-mark-used', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question_ids: Array.from(selectedQuestionIds) })
+                });
+                const data = await resp.json();
+                if (resp.ok) {
+                    alert(`已将 ${data.marked_count} 道题目标记为"已使用"`);
+                    loadQuestions();
+                } else {
+                    alert(data.error || '操作失败');
+                }
+            } catch (e) {
+                alert('请求失败：' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-check-circle"></i> 题目已使用';
             }
         });
 
